@@ -1,0 +1,26 @@
+server:
+  host: "0.0.0.0"
+  port: "8080"
+
+database:
+  host: "localhost"
+  port: "3306"
+  username: "root"
+  password: "lyh985211"
+  database: "interview_ai"
+  sslmode: "disable"
+
+jwt:
+  secret: "your-secret-key-change-this-in-production"
+  expire_time: 24
+
+llm:
+  provider: "ernie"
+  api_key: "sk-zk2daa4db3351b08785194b4899cf87ed0c69a673715dea1"
+  base_url: "https://api.zhizengzeng.com/v1"
+  model: "glm-4v-flash"
+
+asr:
+  provider: "whisper"
+  api_key: "your-openai-api-key"
+  base_url: "https://api.openai.com/v1"

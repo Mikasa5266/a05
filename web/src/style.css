@@ -1,0 +1,21 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  body {
+    @apply antialiased text-zinc-900 bg-zinc-50;
+  }
+}
+
+/* Recharts 雷达图样式修复 (如果是用 chart.js 也可以保留备用) */
+.radar-chart-container .recharts-polar-grid-concentric-path {
+  stroke: #f4f4f5;
+}
+.radar-chart-container .recharts-polar-grid-angle-line {
+  stroke: #f4f4f5;
+}
