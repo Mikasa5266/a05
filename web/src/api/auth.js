@@ -30,3 +30,22 @@ export function updateUserProfile(data) {
     data
   })
 }
+
+export function updateAvatar(data) {
+  return request({
+    url: '/user/avatar',
+    method: 'post',
+    data,
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    }
+  })
+}
+
+export function updatePassword(data) {
+  return request({
+    url: '/user/password',
+    method: 'put',
+    data
+  })
+}

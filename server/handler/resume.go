@@ -1,9 +1,10 @@
 package handler
 
 import (
-	"io"
+	"log"
 	"net/http"
 	"your-project/service"
+	"your-project/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -15,7 +16,8 @@ func ParseResume(c *gin.Context) {
 		return
 	}
 
-	// Open the file
+	log.Printf("Received resume file: %s, size: %d bytes", file.Filename, file.Size)
+
 	src, err := file.Open()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open file"})
@@ -23,38 +25,40 @@ func ParseResume(c *gin.Context) {
 	}
 	defer src.Close()
 
-	// Read file content
-	// Warning: This reads the whole file into memory. For large files, use streaming or limit size.
-	// Resumes are usually small (< 5MB).
-	content, err := io.ReadAll(src)
+	textContent, err := utils.ExtractTextFromFile(src, file.Filename)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read file"})
+		log.Printf("Failed to extract text from file: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to extract text from file: " + err.Error()})
 		return
 	}
 
-	// Basic text extraction (mock for binary formats, assumes text for now)
-	// In production, use a library to extract text from PDF/DOCX
-	textContent := string(content)
+	log.Printf("Extracted text length: %d characters", len(textContent))
+	if len(textContent) < 100 {
+		log.Printf("Warning: Extracted text is very short, file might be corrupted or empty")
+	}
 
 	svc := service.NewResumeService()
 	resumeData, err := svc.ParseResume(textContent)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("Failed to parse resume: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse resume: " + err.Error()})
 		return
 	}
 
-	// Automatically match jobs after parsing
+	log.Printf("Resume parsed successfully: %+v", resumeData)
+
 	matches, err := svc.MatchJobs(resumeData)
 	if err != nil {
-		// Log error but return resume data at least?
-		// Or just fail. Let's return what we have.
+		log.Printf("Failed to match jobs: %v", err)
 		c.JSON(http.StatusOK, gin.H{
 			"resume":  resumeData,
-			"matches": []*string{}, // empty
+			"matches": []*string{},
 			"warning": "Failed to match jobs: " + err.Error(),
 		})
 		return
 	}
+
+	log.Printf("Job matches generated: %d matches", len(matches))
 
 	c.JSON(http.StatusOK, gin.H{
 		"resume":  resumeData,

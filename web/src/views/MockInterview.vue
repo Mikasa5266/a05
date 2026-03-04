@@ -1,9 +1,10 @@
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { 
   Video, VideoOff, Mic, MicOff, ChevronRight, 
-  BrainCircuit, User, LogOut, Send, Loader2 
+  BrainCircuit, User, LogOut, Send, Loader2,
+  History, MessageSquare, Lightbulb
 } from 'lucide-vue-next'
 import { startInterview as apiStartInterview, submitAnswer as apiSubmitAnswer, endInterview as apiEndInterview } from '../api/interview'
 import { generateReport as apiGenerateReport } from '../api/report'
@@ -26,6 +27,12 @@ const userInput = ref('')
 const isProcessing = ref(false)
 const reportId = ref(null)
 const isGeneratingReport = ref(false)
+const showHistory = ref(false)
+
+const latestAIMessage = computed(() => {
+  const aiMsgs = messages.value.filter(m => m.role === 'ai' || m.type === 'system')
+  return aiMsgs.length > 0 ? aiMsgs[aiMsgs.length - 1] : null
+})
 
 const settings = ref({
   position: route.query.position || 'Java后端开发',
@@ -500,157 +507,238 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Interview Phase (Chat Interface) -->
-    <div v-else-if="phase === 'interview'" class="h-full flex gap-6 overflow-hidden">
+    <!-- Interview Phase (New Layout) -->
+    <div v-else-if="phase === 'interview'" class="h-full flex flex-col lg:flex-row gap-6 p-6 bg-zinc-50 overflow-hidden">
       
-      <!-- Left Sidebar: Visuals -->
-      <div class="w-80 flex flex-col gap-4 shrink-0">
-        <!-- AI Avatar -->
-        <div class="flex-1 bg-zinc-900 rounded-3xl flex flex-col items-center justify-center relative overflow-hidden shadow-lg">
-          <div class="h-24 w-24 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center animate-pulse">
-            <BrainCircuit class="h-12 w-12 text-indigo-400" />
-          </div>
-          <p class="mt-6 text-zinc-400 font-medium text-sm">AI 面试官在线</p>
-          <div v-if="isProcessing" class="absolute bottom-8 flex gap-1">
-            <div class="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style="animation-delay: 0s"></div>
-            <div class="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
-            <div class="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style="animation-delay: 0.4s"></div>
-          </div>
-        </div>
-
-        <!-- User Video (Small) -->
-        <div class="h-48 bg-zinc-800 rounded-3xl overflow-hidden relative shadow-lg">
-          <video ref="interviewVideo" class="w-full h-full object-cover" autoplay muted v-if="isCameraOn"></video>
-          <div v-else class="w-full h-full flex items-center justify-center text-zinc-500 bg-zinc-900">
-            <User class="h-8 w-8" />
-          </div>
-          <div class="absolute top-3 left-3 px-2 py-1 bg-black/50 rounded-lg text-[10px] text-white uppercase font-bold backdrop-blur-sm">YOU</div>
-        </div>
-        
-        <button 
-          @click="endInterviewEarly"
-          class="py-3 bg-rose-50 text-rose-600 rounded-2xl font-medium hover:bg-rose-100 transition-colors flex items-center justify-center gap-2"
-        >
-          <LogOut class="h-4 w-4" />
-          结束面试
-        </button>
-      </div>
-
-      <!-- Right Area: Chat -->
-      <div class="flex-1 bg-white rounded-3xl border border-zinc-100 shadow-sm flex flex-col overflow-hidden">
-        <!-- Chat Header -->
-        <div class="px-6 py-4 border-b border-zinc-100 flex justify-between items-center bg-zinc-50/50">
-          <div>
-            <h2 class="font-bold text-zinc-900">面试进行中</h2>
-            <p class="text-xs text-zinc-500">进度: {{ currentQuestionIndex + 1 }} / {{ questions.length }}</p>
-          </div>
-          <div class="flex items-center gap-2">
-            <div class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></div>
-            <span class="text-xs font-medium text-emerald-600">实时连接</span>
-          </div>
-        </div>
-
-        <!-- Messages Area -->
-        <div id="chat-container" class="flex-1 overflow-y-auto p-6 space-y-6 bg-zinc-50/30">
-          <div 
-            v-for="(msg, index) in messages" 
-            :key="index"
-            class="flex gap-4 max-w-3xl"
-            :class="msg.role === 'user' ? 'ml-auto flex-row-reverse' : ''"
-          >
-            <!-- Avatar -->
-            <div 
-              class="h-10 w-10 rounded-full flex shrink-0 items-center justify-center shadow-sm"
-              :class="msg.role === 'ai' ? 'bg-indigo-100 text-indigo-600' : 'bg-zinc-200 text-zinc-600'"
-            >
-              <BrainCircuit v-if="msg.role === 'ai'" class="h-5 w-5" />
-              <User v-else class="h-5 w-5" />
+      <!-- Left Main Column (Video + Input) -->
+      <div class="flex-1 flex flex-col gap-6 min-w-0 h-full">
+        <!-- Video Section (Top) -->
+        <div class="flex-1 bg-black rounded-3xl relative overflow-hidden shadow-2xl group ring-1 ring-zinc-900/5">
+          <!-- Status Badge -->
+          <div class="absolute top-6 left-6 flex items-center gap-3 z-10 pointer-events-none">
+            <div class="bg-rose-600 text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-2 shadow-lg shadow-rose-900/20">
+              <div class="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+              REC
             </div>
-
-            <!-- Bubble -->
-            <div class="flex flex-col gap-1 max-w-[80%]">
-              <div 
-                class="p-4 rounded-2xl shadow-sm text-sm leading-relaxed whitespace-pre-wrap"
-                :class="[
-                  msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white border border-zinc-100 text-zinc-800 rounded-tl-none',
-                  msg.type === 'feedback' ? 'border-l-4 border-l-amber-400 bg-amber-50/50' : ''
-                ]"
-              >
-                <div v-if="msg.type === 'feedback'" class="font-bold text-amber-600 mb-2 text-xs uppercase tracking-wider flex justify-between">
-                  <span>面试官反馈</span>
-                  <span v-if="msg.score !== undefined && msg.score !== null" class="px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-700">
-                    评分: {{ msg.score }}
-                  </span>
-                </div>
-                <template v-if="msg.type === 'feedback'">
-                  <div class="rounded-lg bg-amber-50 border border-amber-200 p-2">
-                    <div class="text-amber-700 font-semibold text-xs mb-1">评价</div>
-                    <div class="text-zinc-800">{{ msg.feedbackEvaluation || msg.content }}</div>
-                  </div>
-                  <div v-if="msg.feedbackSuggestions && msg.feedbackSuggestions.length > 0" class="mt-3 border-t border-zinc-200 pt-2">
-                    <div class="text-emerald-700 font-semibold text-xs mb-1">改进建议</div>
-                    <div
-                      v-for="(suggestion, sIndex) in msg.feedbackSuggestions"
-                      :key="`${index}-${sIndex}`"
-                      class="text-emerald-700"
-                    >
-                      {{ sIndex + 1 }}. {{ suggestion }}
-                    </div>
-                  </div>
-                </template>
-                <template v-else>
-                  {{ msg.content }}
-                </template>
-              </div>
-              <span class="text-[10px] text-zinc-400 px-1">
-                {{ msg.role === 'ai' ? 'AI Interviewer' : 'You' }}
-              </span>
+            <div class="bg-black/40 text-white/90 text-xs px-3 py-1.5 rounded-full backdrop-blur-md border border-white/10 shadow-sm">
+              多模态情绪监测中...
             </div>
           </div>
           
-          <div v-if="isProcessing" class="flex gap-4 max-w-3xl">
-            <div class="h-10 w-10 rounded-full bg-indigo-100 text-indigo-600 flex shrink-0 items-center justify-center">
-              <BrainCircuit class="h-5 w-5" />
-            </div>
-            <div class="bg-white border border-zinc-100 p-4 rounded-2xl rounded-tl-none flex items-center gap-2">
-              <span class="text-xs text-zinc-500">正在评估您的回答...</span>
-              <Loader2 class="h-3 w-3 animate-spin text-indigo-500" />
-            </div>
+          <!-- Video Element -->
+          <video ref="interviewVideo" class="w-full h-full object-cover transform scale-x-[-1]" autoplay muted v-if="isCameraOn"></video>
+          <div v-else class="w-full h-full flex flex-col items-center justify-center text-zinc-600 bg-zinc-900/50">
+             <User class="h-24 w-24 mb-6 opacity-20" />
+             <p class="font-medium tracking-wide opacity-50">摄像头已关闭</p>
+          </div>
+
+          <!-- Controls (Bottom Center - Auto hide) -->
+          <div class="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-4 transition-all duration-500 translate-y-4 opacity-0 group-hover:translate-y-0 group-hover:opacity-100">
+            <button 
+              @click="toggleMic"
+              class="h-12 w-12 rounded-full flex items-center justify-center backdrop-blur-md transition-all hover:scale-110 shadow-lg border border-white/10"
+              :class="isMicOn ? 'bg-white/20 text-white hover:bg-white/30' : 'bg-rose-500 text-white'"
+            >
+              <Mic v-if="isMicOn" class="h-5 w-5" />
+              <MicOff v-else class="h-5 w-5" />
+            </button>
+            <button 
+              @click="toggleCamera"
+              class="h-12 w-12 rounded-full flex items-center justify-center backdrop-blur-md transition-all hover:scale-110 shadow-lg border border-white/10"
+              :class="isCameraOn ? 'bg-white/20 text-white hover:bg-white/30' : 'bg-rose-500 text-white'"
+            >
+              <Video v-if="isCameraOn" class="h-5 w-5" />
+              <VideoOff v-else class="h-5 w-5" />
+            </button>
           </div>
         </div>
 
-        <!-- Input Area -->
-        <div class="p-4 bg-white border-t border-zinc-100">
-          <div class="relative flex items-end gap-2 bg-zinc-50 p-2 rounded-2xl border border-zinc-200 focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 transition-all">
-            <textarea 
-              v-model="userInput"
+        <!-- Transcript / Input Section (Bottom) -->
+        <div class="h-1/3 min-h-[200px] bg-white rounded-3xl p-6 shadow-xl shadow-zinc-200/50 border border-white flex flex-col relative transition-all duration-300 focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:shadow-indigo-500/10 group">
+           <div class="flex justify-between items-center mb-4">
+             <h3 class="font-bold text-zinc-900 flex items-center gap-2 group-focus-within:text-indigo-600 transition-colors">
+               <div class="w-1.5 h-4 bg-zinc-300 rounded-full group-focus-within:bg-indigo-600 transition-colors"></div>
+               实时回答转写
+               <span v-if="userInput.length > 0" class="text-xs font-normal text-emerald-600 flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-full animate-in fade-in zoom-in duration-300">
+                 <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                 正在输入...
+               </span>
+             </h3>
+             <button 
+                @click.stop="showHistory = true" 
+                class="text-xs text-zinc-400 hover:text-indigo-600 transition-colors flex items-center gap-1 px-2 py-1 hover:bg-zinc-50 rounded-lg"
+             >
+               <History class="w-3 h-3" /> 历史记录
+             </button>
+           </div>
+           
+           <textarea 
+              v-model="userInput" 
               @keydown.ctrl.enter="sendMessage"
-              placeholder="输入您的回答... (Ctrl + Enter 发送)"
-              class="w-full bg-transparent border-none focus:ring-0 resize-none max-h-32 min-h-[50px] py-3 px-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-              rows="1"
-            ></textarea>
-            
-            <div class="flex gap-2 pb-2 pr-2">
-              <button 
-                class="p-2 rounded-xl text-zinc-400 hover:text-zinc-600 hover:bg-zinc-200/50 transition-colors"
-                title="语音输入 (暂不可用)"
-              >
-                <Mic class="h-5 w-5" />
-              </button>
-              <button 
-                @click="sendMessage"
-                :disabled="!userInput.trim() || isProcessing"
-                class="p-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
-              >
-                <Send class="h-5 w-5" />
-              </button>
-            </div>
+              placeholder="在此处输入您的回答..."
+              class="flex-1 w-full resize-none border-none focus:ring-0 p-4 text-lg text-zinc-700 placeholder:text-zinc-300 bg-zinc-50/50 rounded-xl leading-relaxed transition-all focus:bg-white focus:shadow-inner custom-scrollbar"
+           ></textarea>
+
+           <div class="absolute bottom-8 right-8 text-[10px] font-medium text-zinc-300 pointer-events-none bg-white/80 backdrop-blur px-2 py-1 rounded-md border border-zinc-100">
+             Ctrl + Enter 发送
+           </div>
+        </div>
+      </div>
+
+      <!-- Right Sidebar -->
+      <div class="w-full lg:w-[400px] flex flex-col gap-6 shrink-0 h-full">
+        <!-- AI Profile Card -->
+        <div class="bg-white p-5 rounded-3xl border border-white shadow-lg shadow-zinc-200/50 flex items-center gap-4 hover:shadow-xl transition-shadow duration-300">
+          <div class="h-14 w-14 rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30 ring-4 ring-indigo-50">
+            <BrainCircuit class="h-7 w-7" />
           </div>
-          <div v-if="messages.length > 0 && messages[messages.length-1].type === 'system'" class="mt-2 text-center">
-             <button @click="viewReport" class="text-indigo-600 text-sm font-bold hover:underline">查看面试报告</button>
+          <div>
+            <h3 class="font-bold text-zinc-900 text-lg">智聘智能引擎</h3>
+            <p class="text-xs text-zinc-500 font-medium flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>
+              AI 面试官在线
+            </p>
+          </div>
+        </div>
+
+        <!-- Question / Feedback Card -->
+        <div class="bg-white rounded-3xl border border-white shadow-xl shadow-zinc-200/50 flex-1 flex flex-col relative overflow-hidden group transition-all duration-300 hover:shadow-2xl hover:shadow-zinc-200/60">
+           <!-- Card Header -->
+           <div class="px-6 py-5 border-b border-zinc-50 flex justify-between items-center bg-zinc-50/50 backdrop-blur-sm z-10">
+             <div class="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-full border border-indigo-100/50">
+               <span class="w-1.5 h-1.5 rounded-full bg-indigo-600"></span>
+               当前提问 ({{ currentQuestionIndex + 1 }}/{{ questions.length }})
+             </div>
+             <div v-if="latestAIMessage?.type === 'feedback'" class="flex items-center gap-2 animate-in fade-in slide-in-from-right duration-500">
+                <span class="text-xs text-zinc-400 font-medium">评分</span>
+                <span class="text-xl font-black text-indigo-600 tracking-tight">{{ latestAIMessage.score }}</span>
+             </div>
+           </div>
+           
+           <!-- Content Area -->
+           <div class="flex-1 overflow-y-auto p-6 custom-scrollbar relative">
+             <!-- Loading State -->
+             <div v-if="isProcessing && !latestAIMessage" class="absolute inset-0 flex flex-col items-center justify-center text-zinc-400 gap-3 bg-white/80 backdrop-blur-sm z-20">
+                <div class="relative">
+                  <div class="absolute inset-0 bg-indigo-500/20 blur-xl rounded-full"></div>
+                  <Loader2 class="h-10 w-10 animate-spin text-indigo-600 relative z-10" />
+                </div>
+                <p class="text-sm font-medium animate-pulse">正在生成评估...</p>
+             </div>
+
+             <!-- Content -->
+             <div v-else class="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+               <!-- If it's a Question -->
+               <template v-if="latestAIMessage?.type === 'question' || (latestAIMessage?.role === 'ai' && !latestAIMessage?.type)">
+                 <h2 class="text-xl font-bold text-zinc-900 leading-relaxed tracking-wide">
+                   {{ latestAIMessage?.content }}
+                 </h2>
+               </template>
+
+               <!-- If it's Feedback -->
+               <template v-else-if="latestAIMessage?.type === 'feedback'">
+                 <div class="space-y-4">
+                   <div class="p-5 bg-gradient-to-br from-amber-50 to-orange-50/30 rounded-2xl border border-amber-100/60 shadow-sm">
+                      <h4 class="text-xs font-bold text-amber-600 uppercase mb-3 flex items-center gap-2">
+                        <div class="p-1 bg-amber-100 rounded-md">
+                          <MessageSquare class="w-3.5 h-3.5" />
+                        </div>
+                        评价
+                      </h4>
+                      <p class="text-sm text-zinc-800 leading-relaxed text-justify">{{ latestAIMessage.feedbackEvaluation }}</p>
+                    </div>
+                    
+                    <div class="p-5 bg-gradient-to-br from-emerald-50 to-teal-50/30 rounded-2xl border border-emerald-100/60 shadow-sm">
+                      <h4 class="text-xs font-bold text-emerald-600 uppercase mb-3 flex items-center gap-2">
+                        <div class="p-1 bg-emerald-100 rounded-md">
+                          <Lightbulb class="w-3.5 h-3.5" />
+                        </div>
+                        改进建议
+                      </h4>
+                     <ul class="space-y-3">
+                       <li v-for="(s, i) in latestAIMessage.feedbackSuggestions" :key="i" class="text-sm text-emerald-900 flex gap-3 leading-relaxed group/item">
+                         <span class="font-bold text-emerald-600/40 font-mono text-xs mt-0.5 group-hover/item:text-emerald-600 transition-colors">0{{ i + 1 }}</span>
+                         {{ s }}
+                       </li>
+                     </ul>
+                   </div>
+                 </div>
+               </template>
+               
+               <!-- System Message -->
+               <template v-else-if="latestAIMessage?.type === 'system'">
+                  <div class="p-6 bg-zinc-50 rounded-2xl text-center text-zinc-600 text-sm border border-zinc-100">
+                    <p class="mb-4">{{ latestAIMessage.content }}</p>
+                    <div v-if="messages[messages.length-1].content.includes('面试结束')" class="flex justify-center">
+                       <button @click="viewReport" class="px-8 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 hover:shadow-indigo-300 hover:-translate-y-0.5 active:translate-y-0">
+                         查看详细报告
+                       </button>
+                    </div>
+                  </div>
+               </template>
+             </div>
+           </div>
+        </div>
+
+        <!-- Hint Card -->
+        <div v-if="latestAIMessage?.type !== 'feedback'" class="bg-gradient-to-br from-indigo-50/80 to-white p-6 rounded-3xl border border-white shadow-lg shadow-zinc-200/30 backdrop-blur-sm">
+          <h4 class="text-xs font-bold text-indigo-400 uppercase mb-3 flex items-center gap-2">
+            <span class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-pulse"></span>
+            面试提示
+          </h4>
+          <p class="text-sm text-zinc-600 italic leading-relaxed opacity-80">
+            "建议从 STAR 原则出发，重点描述你在项目中遇到的挑战以及你是如何克服它的。"
+          </p>
+        </div>
+
+        <!-- Action Button -->
+        <button 
+          @click="sendMessage"
+          :disabled="isProcessing || (!userInput.trim() && latestAIMessage?.type !== 'feedback')"
+          class="w-full py-4 bg-zinc-900 text-white rounded-2xl font-bold text-lg hover:bg-zinc-800 hover:shadow-xl hover:shadow-zinc-900/20 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 group relative overflow-hidden"
+        >
+          <div class="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+          <span v-if="isProcessing" class="flex items-center gap-2 relative z-10">
+            <Loader2 class="w-5 h-5 animate-spin" />
+            正在思考...
+          </span>
+          <span v-else-if="latestAIMessage?.type === 'feedback'" class="flex items-center gap-2 relative z-10">
+            下一题 <ChevronRight class="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+          </span>
+          <span v-else class="flex items-center gap-2 relative z-10">
+            发送回答 
+            <Send class="h-4 w-4 group-hover:translate-x-1 transition-transform" />
+          </span>
+        </button>
+      </div>
+
+      <!-- History Drawer (Overlay) -->
+      <div v-if="showHistory" class="absolute inset-0 z-50 bg-black/20 backdrop-blur-sm flex justify-end" @click.self="showHistory = false">
+        <div class="w-96 bg-white h-full shadow-2xl animate-in slide-in-from-right duration-300 flex flex-col border-l border-zinc-100">
+          <div class="p-5 border-b border-zinc-100 flex justify-between items-center bg-zinc-50/50">
+            <h3 class="font-bold text-zinc-900 flex items-center gap-2">
+              <History class="w-4 h-4 text-zinc-400" />
+              对话历史
+            </h3>
+            <button @click="showHistory = false" class="p-2 hover:bg-zinc-200/50 rounded-full transition-colors text-zinc-400 hover:text-zinc-600">
+              <ChevronRight class="h-5 w-5" />
+            </button>
+          </div>
+          <div class="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar bg-zinc-50/30">
+            <div v-for="(msg, i) in messages" :key="i" class="text-sm p-4 rounded-2xl border shadow-sm transition-all hover:shadow-md" 
+              :class="msg.role === 'user' ? 'bg-white border-zinc-100 text-zinc-800 ml-4' : 'bg-indigo-50/50 border-indigo-100 text-zinc-800 mr-4'">
+              <div class="text-[10px] uppercase tracking-wider font-bold mb-2 flex items-center gap-1" 
+                :class="msg.role === 'user' ? 'text-zinc-400 justify-end' : 'text-indigo-400'">
+                <User v-if="msg.role === 'user'" class="w-3 h-3" />
+                <BrainCircuit v-else class="w-3 h-3" />
+                {{ msg.role === 'ai' ? 'AI 面试官' : '你' }}
+              </div>
+              <div class="leading-relaxed whitespace-pre-wrap">{{ msg.content }}</div>
+            </div>
           </div>
         </div>
       </div>
+
     </div>
   </div>
 </template>

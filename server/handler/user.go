@@ -2,6 +2,10 @@ package handler
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
+	"fmt"
+	"time"
 
 	"your-project/middleware"
 	"your-project/service"
@@ -98,4 +102,59 @@ func UpdateUserProfile(c *gin.Context) {
 		"message": "Profile updated successfully",
 		"user":    user,
 	})
+}
+
+func UpdateAvatar(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	file, err := c.FormFile("avatar")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
+		return
+	}
+
+	uploadDir := "./uploads/avatars"
+	if _, err := os.Stat(uploadDir); os.IsNotExist(err) {
+		os.MkdirAll(uploadDir, 0755)
+	}
+
+	ext := filepath.Ext(file.Filename)
+	filename := fmt.Sprintf("%d_%d%s", userID, time.Now().UnixNano(), ext)
+	dst := filepath.Join(uploadDir, filename)
+
+	if err := c.SaveUploadedFile(file, dst); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
+		return
+	}
+
+	avatarURL := "/uploads/avatars/" + filename
+	user, err := service.UpdateUserAvatar(userID, avatarURL)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Avatar updated successfully",
+		"user":    user,
+	})
+}
+
+func UpdatePassword(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	var req struct {
+		OldPassword string `json:"old_password" binding:"required"`
+		NewPassword string `json:"new_password" binding:"required,min=6"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := service.UpdateUserPassword(userID, req.OldPassword, req.NewPassword); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Password updated successfully"})
 }

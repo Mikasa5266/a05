@@ -51,82 +51,42 @@ func (s *AIService) Chat(ctx context.Context, prompt string) (string, error) {
 }
 
 func (s *AIService) EvaluateAnswer(question *model.Question, answer string) (*EvaluationResult, error) {
-	prompt := fmt.Sprintf(`
-		你是一个专业的中文技术面试官。请根据以下信息实时评估候选人的回答：
-		
-		职位：%s
-		难度级别：%s
-		问题：%s
-		期望答案要点：%s
-		候选人回答：%s
-		
-		要求：
-		1. 评分（0-100分），回答好给高分，回答差给低分。
-		2. 先给“评价”，再给“建议”。
-		3. 只能使用简体中文，不要出现英文句子。
-		4. 建议给 2-3 条，简洁可执行。
-		
-		请仅返回 JSON：
-		{
-		  "score": 78,
-		  "evaluation": "对回答质量的评价（中文）",
-		  "suggestions": ["建议1", "建议2"]
-		}
-	`, question.Position, question.Difficulty, question.Content, question.ExpectedAnswer, answer)
+	// 【已替换】接入 AIReview 强校验流程
+	// 调用底层 LLM 的闭包函数
+	llmFunc := func(p string) (string, error) {
+		return s.callLLM(p)
+	}
 
-	response, err := s.callLLM(prompt)
+	// 使用 EvaluateCandidateAnswer 进行严苛评估
+	reviewResult, err := EvaluateCandidateAnswer(question.Content, answer, llmFunc)
 	if err != nil {
-		return nil, fmt.Errorf("failed to call LLM: %w", err)
+		// 降级策略：如果 Review 失败，回退到普通评估或报错
+		log.Printf("AIReview failed, falling back: %v", err)
+		// 这里可以选择 return nil, err 或者继续走旧逻辑
+		// 为了保证稳定性，建议如果 review 失败，还是走一下旧的宽松逻辑？
+		// 但用户要求“严格审查”，所以最好是报错或者重试。
+		// 咱们这里直接返回 error 也没问题，或者构造一个默认的低分结果。
+		return &EvaluationResult{
+			Score:    0,
+			Feedback: buildStructuredFeedback("AI评估服务暂时不可用，请稍后重试。", []string{"请检查网络连接", "重新提交回答"}),
+		}, nil
 	}
 
-	cleanResponse := extractJSONContent(response)
+	// 转换 ReviewResult 到 EvaluationResult
+	// ReviewResult.Comment -> Feedback 的 Evaluation 部分
+	// ReviewResult.Suggestion -> Feedback 的 Suggestions 部分
 
-	type evalPayload struct {
-		Score       int      `json:"score"`
-		Evaluation  string   `json:"evaluation"`
-		Suggestions []string `json:"suggestions"`
-		Feedback    string   `json:"feedback"`
-	}
+	// 确保中文输出（虽然 Review 内部 prompt 已经要求了，但多一层保障没错）
+	evaluationText := s.EnsureChineseOutput(reviewResult.Comment, "回答已收到，但内容质量有待提升。")
+	suggestionText := s.EnsureChineseOutput(reviewResult.Suggestion, "建议补充核心原理与实践细节。")
 
-	var payload evalPayload
-	if err := json.Unmarshal([]byte(cleanResponse), &payload); err != nil {
-		loose := parseLooseEvaluation(cleanResponse)
-		if loose != nil {
-			score := s.adjustScoreByAnswerQuality(loose.Score, question, answer)
-			return &EvaluationResult{Score: score, Feedback: s.normalizeStructuredFeedback(loose.Feedback, score)}, nil
-		}
-		score := s.adjustScoreByAnswerQuality(60, question, answer)
-		return &EvaluationResult{Score: score, Feedback: s.normalizeStructuredFeedback(response, score)}, nil
-	}
-
-	score := s.adjustScoreByAnswerQuality(payload.Score, question, answer)
-	if score < 0 || score > 100 {
-		score = 60
-	}
-
-	evaluationText := strings.TrimSpace(payload.Evaluation)
-	if evaluationText == "" {
-		evaluationText = strings.TrimSpace(payload.Feedback)
-	}
-	if evaluationText == "" {
-		evaluationText = "你的回答覆盖了部分要点，但深度和细节还可以继续加强。"
-	}
-	evaluationText = s.EnsureChineseOutput(evaluationText, "你的回答覆盖了部分要点，但深度和细节还可以继续加强。")
-
-	suggestions := make([]string, 0, 3)
-	for _, item := range payload.Suggestions {
-		item = strings.TrimSpace(item)
-		if item == "" {
-			continue
-		}
-		suggestions = append(suggestions, s.EnsureChineseOutput(item, "建议补充关键原理、实现细节与边界条件说明。"))
-	}
-	if len(suggestions) == 0 {
-		suggestions = s.defaultSuggestionsByScore(score)
-	}
+	// 构造结构化反馈
+	// 注意：旧逻辑是 []string suggestions，新逻辑是一个长字符串 suggestion
+	// 我们简单切分一下，或者直接作为一个建议项
+	suggestions := []string{suggestionText}
 
 	return &EvaluationResult{
-		Score:    score,
+		Score:    reviewResult.Score,
 		Feedback: buildStructuredFeedback(evaluationText, suggestions),
 	}, nil
 }

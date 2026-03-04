@@ -10,10 +10,10 @@
         <el-tab-pane label="登录" name="login">
           <el-form :model="loginForm" :rules="rules" ref="loginFormRef">
             <el-form-item prop="email">
-              <el-input v-model="loginForm.email" placeholder="邮箱" prefix-icon="Message" />
+              <el-input v-model="loginForm.email" placeholder="邮箱" prefix-icon="Message" @keydown.enter="handleLogin" />
             </el-form-item>
             <el-form-item prop="password">
-              <el-input v-model="loginForm.password" type="password" placeholder="密码" prefix-icon="Lock" show-password />
+              <el-input v-model="loginForm.password" type="password" placeholder="密码" prefix-icon="Lock" show-password @keydown.enter="handleLogin" />
             </el-form-item>
             <el-button type="primary" class="full-width" @click="handleLogin" :loading="loading">登录</el-button>
           </el-form>

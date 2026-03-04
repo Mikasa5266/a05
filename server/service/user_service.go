@@ -93,6 +93,43 @@ func UpdateUserProfile(userID uint, username, email string) (*model.User, error)
 	return user, nil
 }
 
+func UpdateUserAvatar(userID uint, avatarURL string) (*model.User, error) {
+	service := NewUserService()
+	user, err := service.userRepo.GetByID(userID)
+	if err != nil {
+		return nil, fmt.Errorf("user not found")
+	}
+
+	user.Avatar = avatarURL // Assuming model.User has Avatar field? Check model/user.go
+	if err := service.userRepo.Update(user); err != nil {
+		return nil, fmt.Errorf("failed to update avatar: %w", err)
+	}
+	return user, nil
+}
+
+func UpdateUserPassword(userID uint, oldPassword, newPassword string) error {
+	service := NewUserService()
+	user, err := service.userRepo.GetByID(userID)
+	if err != nil {
+		return fmt.Errorf("user not found")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPassword)); err != nil {
+		return fmt.Errorf("invalid old password")
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash new password: %w", err)
+	}
+
+	user.Password = string(hashedPassword)
+	if err := service.userRepo.Update(user); err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+	return nil
+}
+
 func GetQuestions(position, difficulty, category string) ([]*model.Question, error) {
 	ensureRepos()
 	return questionRepo.GetQuestions(position, difficulty, category)

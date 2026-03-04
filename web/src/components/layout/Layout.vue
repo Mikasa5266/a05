@@ -1,5 +1,5 @@
 <template>
-  <div class="flex min-h-screen bg-zinc-50 font-sans">
+  <div class="flex min-h-screen bg-zinc-50 dark:bg-zinc-900 font-sans transition-colors duration-200">
     <Sidebar />
     <main class="flex-1 p-8 overflow-y-auto h-screen">
       <div class="max-w-5xl mx-auto">
