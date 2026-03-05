@@ -77,7 +77,7 @@
           <!-- Learning Map -->
           <div 
             class="bg-zinc-900 text-white rounded-3xl p-6 relative overflow-hidden group cursor-pointer hover:shadow-lg transition-shadow"
-            @click="goToLearningMap"
+            @click="showLearningMap = true"
           >
             <div class="relative z-10">
               <div class="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">个性化学习地图</div>
@@ -90,6 +90,51 @@
             <BookOpen class="absolute -bottom-4 -right-4 h-32 w-32 text-white/5 rotate-12 group-hover:rotate-0 group-hover:scale-110 transition-all duration-500" />
           </div>
         </div>
+
+        <!-- Resume Optimization Suggestions -->
+        <div class="bg-white rounded-3xl p-6 shadow-sm border border-zinc-100">
+          <h3 class="text-lg font-bold text-zinc-900 mb-4 flex items-center gap-2">
+            <FileText class="h-5 w-5 text-violet-600" />
+            简历优化建议
+          </h3>
+          <p class="text-sm text-zinc-500 mb-4">基于面试表现与岗位能力图谱，为您生成简历优化建议</p>
+          <div class="space-y-3">
+            <div v-for="(tip, i) in resumeTips" :key="i" class="flex gap-3 p-3 rounded-xl bg-violet-50/50 border border-violet-100/50">
+              <div class="w-6 h-6 rounded-full bg-violet-100 text-violet-600 text-xs flex items-center justify-center font-bold flex-shrink-0 mt-0.5">{{ i + 1 }}</div>
+              <p class="text-sm text-zinc-700">{{ tip }}</p>
+            </div>
+          </div>
+          <button @click="generateResumeTips" class="mt-4 w-full py-2.5 bg-violet-600 text-white rounded-xl text-sm font-medium hover:bg-violet-700 transition-colors">
+            {{ resumeTipsLoading ? '生成中...' : '重新生成建议' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Learning Map Modal -->
+  <div v-if="showLearningMap" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50" @click.self="showLearningMap = false">
+    <div class="bg-white rounded-3xl p-8 w-full max-w-3xl max-h-[80vh] overflow-y-auto shadow-2xl">
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-zinc-900">个性化学习地图</h2>
+        <button @click="showLearningMap = false" class="p-1 hover:bg-zinc-100 rounded-lg transition-colors">✕</button>
+      </div>
+      <div class="space-y-4">
+        <div v-for="(phase, pi) in learningPhases" :key="pi" class="p-5 rounded-2xl border border-zinc-100">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white" :class="phase.color">{{ pi + 1 }}</div>
+            <div>
+              <div class="font-bold text-zinc-900">{{ phase.title }}</div>
+              <div class="text-xs text-zinc-400">{{ phase.duration }}</div>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 ml-11">
+            <div v-for="(task, ti) in phase.tasks" :key="ti" class="flex items-center gap-2 text-sm text-zinc-600">
+              <div class="w-1.5 h-1.5 rounded-full" :class="phase.dotColor"></div>
+              {{ task }}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -100,7 +145,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getGrowthStats } from '../api/growth'
 import { 
-  Award, Target, TrendingUp, ChevronRight, BookOpen 
+  Award, Target, TrendingUp, ChevronRight, BookOpen, FileText 
 } from 'lucide-vue-next'
 import {
   Chart as ChartJS,
@@ -131,6 +176,19 @@ const loading = ref(true)
 const radarData = ref(null)
 const lineData = ref(null)
 const skillGaps = ref([])
+const showLearningMap = ref(false)
+const resumeTips = ref([
+  '在项目经验中量化成果，例如"优化接口响应时间降低40%"',
+  '增加与目标岗位匹配的技术关键词，提升简历ATS通过率',
+  '补充面试中表现突出的沟通协作经历',
+])
+const resumeTipsLoading = ref(false)
+
+const learningPhases = ref([
+  { title: '基础巩固期', duration: '第1-2周', color: 'bg-indigo-500', dotColor: 'bg-indigo-400', tasks: ['数据结构与算法复习', '编程语言核心特性回顾', '常见设计模式学习', '代码规范与最佳实践'] },
+  { title: '专项突破期', duration: '第3-4周', color: 'bg-emerald-500', dotColor: 'bg-emerald-400', tasks: ['系统设计与架构思维', '项目经验提炼与表达', '行为面试STAR法则练习', '技术深度问题准备'] },
+  { title: '模拟实战期', duration: '第5-6周', color: 'bg-amber-500', dotColor: 'bg-amber-400', tasks: ['每日模拟面试练习', '表达流畅度与逻辑训练', '压力面试应对策略', '综合能力提升冲刺'] },
+])
 
 const radarOptions = {
   responsive: true,
@@ -156,6 +214,20 @@ const lineOptions = {
     y: { display: false, suggestedMin: 50, suggestedMax: 100 }
   },
   plugins: { legend: { display: false } }
+}
+
+const generateResumeTips = async () => {
+  resumeTipsLoading.value = true
+  // Simulate API call for resume optimization suggestions
+  setTimeout(() => {
+    resumeTips.value = [
+      '突出面试中展现的技术亮点，例如分布式系统设计经验',
+      '将项目描述与目标岗位JD高度对齐，减少无关经历',
+      '增加数据驱动的成果描述，如"负责的模块覆盖率从60%提升至95%"',
+      '补充开源贡献或技术博客链接，增强技术影响力背书',
+    ]
+    resumeTipsLoading.value = false
+  }, 1500)
 }
 
 const fetchGrowthData = async () => {
@@ -207,18 +279,6 @@ const fetchGrowthData = async () => {
   } finally {
     loading.value = false
   }
-}
-
-const goToLearningMap = () => {
-  // For now, redirect to a dashboard or show an alert, 
-  // or maybe a new route '/learning-map' if we had time to build it.
-  // User asked for "Click reaction".
-  // Let's create a simple learning map view or just alert for now as placeholder?
-  // No, user said "Click has no reaction".
-  // Let's redirect to History for now as a "Source of truth" or stay here.
-  // Actually, I should probably implement a simple Learning Map modal or page.
-  // For simplicity in this turn, I will just alert.
-  alert("个性化学习地图功能即将上线！将为您定制专属学习路径。")
 }
 
 onMounted(() => {

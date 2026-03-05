@@ -1,8 +1,9 @@
 <template>
-  <div class="flex min-h-screen bg-zinc-50 dark:bg-zinc-900 font-sans transition-colors duration-200">
-    <Sidebar />
-    <main class="flex-1 p-8 overflow-y-auto h-screen">
-      <div class="max-w-5xl mx-auto">
+  <div class="flex flex-col min-h-screen bg-zinc-50 dark:bg-zinc-900 font-sans transition-colors duration-200">
+    <TopNav @portal-change="onPortalChange" />
+    <SubNav :portal="currentPortal" />
+    <main class="flex-1 overflow-y-auto">
+      <div class="max-w-7xl mx-auto px-6 py-6">
         <router-view v-slot="{ Component }">
           <transition
             name="page"
@@ -23,7 +24,15 @@
 </template>
 
 <script setup>
-import Sidebar from './Sidebar.vue'
+import { ref } from 'vue'
+import TopNav from './TopNav.vue'
+import SubNav from './SubNav.vue'
+
+const currentPortal = ref(localStorage.getItem('portal') || 'student')
+
+const onPortalChange = (portal) => {
+  currentPortal.value = portal
+}
 </script>
 
 <style>

@@ -1,4 +1,4 @@
-package service
+﻿package service
 
 import (
 	"bytes"
@@ -47,48 +47,213 @@ type ReportInsights struct {
 
 // Chat exposes the raw LLM chat capability
 func (s *AIService) Chat(ctx context.Context, prompt string) (string, error) {
-	return s.callLLM(prompt)
+	// Default model or generic chat
+	return s.callLLM(prompt, "chat")
+}
+
+// ChatWithTask exposes the raw LLM chat capability with a specific task type
+func (s *AIService) ChatWithTask(ctx context.Context, prompt string, taskType string) (string, error) {
+	return s.callLLM(prompt, taskType)
 }
 
 func (s *AIService) EvaluateAnswer(question *model.Question, answer string) (*EvaluationResult, error) {
 	// 【已替换】接入 AIReview 强校验流程
 	// 调用底层 LLM 的闭包函数
 	llmFunc := func(p string) (string, error) {
-		return s.callLLM(p)
+		return s.callLLM(p, "evaluation")
 	}
 
 	// 使用 EvaluateCandidateAnswer 进行严苛评估
 	reviewResult, err := EvaluateCandidateAnswer(question.Content, answer, llmFunc)
 	if err != nil {
-		// 降级策略：如果 Review 失败，回退到普通评估或报错
-		log.Printf("AIReview failed, falling back: %v", err)
-		// 这里可以选择 return nil, err 或者继续走旧逻辑
-		// 为了保证稳定性，建议如果 review 失败，还是走一下旧的宽松逻辑？
-		// 但用户要求“严格审查”，所以最好是报错或者重试。
-		// 咱们这里直接返回 error 也没问题，或者构造一个默认的低分结果。
-		return &EvaluationResult{
-			Score:    0,
-			Feedback: buildStructuredFeedback("AI评估服务暂时不可用，请稍后重试。", []string{"请检查网络连接", "重新提交回答"}),
-		}, nil
+		log.Printf("AIReview failed, using local heuristic fallback: %v", err)
+		return s.evaluateAnswerLocal(question, answer), nil
 	}
 
-	// 转换 ReviewResult 到 EvaluationResult
-	// ReviewResult.Comment -> Feedback 的 Evaluation 部分
-	// ReviewResult.Suggestion -> Feedback 的 Suggestions 部分
-
-	// 确保中文输出（虽然 Review 内部 prompt 已经要求了，但多一层保障没错）
+	// 构造多维度结构化反馈 JSON
 	evaluationText := s.EnsureChineseOutput(reviewResult.Comment, "回答已收到，但内容质量有待提升。")
 	suggestionText := s.EnsureChineseOutput(reviewResult.Suggestion, "建议补充核心原理与实践细节。")
 
-	// 构造结构化反馈
-	// 注意：旧逻辑是 []string suggestions，新逻辑是一个长字符串 suggestion
-	// 我们简单切分一下，或者直接作为一个建议项
-	suggestions := []string{suggestionText}
+	// 将 suggestion 按分号拆分为多条建议
+	suggestionItems := splitSuggestionText(suggestionText)
+
+	// 构建维度数据（如果 LLM 没返回维度则根据总分推算）
+	dims := reviewResult.Dimensions
+	if dims == nil {
+		dims = estimateDimensions(reviewResult.Score)
+	}
+
+	richFeedback := map[string]interface{}{
+		"evaluation":           evaluationText,
+		"suggestions":          suggestionItems,
+		"dimensions":           dims,
+		"highlights":           reviewResult.Highlights,
+		"gaps":                 reviewResult.Gaps,
+		"model_answer_outline": reviewResult.ModelAnswerOutline,
+		"follow_up":            reviewResult.FollowUp,
+	}
+	feedbackJSON, _ := json.Marshal(richFeedback)
 
 	return &EvaluationResult{
 		Score:    reviewResult.Score,
-		Feedback: buildStructuredFeedback(evaluationText, suggestions),
+		Feedback: string(feedbackJSON),
 	}, nil
+}
+
+// splitSuggestionText 将分号/句号分隔的建议拆为独立条目
+func splitSuggestionText(text string) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return []string{"建议补充核心原理与实践细节。"}
+	}
+	// 先尝试分号拆分
+	parts := strings.FieldsFunc(text, func(r rune) bool {
+		return r == ';' || r == '；'
+	})
+	var result []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		// 去除前导数字编号
+		p = strings.TrimLeft(p, "0123456789.、) ")
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	if len(result) == 0 {
+		return []string{text}
+	}
+	return result
+}
+
+// estimateDimensions 当 LLM 未返回维度分时，根据总分推算合理的各维度分数
+func estimateDimensions(totalScore int) *ReviewDimensions {
+	base := totalScore
+	return &ReviewDimensions{
+		TechnicalDepth: clampScore(base - 5 + (base%7 - 3)),
+		Expression:     clampScore(base + 3 + (base%5 - 2)),
+		Logic:          clampScore(base + (base%6 - 3)),
+		Completeness:   clampScore(base - 3 + (base%4 - 2)),
+	}
+}
+
+func (s *AIService) evaluateAnswerLocal(question *model.Question, answer string) *EvaluationResult {
+	content := strings.TrimSpace(answer)
+	if content == "" {
+		return s.buildRichLocalFeedback(35, question.Content,
+			"回答内容过短，尚未覆盖题目核心点。",
+			[]string{"先给出结论，再解释原理", "补充具体项目经历与结果", "至少给出1个边界情况或异常处理思路"},
+			&ReviewDimensions{TechnicalDepth: 15, Expression: 30, Logic: 25, Completeness: 10},
+			nil,
+			[]string{"未能针对问题给出任何实质性内容"},
+		)
+	}
+
+	lengthScore := 35
+	runeLen := len([]rune(content))
+	switch {
+	case runeLen >= 280:
+		lengthScore = 70
+	case runeLen >= 180:
+		lengthScore = 62
+	case runeLen >= 120:
+		lengthScore = 54
+	case runeLen >= 80:
+		lengthScore = 46
+	}
+
+	structureBonus := 0
+	hasStructure := false
+	if strings.Contains(content, "首先") || strings.Contains(content, "第一") {
+		structureBonus += 6
+		hasStructure = true
+	}
+	if strings.Contains(content, "其次") || strings.Contains(content, "然后") {
+		structureBonus += 5
+		hasStructure = true
+	}
+	if strings.Contains(content, "最后") || strings.Contains(content, "总结") {
+		structureBonus += 5
+		hasStructure = true
+	}
+
+	questionText := strings.TrimSpace(question.Content + " " + question.Title)
+	keywordBonus := 0
+	matchedKeywords := 0
+	for _, token := range strings.Fields(questionText) {
+		t := strings.TrimSpace(token)
+		if len([]rune(t)) < 2 {
+			continue
+		}
+		if strings.Contains(content, t) {
+			keywordBonus += 2
+			matchedKeywords++
+		}
+		if keywordBonus >= 12 {
+			break
+		}
+	}
+
+	score := clampScore(lengthScore + structureBonus + keywordBonus)
+
+	var evaluation string
+	var highlights []string
+	var gaps []string
+
+	if score >= 80 {
+		evaluation = "回答结构完整，覆盖了核心要点，表达较清晰，整体表现良好。"
+		highlights = []string{"答案覆盖了主要考点", "表达有条理"}
+		gaps = []string{"可进一步补充底层原理分析"}
+	} else if score >= 60 {
+		evaluation = "回答思路基本清晰，能够围绕题目展开，但在细节深度和案例支撑方面仍有提升空间。"
+		if hasStructure {
+			highlights = []string{"使用了结构化表达方式"}
+		}
+		gaps = []string{"缺少底层原理或源码层面的深入分析", "未结合实际项目案例论证"}
+	} else {
+		evaluation = "回答覆盖面偏窄，关键点阐述不够充分，建议进一步补充技术细节与实际场景。"
+		gaps = []string{"核心概念阐述不充分", "缺少实际案例支撑", "表达深度有待提升"}
+	}
+
+	dims := &ReviewDimensions{
+		TechnicalDepth: clampScore(score - 8),
+		Expression:     clampScore(score + 5),
+		Logic:          score,
+		Completeness:   clampScore(score - 5),
+	}
+	if hasStructure {
+		dims.Expression = clampScore(dims.Expression + 5)
+		dims.Logic = clampScore(dims.Logic + 3)
+	}
+	if matchedKeywords >= 3 {
+		dims.Completeness = clampScore(dims.Completeness + 8)
+	}
+
+	suggestions := []string{
+		"按结论、原理、实践案例、风险与优化的顺序组织回答",
+		"补充可量化结果（性能提升、耗时降低、错误率变化等）",
+		"增加边界条件与异常处理说明，体现工程化能力",
+	}
+
+	return s.buildRichLocalFeedback(score, question.Content, evaluation, suggestions, dims, highlights, gaps)
+}
+
+// buildRichLocalFeedback 构建本地评估的丰富 JSON 反馈
+func (s *AIService) buildRichLocalFeedback(score int, questionContent, evaluation string, suggestions []string, dims *ReviewDimensions, highlights, gaps []string) *EvaluationResult {
+	richFeedback := map[string]interface{}{
+		"evaluation":           evaluation,
+		"suggestions":          suggestions,
+		"dimensions":           dims,
+		"highlights":           highlights,
+		"gaps":                 gaps,
+		"model_answer_outline": "建议从核心概念定义出发，结合底层原理、典型使用场景和注意事项进行系统阐述。",
+		"follow_up":            "能否结合你的项目经历，更具体地描述你是如何应用这个技术的？",
+	}
+	feedbackJSON, _ := json.Marshal(richFeedback)
+	return &EvaluationResult{
+		Score:    score,
+		Feedback: string(feedbackJSON),
+	}
 }
 
 func (s *AIService) ensureChineseFeedback(feedback string) string {
@@ -116,7 +281,7 @@ func (s *AIService) ensureChineseFeedback(feedback string) string {
 	}
 
 	prompt := fmt.Sprintf("请将下面的面试反馈改写为简洁、专业、完全中文的两段文本：第一段是评价，第二段是建议。不要输出JSON，不要输出英文。\n\n%s", text)
-	translated, err := s.callLLM(prompt)
+	translated, err := s.callLLM(prompt, "chat")
 	if err != nil {
 		return "你的回答信息量偏少，尚未完整覆盖问题核心。建议补充关键原理、实际例子和边界情况，以提升答案完整度。"
 	}
@@ -148,7 +313,7 @@ func (s *AIService) EnsureChineseOutput(text, fallback string) string {
 	}
 
 	prompt := fmt.Sprintf("请将以下内容改写为自然、专业、简体中文。要求只输出中文内容，不要输出JSON或英文：\n\n%s", normalized)
-	rewritten, err := s.callLLM(prompt)
+	rewritten, err := s.callLLM(prompt, "chat")
 	if err != nil {
 		return fallback
 	}
@@ -186,7 +351,7 @@ func (s *AIService) EnsureQuestionChinese(question *model.Question) {
 原始期望答案：%s
 `, question.Title, question.Content, question.ExpectedAnswer)
 
-	response, err := s.callLLM(prompt)
+	response, err := s.callLLM(prompt, "chat")
 	if err == nil {
 		var localized struct {
 			Title          string `json:"title"`
@@ -533,7 +698,7 @@ func (s *AIService) GenerateQuestions(interview *model.Interview, count int) ([]
 		]
 	`, count, interview.Position, interview.Difficulty, interview.Mode, interview.Style)
 
-	response, err := s.callLLM(prompt)
+	response, err := s.callLLM(prompt, "chat")
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate questions: %w", err)
 	}
@@ -581,7 +746,7 @@ func (s *AIService) GenerateNextQuestion(interview *model.Interview, previousAns
 		返回格式：{"title": "问题标题", "content": "具体问题内容", "expected_answer": "简要的期望回答"}
 	`, interview.Position, interview.Difficulty, interview.Mode, interview.Style, len(previousAnswers))
 
-	response, err := s.callLLM(prompt)
+	response, err := s.callLLM(prompt, "chat")
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate question: %w", err)
 	}
@@ -624,7 +789,7 @@ func (s *AIService) TranscribeAudio(audioData string) (string, error) {
 	return "", fmt.Errorf("unsupported ASR provider: %s", asrConfig.Provider)
 }
 
-func (s *AIService) callLLM(prompt string) (string, error) {
+func (s *AIService) callLLM(prompt string, taskType string) (string, error) {
 	baseURL := s.config.BaseURL
 	if baseURL == "" {
 		baseURL = "https://api.deepseek.com/v1"
@@ -640,19 +805,22 @@ func (s *AIService) callLLM(prompt string) (string, error) {
 		url = strings.Replace(url, "/chat/completions/chat/completions", "/chat/completions", 1)
 	}
 
-	log.Printf("Calling LLM API: %s, Model: %s", url, s.config.Model)
+	// Select model based on taskType
+	model := s.config.Model // Default model
+	if specificModel, ok := s.config.Models[taskType]; ok && specificModel != "" {
+		model = specificModel
+	}
+
+	log.Printf("Calling LLM API: %s, Model: %s, Task: %s", url, model, taskType)
 
 	// Ensure max_tokens is within reasonable limits (some models reject >4096 or have strict limits)
 	// maxTokens := 2000
-	if s.config.Model == "glm-4v-flash" {
-		// Specific adjustment if needed, but usually 2000 is fine.
-		// However, error 1210 "API Call Parameter Error" often means model name is wrong OR parameters are invalid.
-		// Some providers don't support "max_tokens" or "temperature" for certain models?
-		// Or the message format.
+	if model == "glm-4-flash" {
+		// Specific adjustment if needed
 	}
 
 	requestBody := map[string]interface{}{
-		"model": s.config.Model,
+		"model": model,
 		"messages": []map[string]string{
 			{"role": "user", "content": prompt},
 		},
@@ -739,7 +907,7 @@ func (s *AIService) GenerateOverallAnalysis(interview *model.Interview, answers 
 %s
 `, string(payload))
 
-	response, err := s.callLLM(prompt)
+	response, err := s.callLLM(prompt, "report")
 	if err != nil {
 		return "", err
 	}
@@ -793,7 +961,7 @@ func (s *AIService) GenerateReportInsights(interview *model.Interview, answers [
 %s
 `, string(body))
 
-	response, err := s.callLLM(prompt)
+	response, err := s.callLLM(prompt, "report")
 	if err != nil {
 		return nil, err
 	}

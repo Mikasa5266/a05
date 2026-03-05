@@ -11,6 +11,24 @@ type ReviewResult struct {
 	Score      int    `json:"score"`
 	Comment    string `json:"comment"`
 	Suggestion string `json:"suggestion"`
+	// 多维度评分
+	Dimensions *ReviewDimensions `json:"dimensions,omitempty"`
+	// 亮点（候选人做得好的具体方面）
+	Highlights []string `json:"highlights,omitempty"`
+	// 差距（对比期望答案缺少的核心点）
+	Gaps []string `json:"gaps,omitempty"`
+	// 参考答案大纲
+	ModelAnswerOutline string `json:"model_answer_outline,omitempty"`
+	// 追问方向
+	FollowUp string `json:"follow_up,omitempty"`
+}
+
+// ReviewDimensions 多维度评分
+type ReviewDimensions struct {
+	TechnicalDepth int `json:"technical_depth"` // 技术深度 0-100
+	Expression     int `json:"expression"`      // 表达清晰度 0-100
+	Logic          int `json:"logic"`           // 逻辑严谨性 0-100
+	Completeness   int `json:"completeness"`    // 完整度 0-100
 }
 
 // IsInvalidAnswer 预处理拦截：直接在代码层物理拦截“乱回”和“不会”
@@ -55,32 +73,47 @@ func isEnglishOnly(s string) bool {
 	return true
 }
 
-// BuildStrictEvalPrompt 构建具有强烈约束力的 Prompt
+// BuildStrictEvalPrompt 构建多维度、深度分析的评估 Prompt
 func BuildStrictEvalPrompt(question, answer string) string {
-	return fmt.Sprintf(`作为一名字节跳动/腾讯级别的顶级资深技术面试官，你需要对候选人的回答进行专业且极其严苛的评估。
-你的评估关乎公司的技术标准，绝不允许对候选人有任何无意义的仁慈或过度宽容！
+	return fmt.Sprintf(`你是一位来自顶级互联网公司（字节跳动/腾讯/阿里级别）的资深技术面试官。
+请对候选人的回答进行多维度、深度的专业评估。
 
-【当前面试问题】
+【面试问题】
 "%s"
 
 【候选人回答】
 "%s"
 
-【极其严格的打分标准】(满分100分，0分代表毫无价值，请严格对号入座)：
-- [0分 - 致命/未作答]：候选人完全答非所问、闲聊、乱码、扯皮。只要没有任何实质性的正确技术内容，**必须强行打0分！绝不可给同情分！**
-- [1-20分 - 极差]：提到了极个别沾边的词汇，但逻辑完全是错的，对基本概念的理解南辕北辙。
-- [21-40分 - 不及格]：答对了一小部分，但存在严重的常识性事实错误，完全无法胜任实际工作。
-- [41-60分 - 勉强及格]：基本答出主干内容，但完全没有深入，或者表述很不专业，勉强能算他知道。
-- [61-80分 - 良好]：回答准确，逻辑清晰，覆盖了主要考点，但缺乏底层原理或实际场景的延伸。
-- [81-100分 - 优秀]：完美切中要害，极其严谨，不仅包含概念，还有底层原理、优缺点分析及最佳实践，展现极强技术功底。
+【评分维度】（每个维度 0-100 分）：
+1. 技术深度 (technical_depth)：是否触及底层原理、源码级理解、设计权衡
+2. 表达清晰度 (expression)：语言组织是否有条理，是否便于面试官理解
+3. 逻辑严谨性 (logic)：推理链是否完整，有无自相矛盾或跳跃
+4. 完整度 (completeness)：是否覆盖了核心考点，有无遗漏关键面
 
-【输出格式要求】
-你必须且只能返回一个纯合法的 JSON 对象，不要包含任何 markdown 标记（例如绝不要包裹 ` + "`" + "```json" + "`" + ` ），不要输出任何其他文本！
-JSON 格式严格如下：
+【综合评分标准】（0-100）：
+- 0分：完全未作答 / 答非所问 / 乱码敷衍
+- 1-30分：存在严重事实性错误或完全偏离核心
+- 31-50分：仅答出皮毛，缺乏深度，有明显知识漏洞
+- 51-70分：基本答出主干但深度不足，缺少原理或实践延伸
+- 71-85分：回答准确完整，逻辑清晰，有一定深度
+- 86-100分：深入底层原理，结合实践案例，展现极强技术功底
+
+【输出要求】
+返回纯 JSON 对象（不要 markdown 代码块），格式严格如下：
 {
-    "score": 0,
-    "comment": "你的专业点评。一针见血地指出错误或缺失点，语气要严厉客观。如果是乱回，请直接严厉指出'回答与问题无关'。",
-    "suggestion": "给出正确的解答方向或学习建议。"
+  "score": 综合评分(整数),
+  "dimensions": {
+    "technical_depth": 技术深度分(整数),
+    "expression": 表达清晰度分(整数),
+    "logic": 逻辑严谨性分(整数),
+    "completeness": 完整度分(整数)
+  },
+  "highlights": ["候选人做得好的第1个具体方面", "做得好的第2个方面"],
+  "gaps": ["对比标准答案缺失的第1个核心点", "缺失的第2个核心点"],
+  "comment": "2-4句话的整体点评，先肯定亮点再指出不足，语气专业客观",
+  "suggestion": "2-3条有针对性的改进建议，用分号分隔",
+  "model_answer_outline": "用3-5个要点概括这道题的优秀回答应包含哪些核心内容",
+  "follow_up": "基于候选人回答，你会进一步追问什么（1句话）"
 }`, question, answer)
 }
 

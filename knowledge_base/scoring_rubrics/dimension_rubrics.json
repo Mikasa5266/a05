@@ -1,0 +1,132 @@
+{
+  "scoring_rubrics": {
+    "description": "面试回答评分量表 - 定义每个等级的行为锚点，用于 AI 评估标准化",
+    "dimensions": {
+      "technical_depth": {
+        "name": "技术深度",
+        "levels": {
+          "1": {
+            "score_range": [0, 20],
+            "description": "仅知道名词或概念名称",
+            "behavior_anchor": "只能说出'JVM是Java虚拟机'这类定义，无法展开",
+            "example": "JVM就是运行Java程序的虚拟机"
+          },
+          "2": {
+            "score_range": [21, 40],
+            "description": "知道基本概念但理解有严重偏差",
+            "behavior_anchor": "能说出几个相关术语但关系搞错，有明显的知识性错误",
+            "example": "JVM内存分为栈和堆...堆存放的是方法（错误）"
+          },
+          "3": {
+            "score_range": [41, 60],
+            "description": "能答出主干知识，缺乏深度",
+            "behavior_anchor": "正确说出核心概念和基本分类，但无法深入底层原理",
+            "example": "JVM内存分为堆和栈，堆存对象，栈存局部变量，GC负责回收堆内存"
+          },
+          "4": {
+            "score_range": [61, 80],
+            "description": "准确完整，有一定原理层面的理解",
+            "behavior_anchor": "能描述底层机制，知道不同方案的优缺点，有一定的实践认知",
+            "example": "JVM堆分为新生代和老年代，新生代用复制算法(Eden:S0:S1=8:1:1)，老年代用标记-整理。G1打破了分代物理隔离..."
+          },
+          "5": {
+            "score_range": [81, 100],
+            "description": "深入源码级理解，结合实践，展现权衡思维",
+            "behavior_anchor": "能从源码/实现层面解释原理，结合具体场景做技术选型和调优，有量化结果",
+            "example": "G1的Mixed GC通过维护Region级别的Remembered Set跟踪跨区引用...我在项目中将GC停顿从500ms优化到50ms以内，具体参数是..."
+          }
+        }
+      },
+      "expression": {
+        "name": "表达清晰度",
+        "levels": {
+          "1": {
+            "score_range": [0, 20],
+            "description": "语无伦次或完全沉默",
+            "behavior_anchor": "回答断断续续，逻辑跳跃，面试官难以理解"
+          },
+          "2": {
+            "score_range": [21, 40],
+            "description": "能表达但缺乏组织",
+            "behavior_anchor": "想到什么说什么，没有明确的回答结构"
+          },
+          "3": {
+            "score_range": [41, 60],
+            "description": "基本有条理",
+            "behavior_anchor": "能按一定顺序回答，但偶有跑题或重复"
+          },
+          "4": {
+            "score_range": [61, 80],
+            "description": "结构清晰，层次分明",
+            "behavior_anchor": "先给结论再展开，使用'首先/其次/最后'等结构词"
+          },
+          "5": {
+            "score_range": [81, 100],
+            "description": "精炼有力，引导面试节奏",
+            "behavior_anchor": "能用类比/图示/举例辅助说明，主动引导面试官深入感兴趣的方向"
+          }
+        }
+      },
+      "logic": {
+        "name": "逻辑严谨性",
+        "levels": {
+          "1": {
+            "score_range": [0, 20],
+            "description": "自相矛盾或逻辑混乱",
+            "behavior_anchor": "前后说法不一致，因果关系颠倒"
+          },
+          "2": {
+            "score_range": [21, 40],
+            "description": "逻辑链有跳跃",
+            "behavior_anchor": "论证过程跳过关键步骤，结论缺乏支撑"
+          },
+          "3": {
+            "score_range": [41, 60],
+            "description": "基本逻辑通顺",
+            "behavior_anchor": "推理过程基本通顺但不够严密"
+          },
+          "4": {
+            "score_range": [61, 80],
+            "description": "逻辑严密，论证充分",
+            "behavior_anchor": "因果关系清晰，每个观点都有论据支撑"
+          },
+          "5": {
+            "score_range": [81, 100],
+            "description": "思维缜密，考虑全面",
+            "behavior_anchor": "主动考虑边界情况、异常场景、权衡取舍"
+          }
+        }
+      },
+      "completeness": {
+        "name": "完整度",
+        "levels": {
+          "1": {
+            "score_range": [0, 20],
+            "description": "遗漏全部核心要点",
+            "behavior_anchor": "回答仅触及皮毛，核心考点一个都没涉及"
+          },
+          "2": {
+            "score_range": [21, 40],
+            "description": "覆盖不到 30% 考点",
+            "behavior_anchor": "提到了个别相关内容但遗漏大量关键点"
+          },
+          "3": {
+            "score_range": [41, 60],
+            "description": "覆盖 30-60% 考点",
+            "behavior_anchor": "答出了主要分类或步骤，但有明显遗漏"
+          },
+          "4": {
+            "score_range": [61, 80],
+            "description": "覆盖 60-85% 考点",
+            "behavior_anchor": "核心知识点基本覆盖，少量延伸点位遗漏"
+          },
+          "5": {
+            "score_range": [81, 100],
+            "description": "覆盖 85%+ 考点并有延伸",
+            "behavior_anchor": "不仅覆盖标准答案的所有要点，还有额外延伸和对比"
+          }
+        }
+      }
+    }
+  }
+}

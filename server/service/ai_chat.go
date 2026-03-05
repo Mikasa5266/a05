@@ -20,7 +20,7 @@ func AIChat(userID uint, message, context string) (*AIChatResponse, error) {
 	// 构建对话提示词
 	prompt := buildChatPrompt(userID, message, context, nil, nil)
 
-	response, err := aiService.callLLM(prompt)
+	response, err := aiService.callLLM(prompt, "chat")
 	if err != nil {
 		return nil, fmt.Errorf("failed to call AI: %w", err)
 	}
@@ -51,7 +51,7 @@ func AIChatWithInterviewContext(userID uint, interviewID uint, message string) (
 	// 构建包含面试上下文的提示词
 	prompt := buildChatPrompt(userID, message, "", interview, answers)
 
-	response, err := aiService.callLLM(prompt)
+	response, err := aiService.callLLM(prompt, "chat")
 	if err != nil {
 		return nil, fmt.Errorf("failed to call AI: %w", err)
 	}
@@ -139,7 +139,7 @@ func GenerateQuestionFromMessage(position, difficulty, message string) (*model.Q
 返回格式：{"title": "问题标题", "content": "问题内容", "expected_answer": "期望答案要点"}
 `, message, position, difficulty)
 
-	response, err := aiService.callLLM(prompt)
+	response, err := aiService.callLLM(prompt, "chat")
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate question: %w", err)
 	}

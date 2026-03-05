@@ -9,6 +9,23 @@ import GrowthCenter from '../views/GrowthCenter.vue'
 import History from '../views/History.vue'
 import Report from '../views/Report.vue'
 import Settings from '../views/Settings.vue'
+import Community from '../views/Community.vue'
+
+// Enterprise Views
+import EnterpriseDashboard from '../views/enterprise/EnterpriseDashboard.vue'
+import TalentPool from '../views/enterprise/TalentPool.vue'
+import JobManagement from '../views/enterprise/JobManagement.vue'
+import HRPanel from '../views/enterprise/HRPanel.vue'
+import Analytics from '../views/enterprise/Analytics.vue'
+import Standards from '../views/enterprise/Standards.vue'
+
+// University Views
+import UniversityDashboard from '../views/university/UniversityDashboard.vue'
+import StudentTracking from '../views/university/StudentTracking.vue'
+import SupportSystem from '../views/university/SupportSystem.vue'
+import Courses from '../views/university/Courses.vue'
+import Employment from '../views/university/Employment.vue'
+import TalentPush from '../views/university/TalentPush.vue'
 
 const routes = [
   {
@@ -41,7 +58,7 @@ const routes = [
         component: MockInterview
       },
       {
-        path: 'interview/select', // Keep for compatibility if needed, or redirect
+        path: 'interview/select',
         redirect: '/interview'
       },
       {
@@ -60,9 +77,76 @@ const routes = [
         component: Report
       },
       {
+        path: 'community',
+        name: 'Community',
+        component: Community
+      },
+      {
         path: 'settings',
         name: 'Settings',
         component: Settings
+      },
+      // Enterprise Portal
+      {
+        path: 'enterprise',
+        name: 'EnterpriseDashboard',
+        component: EnterpriseDashboard
+      },
+      {
+        path: 'enterprise/talent',
+        name: 'TalentPool',
+        component: TalentPool
+      },
+      {
+        path: 'enterprise/jobs',
+        name: 'JobManagement',
+        component: JobManagement
+      },
+      {
+        path: 'enterprise/hr-panel',
+        name: 'HRPanel',
+        component: HRPanel
+      },
+      {
+        path: 'enterprise/analytics',
+        name: 'Analytics',
+        component: Analytics
+      },
+      {
+        path: 'enterprise/standards',
+        name: 'Standards',
+        component: Standards
+      },
+      // University Portal
+      {
+        path: 'university',
+        name: 'UniversityDashboard',
+        component: UniversityDashboard
+      },
+      {
+        path: 'university/tracking',
+        name: 'StudentTracking',
+        component: StudentTracking
+      },
+      {
+        path: 'university/support',
+        name: 'SupportSystem',
+        component: SupportSystem
+      },
+      {
+        path: 'university/courses',
+        name: 'Courses',
+        component: Courses
+      },
+      {
+        path: 'university/employment',
+        name: 'Employment',
+        component: Employment
+      },
+      {
+        path: 'university/talent-push',
+        name: 'TalentPush',
+        component: TalentPush
       }
     ]
   }

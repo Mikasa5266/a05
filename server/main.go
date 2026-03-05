@@ -83,5 +83,20 @@ func autoMigrate(db *gorm.DB) error {
 		&model.InterviewQuestion{},
 		&model.AnswerResult{},
 		&model.Report{},
+		// Enterprise
+		&model.Job{},
+		&model.TalentRecord{},
+		&model.InterviewSession{},
+		&model.CapabilityStandard{},
+		&model.Referral{},
+		// University
+		&model.StudentRecord{},
+		&model.Course{},
+		&model.TalentPush{},
+		// Community
+		&model.CommunityPost{},
+		&model.PostComment{},
+		&model.MentorBooking{},
+		&model.PostLike{},
 	)
 }

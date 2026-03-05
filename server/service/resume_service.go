@@ -23,38 +23,51 @@ func NewResumeService() *ResumeService {
 func (s *ResumeService) ParseResume(fileContent string) (*model.ResumeData, error) {
 	log.Printf("Starting resume parsing, content length: %d characters", len(fileContent))
 
-	const MaxContentLength = 12000
+	const MaxContentLength = 50000
 	if len(fileContent) > MaxContentLength {
 		log.Printf("Content too long, truncating from %d to %d characters", len(fileContent), MaxContentLength)
 		fileContent = fileContent[:MaxContentLength] + "\n...(content truncated)..."
 	}
 
 	prompt := fmt.Sprintf(`
-你是一位专业的人力资源和技术招聘专家。请将以下简历内容解析为结构化的 JSON 格式。
-如果内容被截断，请尽力根据现有信息进行解析。
+你是一位资深技术面试官和职业规划专家。请仔细阅读以下简历内容，并进行深度解析。
+这是一份 PDF 导出的文本，可能包含排版错乱、换行符丢失或多余空格。请根据上下文智能重建语义。
 
-【重要要求】
-1. 所有提取的内容（职位、描述、技能等）必须使用**简体中文**输出。如果原文是英文，请翻译成中文。
-2. 不要输出任何 Markdown 标记（如 `+"`"+"```json"+"`"+`），只返回纯 JSON 字符串。
-3. **严格根据简历内容分析**，不要使用示例中的硬编码内容。
+【解析目标】
+将简历内容转化为结构化的 JSON 数据，以便系统进行岗位匹配。
 
-简历内容:
+【重要规则】
+1. **必须使用简体中文**输出。
+2. **严格基于简历内容**，不要编造或猜测未提及的信息。如果某项信息完全缺失，请留空或返回空数组。
+3. **不要输出 Markdown 代码块**，直接返回纯 JSON 字符串。
+4. **技术栈提取**：请提取具体的编程语言、框架、工具（如 Java, Spring Boot, MySQL, Redis, Vue.js 等）。
+5. **项目经验**：请提取项目名称、描述和关键亮点（技术难点、优化成果等）。
+6. **求职意向**：如果简历未明确写明，请根据技术栈和经验推断最可能的职位（如 "后端开发工程师", "全栈工程师"）。
+7. **软技能**：提取简历中体现的非技术能力（如 "团队管理", "沟通协作", "英语读写"）。
+
+简历文本内容:
+"""
 %s
+"""
 
-输出格式示例 (JSON):
+输出 JSON 格式（请严格遵守此结构）：
 {
-  "techStack": ["Java", "Spring Boot", "MySQL"],
+  "techStack": ["技能1", "技能2"],
   "experience": [
-    { "title": "高级后端工程师", "description": "负责核心支付系统开发...", "highlights": ["优化了数据库性能", "重构了遗留代码"] }
+    { 
+      "title": "项目名称或职位", 
+      "description": "项目简述", 
+      "highlights": ["亮点1", "亮点2"] 
+    }
   ],
-  "intent": "Java 后端开发专家",
-  "softSkills": ["团队协作", "沟通能力", "抗压能力"]
+  "intent": "求职意向",
+  "softSkills": ["软技能1", "软技能2"]
 }
 `, fileContent)
 
 	log.Printf("Sending request to AI service for resume parsing")
 
-	resp, err := s.aiService.Chat(context.Background(), prompt)
+	resp, err := s.aiService.ChatWithTask(context.Background(), prompt, "resume")
 	if err != nil {
 		log.Printf("AI parsing failed: %v", err)
 		return nil, fmt.Errorf("AI parsing failed: %w", err)
@@ -105,7 +118,7 @@ func (s *ResumeService) MatchJobs(resumeData *model.ResumeData) ([]*model.JobMat
 
 	log.Printf("Sending request to AI service for job matching")
 
-	resp, err := s.aiService.Chat(context.Background(), prompt)
+	resp, err := s.aiService.ChatWithTask(context.Background(), prompt, "resume")
 	if err != nil {
 		log.Printf("AI matching failed: %v", err)
 		return nil, fmt.Errorf("AI matching failed: %w", err)

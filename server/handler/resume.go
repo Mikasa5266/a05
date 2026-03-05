@@ -3,6 +3,7 @@ package handler
 import (
 	"log"
 	"net/http"
+	"strings"
 	"your-project/service"
 	"your-project/utils"
 
@@ -33,8 +34,9 @@ func ParseResume(c *gin.Context) {
 	}
 
 	log.Printf("Extracted text length: %d characters", len(textContent))
-	if len(textContent) < 100 {
-		log.Printf("Warning: Extracted text is very short, file might be corrupted or empty")
+	// 若文本过少则警告但不阻断，交由更强的 DeepSeek 解析与容错
+	if len(strings.TrimSpace(textContent)) < 50 {
+		log.Printf("Warning: Extracted text is very short; the PDF might be image-based or encoded fonts")
 	}
 
 	svc := service.NewResumeService()

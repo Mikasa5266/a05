@@ -2,9 +2,11 @@
 import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { 
-  Video, VideoOff, Mic, MicOff, ChevronRight, 
+  Video, VideoOff, Mic, MicOff, ChevronRight, ChevronDown,
   BrainCircuit, User, LogOut, Send, Loader2,
-  History, MessageSquare, Lightbulb
+  History, MessageSquare, Lightbulb,
+  Monitor, Users, Shuffle, UserCheck, Shield, Headphones,
+  Heart, Eye, Brain, Volume2, BarChart3, CheckCircle, AlertTriangle, BookOpen
 } from 'lucide-vue-next'
 import { startInterview as apiStartInterview, submitAnswer as apiSubmitAnswer, endInterview as apiEndInterview } from '../api/interview'
 import { generateReport as apiGenerateReport } from '../api/report'
@@ -28,6 +30,7 @@ const isProcessing = ref(false)
 const reportId = ref(null)
 const isGeneratingReport = ref(false)
 const showHistory = ref(false)
+const showModelAnswer = ref(false)
 
 const latestAIMessage = computed(() => {
   const aiMsgs = messages.value.filter(m => m.role === 'ai' || m.type === 'system')
@@ -36,10 +39,15 @@ const latestAIMessage = computed(() => {
 
 const settings = ref({
   position: route.query.position || 'Java后端开发',
-  difficulty: 'Junior',
-  mode: 'technical',
+  difficulty: 'campus_intern',
+  mode: route.query.mode || 'technical',
   style: 'gentle'
 })
+
+// AI Shadow Coach
+const shadowCoachEnabled = ref(true)
+const shadowCoachHints = ref([])
+const emotionFeedback = ref({ sentiment: '正常', confidence: 0, heartRate: 72 })
 
 // Camera Logic
 const toggleCamera = async () => {
@@ -159,6 +167,22 @@ const pushAIQuestion = (question) => {
 const formatFeedback = (feedback) => {
   if (feedback == null) return '回答已提交，建议补充更具体的技术细节。'
 
+  // 尝试解析为 JSON（新版多维度格式）
+  if (typeof feedback === 'string') {
+    const trimmed = feedback.trim()
+    if (trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed)
+        if (parsed.evaluation) {
+          // 这是新版结构化 JSON，直接返回原始 JSON 让 splitFeedbackSections 处理
+          return trimmed
+        }
+      } catch (_) {
+        // 不是合法 JSON，走旧逻辑
+      }
+    }
+  }
+
   const extractText = (val) => {
     if (!val) return []
     if (typeof val === 'string') {
@@ -202,10 +226,36 @@ const splitFeedbackSections = (text) => {
   if (!source) {
     return {
       evaluation: '回答已提交，建议补充更具体的技术细节。',
-      suggestions: []
+      suggestions: [],
+      dimensions: null,
+      highlights: [],
+      gaps: [],
+      modelAnswerOutline: '',
+      followUp: ''
     }
   }
 
+  // 新版 JSON 格式解析
+  if (source.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(source)
+      if (parsed.evaluation) {
+        return {
+          evaluation: parsed.evaluation || '',
+          suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : (parsed.suggestions ? [parsed.suggestions] : []),
+          dimensions: parsed.dimensions || null,
+          highlights: Array.isArray(parsed.highlights) ? parsed.highlights.filter(Boolean) : [],
+          gaps: Array.isArray(parsed.gaps) ? parsed.gaps.filter(Boolean) : [],
+          modelAnswerOutline: parsed.model_answer_outline || '',
+          followUp: parsed.follow_up || ''
+        }
+      }
+    } catch (_) {
+      // fallthrough to legacy parsing
+    }
+  }
+
+  // 旧版 【评价】【建议】 格式兼容
   const evalMatch = source.match(/【评价】([\s\S]*?)(?:【建议】|$)/)
   const suggestBlockMatch = source.match(/【建议】([\s\S]*)$/)
   if (evalMatch || suggestBlockMatch) {
@@ -216,7 +266,12 @@ const splitFeedbackSections = (text) => {
       .filter(Boolean)
     return {
       evaluation: evaluationText,
-      suggestions: suggestionLines
+      suggestions: suggestionLines,
+      dimensions: null,
+      highlights: [],
+      gaps: [],
+      modelAnswerOutline: '',
+      followUp: ''
     }
   }
 
@@ -244,7 +299,12 @@ const splitFeedbackSections = (text) => {
   })
   return {
     evaluation: evaluationParts.join('\n') || source,
-    suggestions
+    suggestions,
+    dimensions: null,
+    highlights: [],
+    gaps: [],
+    modelAnswerOutline: '',
+    followUp: ''
   }
 }
 
@@ -285,7 +345,12 @@ const sendMessage = async () => {
       type: 'feedback',
       score: result.score,
       feedbackEvaluation: feedbackSections.evaluation,
-      feedbackSuggestions: feedbackSections.suggestions
+      feedbackSuggestions: feedbackSections.suggestions,
+      feedbackDimensions: feedbackSections.dimensions,
+      feedbackHighlights: feedbackSections.highlights,
+      feedbackGaps: feedbackSections.gaps,
+      feedbackModelAnswer: feedbackSections.modelAnswerOutline,
+      feedbackFollowUp: feedbackSections.followUp
     })
     
     // 4. Move to Next Question
@@ -450,7 +515,7 @@ onUnmounted(() => {
         </div>
 
         <!-- Settings Area -->
-        <div class="space-y-5 bg-white p-6 rounded-2xl border border-zinc-100 shadow-sm">
+        <div class="space-y-5 bg-white p-6 rounded-2xl border border-zinc-100 shadow-sm overflow-y-auto max-h-[480px]">
           <div class="space-y-2">
             <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider">目标岗位</label>
             <input 
@@ -459,26 +524,52 @@ onUnmounted(() => {
               placeholder="例如: Java 开发工程师"
             />
           </div>
-          
-          <div class="grid grid-cols-2 gap-4">
-            <div class="space-y-2">
-              <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider">难度</label>
-              <select v-model="settings.difficulty" class="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all">
-                <option value="Junior">初级 (Junior)</option>
-                <option value="Mid">中级 (Mid)</option>
-                <option value="Senior">高级 (Senior)</option>
-              </select>
-            </div>
-            <div class="space-y-2">
-              <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider">模式</label>
-              <select v-model="settings.mode" class="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all">
-                <option value="technical">技术深挖</option>
-                <option value="hr">HR 行为</option>
-                <option value="comprehensive">综合评估</option>
-              </select>
+
+          <!-- Interview Mode -->
+          <div class="space-y-2">
+            <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider">面试模式</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button 
+                v-for="m in [
+                  { key: 'technical', label: 'AI 技术面', icon: Monitor },
+                  { key: 'hr', label: 'AI HR面', icon: UserCheck },
+                  { key: 'accessibility', label: '无障碍面试', icon: Shield },
+                  { key: 'group', label: '无领导小组', icon: Users },
+                  { key: 'random', label: '随机模式', icon: Shuffle },
+                  { key: 'comprehensive', label: '综合评估', icon: BrainCircuit }
+                ]"
+                :key="m.key"
+                @click="settings.mode = m.key"
+                class="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium border transition-all text-left"
+                :class="settings.mode === m.key ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
+              >
+                <component :is="m.icon" class="h-4 w-4 shrink-0" />
+                {{ m.label }}
+              </button>
             </div>
           </div>
           
+          <!-- Difficulty -->
+          <div class="space-y-2">
+            <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider">难度等级</label>
+            <div class="grid grid-cols-3 gap-2">
+              <button 
+                v-for="d in [
+                  { key: 'campus_intern', label: '校招实习' },
+                  { key: 'campus_graduate', label: '校招应届' },
+                  { key: 'social_junior', label: '社招初级' }
+                ]" 
+                :key="d.key"
+                @click="settings.difficulty = d.key"
+                class="px-3 py-2 rounded-lg text-sm font-medium border transition-all"
+                :class="settings.difficulty === d.key ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
+              >
+                {{ d.label }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Interviewer Style -->
           <div class="space-y-2">
             <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider">面试官风格</label>
             <div class="grid grid-cols-3 gap-2">
@@ -489,15 +580,30 @@ onUnmounted(() => {
                 class="px-3 py-2 rounded-lg text-sm font-medium border transition-all"
                 :class="settings.style === style ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
               >
-                {{ style === 'gentle' ? '温和' : style === 'stress' ? '压力' : '深度' }}
+                {{ style === 'gentle' ? '温和型' : style === 'stress' ? '压力型' : '技术深挖' }}
               </button>
             </div>
+          </div>
+
+          <!-- AI Shadow Coach Toggle -->
+          <div class="flex items-center justify-between p-3 bg-zinc-50 rounded-xl">
+            <div class="flex items-center gap-2">
+              <Headphones class="h-4 w-4 text-indigo-600" />
+              <span class="text-sm font-medium text-zinc-700">AI 影子教练 (实时耳返)</span>
+            </div>
+            <button
+              @click="shadowCoachEnabled = !shadowCoachEnabled"
+              class="w-10 h-5 rounded-full transition-colors relative"
+              :class="shadowCoachEnabled ? 'bg-indigo-600' : 'bg-zinc-300'"
+            >
+              <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform" :class="shadowCoachEnabled ? 'translate-x-5' : ''"></div>
+            </button>
           </div>
 
           <button 
             @click="startInterview"
             :disabled="isProcessing"
-            class="w-full mt-4 py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="w-full mt-2 py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Loader2 v-if="isProcessing" class="h-5 w-5 animate-spin" />
             <span v-else>开始面试</span>
@@ -508,7 +614,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Interview Phase (New Layout) -->
-    <div v-else-if="phase === 'interview'" class="h-full flex flex-col lg:flex-row gap-6 p-6 bg-zinc-50 overflow-hidden">
+    <div v-else-if="phase === 'interview'" class="h-full flex flex-col lg:flex-row gap-6 p-6 bg-zinc-50 overflow-y-auto lg:overflow-hidden">
       
       <!-- Left Main Column (Video + Input) -->
       <div class="flex-1 flex flex-col gap-6 min-w-0 h-full">
@@ -586,9 +692,9 @@ onUnmounted(() => {
       </div>
 
       <!-- Right Sidebar -->
-      <div class="w-full lg:w-[400px] flex flex-col gap-6 shrink-0 h-full">
+      <div class="w-full lg:w-[400px] flex flex-col gap-4 shrink-0 h-full min-h-0">
         <!-- AI Profile Card -->
-        <div class="bg-white p-5 rounded-3xl border border-white shadow-lg shadow-zinc-200/50 flex items-center gap-4 hover:shadow-xl transition-shadow duration-300">
+        <div class="bg-white p-4 rounded-3xl border border-white shadow-lg shadow-zinc-200/50 flex items-center gap-4 hover:shadow-xl transition-shadow duration-300 shrink-0">
           <div class="h-14 w-14 rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30 ring-4 ring-indigo-50">
             <BrainCircuit class="h-7 w-7" />
           </div>
@@ -602,7 +708,7 @@ onUnmounted(() => {
         </div>
 
         <!-- Question / Feedback Card -->
-        <div class="bg-white rounded-3xl border border-white shadow-xl shadow-zinc-200/50 flex-1 flex flex-col relative overflow-hidden group transition-all duration-300 hover:shadow-2xl hover:shadow-zinc-200/60">
+        <div class="bg-white rounded-3xl border border-white shadow-xl shadow-zinc-200/50 flex-[1.6] min-h-64 flex flex-col relative overflow-hidden group transition-all duration-300 hover:shadow-2xl hover:shadow-zinc-200/60">
            <!-- Card Header -->
            <div class="px-6 py-5 border-b border-zinc-50 flex justify-between items-center bg-zinc-50/50 backdrop-blur-sm z-10">
              <div class="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-full border border-indigo-100/50">
@@ -616,7 +722,7 @@ onUnmounted(() => {
            </div>
            
            <!-- Content Area -->
-           <div class="flex-1 overflow-y-auto p-6 custom-scrollbar relative">
+           <div class="flex-1 min-h-0 overflow-y-auto p-6 custom-scrollbar relative">
              <!-- Loading State -->
              <div v-if="isProcessing && !latestAIMessage" class="absolute inset-0 flex flex-col items-center justify-center text-zinc-400 gap-3 bg-white/80 backdrop-blur-sm z-20">
                 <div class="relative">
@@ -630,38 +736,112 @@ onUnmounted(() => {
              <div v-else class="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
                <!-- If it's a Question -->
                <template v-if="latestAIMessage?.type === 'question' || (latestAIMessage?.role === 'ai' && !latestAIMessage?.type)">
-                 <h2 class="text-xl font-bold text-zinc-900 leading-relaxed tracking-wide">
+                 <h2 class="text-xl font-bold text-zinc-900 leading-relaxed tracking-wide whitespace-pre-wrap wrap-break-word">
                    {{ latestAIMessage?.content }}
                  </h2>
                </template>
 
                <!-- If it's Feedback -->
                <template v-else-if="latestAIMessage?.type === 'feedback'">
-                 <div class="space-y-4">
-                   <div class="p-5 bg-gradient-to-br from-amber-50 to-orange-50/30 rounded-2xl border border-amber-100/60 shadow-sm">
-                      <h4 class="text-xs font-bold text-amber-600 uppercase mb-3 flex items-center gap-2">
+                 <div class="space-y-3">
+                   <!-- 综合评价 -->
+                   <div class="p-4 bg-gradient-to-br from-amber-50 to-orange-50/30 rounded-2xl border border-amber-100/60 shadow-sm">
+                      <h4 class="text-xs font-bold text-amber-600 uppercase mb-2 flex items-center gap-2">
                         <div class="p-1 bg-amber-100 rounded-md">
                           <MessageSquare class="w-3.5 h-3.5" />
                         </div>
-                        评价
+                        综合评价
                       </h4>
-                      <p class="text-sm text-zinc-800 leading-relaxed text-justify">{{ latestAIMessage.feedbackEvaluation }}</p>
+                      <p class="text-sm text-zinc-800 leading-relaxed text-justify whitespace-pre-wrap wrap-break-word">{{ latestAIMessage.feedbackEvaluation }}</p>
+                    </div>
+
+                    <!-- 维度评分 -->
+                    <div v-if="latestAIMessage.feedbackDimensions" class="p-4 bg-gradient-to-br from-indigo-50/80 to-violet-50/30 rounded-2xl border border-indigo-100/50 shadow-sm">
+                      <h4 class="text-xs font-bold text-indigo-600 uppercase mb-3 flex items-center gap-2">
+                        <div class="p-1 bg-indigo-100 rounded-md">
+                          <BarChart3 class="w-3.5 h-3.5" />
+                        </div>
+                        维度评分
+                      </h4>
+                      <div class="space-y-2.5">
+                        <div v-for="dim in [
+                          { key: 'technical_depth', label: '技术深度', color: 'bg-violet-500' },
+                          { key: 'expression', label: '表达清晰', color: 'bg-blue-500' },
+                          { key: 'logic', label: '逻辑严谨', color: 'bg-cyan-500' },
+                          { key: 'completeness', label: '覆盖完整', color: 'bg-emerald-500' }
+                        ]" :key="dim.key" class="flex items-center gap-3">
+                          <span class="text-xs text-zinc-500 w-14 shrink-0 text-right font-medium">{{ dim.label }}</span>
+                          <div class="flex-1 h-2 bg-zinc-100 rounded-full overflow-hidden">
+                            <div :class="dim.color" class="h-full rounded-full transition-all duration-700 ease-out" :style="{ width: (latestAIMessage.feedbackDimensions[dim.key] || 0) + '%' }"></div>
+                          </div>
+                          <span class="text-xs font-bold text-zinc-700 w-8 shrink-0">{{ latestAIMessage.feedbackDimensions[dim.key] || 0 }}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- 亮点 & 差距并排 -->
+                    <div v-if="(latestAIMessage.feedbackHighlights?.length || latestAIMessage.feedbackGaps?.length)" class="grid grid-cols-2 gap-2">
+                      <!-- 亮点 -->
+                      <div v-if="latestAIMessage.feedbackHighlights?.length" class="p-3 bg-emerald-50/80 rounded-xl border border-emerald-100/50">
+                        <h4 class="text-[10px] font-bold text-emerald-600 uppercase mb-2 flex items-center gap-1">
+                          <CheckCircle class="w-3 h-3" /> 亮点
+                        </h4>
+                        <ul class="space-y-1">
+                          <li v-for="(h, i) in latestAIMessage.feedbackHighlights" :key="i" class="text-xs text-emerald-800 leading-relaxed flex gap-1.5">
+                            <span class="text-emerald-400 mt-0.5 shrink-0">✦</span>
+                            <span>{{ h }}</span>
+                          </li>
+                        </ul>
+                      </div>
+                      <!-- 差距 -->
+                      <div v-if="latestAIMessage.feedbackGaps?.length" class="p-3 bg-rose-50/80 rounded-xl border border-rose-100/50">
+                        <h4 class="text-[10px] font-bold text-rose-600 uppercase mb-2 flex items-center gap-1">
+                          <AlertTriangle class="w-3 h-3" /> 待补强
+                        </h4>
+                        <ul class="space-y-1">
+                          <li v-for="(g, i) in latestAIMessage.feedbackGaps" :key="i" class="text-xs text-rose-800 leading-relaxed flex gap-1.5">
+                            <span class="text-rose-400 mt-0.5 shrink-0">△</span>
+                            <span>{{ g }}</span>
+                          </li>
+                        </ul>
+                      </div>
                     </div>
                     
-                    <div class="p-5 bg-gradient-to-br from-emerald-50 to-teal-50/30 rounded-2xl border border-emerald-100/60 shadow-sm">
-                      <h4 class="text-xs font-bold text-emerald-600 uppercase mb-3 flex items-center gap-2">
+                    <!-- 改进建议 -->
+                    <div class="p-4 bg-gradient-to-br from-emerald-50 to-teal-50/30 rounded-2xl border border-emerald-100/60 shadow-sm">
+                      <h4 class="text-xs font-bold text-emerald-600 uppercase mb-2 flex items-center gap-2">
                         <div class="p-1 bg-emerald-100 rounded-md">
                           <Lightbulb class="w-3.5 h-3.5" />
                         </div>
                         改进建议
                       </h4>
-                     <ul class="space-y-3">
-                       <li v-for="(s, i) in latestAIMessage.feedbackSuggestions" :key="i" class="text-sm text-emerald-900 flex gap-3 leading-relaxed group/item">
-                         <span class="font-bold text-emerald-600/40 font-mono text-xs mt-0.5 group-hover/item:text-emerald-600 transition-colors">0{{ i + 1 }}</span>
+                     <ul class="space-y-2">
+                       <li v-for="(s, i) in latestAIMessage.feedbackSuggestions" :key="i" class="text-xs text-emerald-900 flex gap-2.5 leading-relaxed group/item wrap-break-word">
+                         <span class="font-bold text-emerald-600/40 font-mono text-[10px] mt-0.5 group-hover/item:text-emerald-600 transition-colors shrink-0">0{{ i + 1 }}</span>
                          {{ s }}
                        </li>
                      </ul>
                    </div>
+
+                   <!-- 参考答案思路（可折叠） -->
+                   <div v-if="latestAIMessage.feedbackModelAnswer" class="p-4 bg-gradient-to-br from-sky-50/80 to-blue-50/30 rounded-2xl border border-sky-100/50 shadow-sm">
+                      <h4 class="text-xs font-bold text-sky-600 uppercase mb-2 flex items-center gap-2 cursor-pointer select-none" @click="showModelAnswer = !showModelAnswer">
+                        <div class="p-1 bg-sky-100 rounded-md">
+                          <BookOpen class="w-3.5 h-3.5" />
+                        </div>
+                        参考答案思路
+                        <ChevronDown class="w-3 h-3 ml-auto transition-transform duration-200" :class="showModelAnswer ? 'rotate-180' : ''" />
+                      </h4>
+                      <p v-show="showModelAnswer" class="text-xs text-zinc-700 leading-relaxed whitespace-pre-wrap wrap-break-word mt-1 animate-in fade-in slide-in-from-top-2 duration-300">{{ latestAIMessage.feedbackModelAnswer }}</p>
+                    </div>
+
+                    <!-- 追问方向 -->
+                    <div v-if="latestAIMessage.feedbackFollowUp" class="p-3 bg-zinc-50 rounded-xl border border-zinc-100">
+                      <p class="text-xs text-zinc-500 flex items-start gap-2">
+                        <span class="text-indigo-400 font-bold shrink-0 mt-0.5">💬</span>
+                        <span><span class="font-medium text-zinc-600">面试官可能追问：</span>{{ latestAIMessage.feedbackFollowUp }}</span>
+                      </p>
+                    </div>
                  </div>
                </template>
                
@@ -680,22 +860,64 @@ onUnmounted(() => {
            </div>
         </div>
 
-        <!-- Hint Card -->
-        <div v-if="latestAIMessage?.type !== 'feedback'" class="bg-gradient-to-br from-indigo-50/80 to-white p-6 rounded-3xl border border-white shadow-lg shadow-zinc-200/30 backdrop-blur-sm">
-          <h4 class="text-xs font-bold text-indigo-400 uppercase mb-3 flex items-center gap-2">
-            <span class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-pulse"></span>
-            面试提示
+        <!-- Hint Card / Shadow Coach -->
+        <div v-if="shadowCoachEnabled" class="bg-gradient-to-br from-emerald-50/80 to-white p-4 rounded-3xl border border-white shadow-lg shadow-zinc-200/30 backdrop-blur-sm shrink-0">
+          <h4 class="text-xs font-bold text-emerald-600 uppercase mb-3 flex items-center gap-2">
+            <Headphones class="w-3.5 h-3.5" />
+            AI 影子教练 · 实时耳返
           </h4>
           <p class="text-sm text-zinc-600 italic leading-relaxed opacity-80">
             "建议从 STAR 原则出发，重点描述你在项目中遇到的挑战以及你是如何克服它的。"
           </p>
         </div>
 
+        <!-- Multi-modal Emotion Monitoring Panel -->
+        <div class="bg-white rounded-3xl p-4 border border-zinc-100 shadow-sm shrink-0">
+          <h4 class="text-xs font-bold text-zinc-400 uppercase mb-4 flex items-center gap-2">
+            <Heart class="w-3.5 h-3.5 text-rose-500" />
+            多维度情感监测
+          </h4>
+          <div class="space-y-3">
+            <!-- Voice Analysis -->
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2 text-sm text-zinc-600">
+                <Volume2 class="w-3.5 h-3.5 text-indigo-500" />
+                声学分析
+              </div>
+              <span class="text-xs font-medium px-2 py-1 rounded-full bg-emerald-50 text-emerald-600">稳定</span>
+            </div>
+            <!-- Semantic Analysis -->
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2 text-sm text-zinc-600">
+                <Brain class="w-3.5 h-3.5 text-amber-500" />
+                语义层
+              </div>
+              <span class="text-xs font-medium px-2 py-1 rounded-full bg-amber-50 text-amber-600">逻辑性良好</span>
+            </div>
+            <!-- Expression -->
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2 text-sm text-zinc-600">
+                <Eye class="w-3.5 h-3.5 text-violet-500" />
+                表情+行为
+              </div>
+              <span class="text-xs font-medium px-2 py-1 rounded-full bg-indigo-50 text-indigo-600">自然</span>
+            </div>
+            <!-- Heart Rate -->
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2 text-sm text-zinc-600">
+                <Heart class="w-3.5 h-3.5 text-rose-500" />
+                心率估算
+              </div>
+              <span class="text-xs font-medium px-2 py-1 rounded-full bg-rose-50 text-rose-600">{{ emotionFeedback.heartRate }} bpm</span>
+            </div>
+          </div>
+        </div>
+
         <!-- Action Button -->
         <button 
           @click="sendMessage"
           :disabled="isProcessing || (!userInput.trim() && latestAIMessage?.type !== 'feedback')"
-          class="w-full py-4 bg-zinc-900 text-white rounded-2xl font-bold text-lg hover:bg-zinc-800 hover:shadow-xl hover:shadow-zinc-900/20 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 group relative overflow-hidden"
+          class="w-full py-3 bg-zinc-900 text-white rounded-2xl font-bold text-base hover:bg-zinc-800 hover:shadow-xl hover:shadow-zinc-900/20 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 group relative overflow-hidden shrink-0"
         >
           <div class="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
           <span v-if="isProcessing" class="flex items-center gap-2 relative z-10">

@@ -13,6 +13,13 @@ type Config struct {
 	JWT      JWTConfig      `yaml:"jwt"`
 	LLM      LLMConfig      `yaml:"llm"`
 	ASR      ASRConfig      `yaml:"asr"`
+	OCR      OCRConfig      `yaml:"ocr"`
+}
+
+type OCRConfig struct {
+	TesseractPath string `yaml:"tesseract_path"`
+	PdftoppmPath  string `yaml:"pdftoppm_path"`
+	TessdataPath  string `yaml:"tessdata_path"`
 }
 
 type ServerConfig struct {
@@ -35,10 +42,11 @@ type JWTConfig struct {
 }
 
 type LLMConfig struct {
-	Provider string `yaml:"provider"`
-	APIKey   string `yaml:"api_key"`
-	BaseURL  string `yaml:"base_url"`
-	Model    string `yaml:"model"`
+	Provider string            `yaml:"provider"`
+	APIKey   string            `yaml:"api_key"`
+	BaseURL  string            `yaml:"base_url"`
+	Model    string            `yaml:"model"` // Default model
+	Models   map[string]string `yaml:"models"` // Task-specific models: resume, chat, evaluation
 }
 
 type ASRConfig struct {

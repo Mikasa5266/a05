@@ -55,6 +55,91 @@ func SetupRouter() *gin.Engine {
 			// AI对话接口
 			protected.POST("/ai/chat", handler.AIChat)
 			protected.POST("/interview/:id/ai-chat", handler.AIChatWithInterviewContext)
+
+			// 系统诊断
+			protected.GET("/system/ocr/status", handler.OCRStatus)
+
+			// ===== Enterprise 企业端 =====
+			enterprise := protected.Group("/enterprise")
+			{
+				enterprise.GET("/dashboard", handler.GetEnterpriseDashboard)
+
+				enterprise.GET("/talent-pool", handler.GetTalentPool)
+				enterprise.POST("/talent-pool/:id/invite", handler.InviteTalent)
+				enterprise.POST("/talent-pool/:id/save", handler.SaveTalent)
+
+				enterprise.GET("/jobs", handler.GetJobs)
+				enterprise.POST("/jobs", handler.CreateJob)
+				enterprise.PUT("/jobs/:id", handler.UpdateJob)
+				enterprise.DELETE("/jobs/:id", handler.DeleteJob)
+				enterprise.GET("/jobs/:id/ability-atlas", handler.GetAbilityAtlas)
+
+				enterprise.GET("/interview-sessions", handler.GetInterviewSessions)
+				enterprise.POST("/scenarios", handler.CreateCustomScenario)
+				enterprise.GET("/scenarios", handler.GetCustomScenarios)
+
+				enterprise.GET("/analytics", handler.GetRecruitmentAnalytics)
+				enterprise.GET("/analytics/funnel", handler.GetRecruitmentFunnel)
+				enterprise.GET("/analytics/quality", handler.GetCandidateQualityDistribution)
+
+				enterprise.GET("/standards", handler.GetCapabilityStandards)
+				enterprise.POST("/standards", handler.CreateCapabilityStandard)
+				enterprise.PUT("/standards/:id", handler.UpdateCapabilityStandard)
+
+				enterprise.GET("/certified", handler.GetCertifiedCandidates)
+
+				enterprise.GET("/referrals", handler.GetReferralChannels)
+				enterprise.POST("/referrals", handler.CreateReferral)
+			}
+
+			// ===== University 高校端 =====
+			university := protected.Group("/university")
+			{
+				university.GET("/dashboard", handler.GetUniversityDashboard)
+
+				university.GET("/students", handler.GetStudentTracking)
+				university.GET("/students/:id", handler.GetStudentDetail)
+				university.PUT("/students/:id/risk", handler.UpdateStudentRisk)
+
+				university.GET("/risk-groups", handler.GetRiskGroups)
+				university.POST("/mentor/assign", handler.AssignMentor)
+				university.POST("/support/batch", handler.BatchSupport)
+				university.POST("/support/recommend-course", handler.RecommendCourse)
+
+				university.GET("/courses", handler.GetCourses)
+				university.POST("/courses", handler.CreateCourse)
+				university.GET("/resources", handler.GetResources)
+
+				university.GET("/employment/stats", handler.GetEmploymentStats)
+				university.GET("/employment/by-major", handler.GetMajorEmployment)
+				university.GET("/employment/salary", handler.GetSalaryDistribution)
+				university.GET("/employment/city", handler.GetCityDistribution)
+				university.GET("/employment/industry", handler.GetIndustryDistribution)
+
+				university.GET("/talent-push/recommended", handler.GetRecommendedStudents)
+				university.POST("/talent-push", handler.PushStudentsToEnterprise)
+				university.GET("/talent-push/history", handler.GetPushHistory)
+			}
+
+			// ===== Community 社区 =====
+			community := protected.Group("/community")
+			{
+				community.GET("/posts", handler.GetPosts)
+				community.GET("/posts/:id", handler.GetPost)
+				community.POST("/posts", handler.CreatePost)
+				community.POST("/posts/:id/like", handler.LikePost)
+				community.POST("/posts/:id/comments", handler.CommentOnPost)
+				community.GET("/posts/:id/comments", handler.GetPostComments)
+
+				community.POST("/mentors/:id/book", handler.BookMentor)
+				community.GET("/mentors", handler.GetMentors)
+				community.GET("/bookings", handler.GetBookings)
+
+				community.POST("/knowledge/query", handler.QueryKnowledgeBase)
+
+				community.GET("/top-alumni", handler.GetTopAlumni)
+				community.GET("/hot-companies", handler.GetHotCompanies)
+			}
 		}
 	}
 

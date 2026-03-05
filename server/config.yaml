@@ -15,12 +15,22 @@ jwt:
   expire_time: 24
 
 llm:
-  provider: "ernie"
-  api_key: "sk-zk2daa4db3351b08785194b4899cf87ed0c69a673715dea1"
+  provider: "zhizengzeng"
+  api_key: "sk-zk2b130c21deaf0f32023e2680aa011260769a928a495b55"
   base_url: "https://api.zhizengzeng.com/v1"
-  model: "glm-4v-flash"
+  model: "qwen-turbo"
+  models:
+    resume: "deepseek-v3"
+    chat: "qwen-turbo"
+    evaluation: "qwen-plus"
+    report: "qwen-plus"
 
 asr:
   provider: "whisper"
-  api_key: "your-openai-api-key"
-  base_url: "https://api.openai.com/v1"
+  api_key: "sk-zk2b130c21deaf0f32023e2680aa011260769a928a495b55"
+  base_url: "https://api.zhizengzeng.com/v1"
+
+ocr:
+  tesseract_path: "D:\\resource\\tesseract\\tesseract.exe"
+  pdftoppm_path: "D:\\resource\\Poppler\\poppler-25.12.0\\Library\\bin\\pdftoppm.exe"
+  tessdata_path: "D:\\resource\\tesseract\\tessdata"
