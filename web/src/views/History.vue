@@ -17,7 +17,7 @@
         <h3 class="text-lg font-medium text-zinc-900">暂无面试记录</h3>
         <p class="text-zinc-500 mt-1">开始您的第一次模拟面试吧！</p>
         <router-link 
-          to="/interview"
+          to="/student/interview"
           class="mt-6 px-6 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors"
         >
           去面试
@@ -134,7 +134,7 @@ const fetchReports = async () => {
 
 const viewReport = async (record) => {
   if (record.report_id) {
-    router.push(`/report/${record.report_id}`)
+    router.push(`/student/report/${record.report_id}`)
     return
   }
 
@@ -146,7 +146,7 @@ const viewReport = async (record) => {
     const res = await generateReport({ interview_id: record.interview_id })
     const reportId = res?.report?.id
     if (reportId) {
-      router.push(`/report/${reportId}`)
+      router.push(`/student/report/${reportId}`)
     }
   } catch (error) {
     console.error('Failed to generate report:', error)

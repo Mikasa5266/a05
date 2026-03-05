@@ -6,10 +6,13 @@ import {
   BrainCircuit, User, LogOut, Send, Loader2,
   History, MessageSquare, Lightbulb,
   Monitor, Users, Shuffle, UserCheck, Shield, Headphones,
-  Heart, Eye, Brain, Volume2, BarChart3, CheckCircle, AlertTriangle, BookOpen
+  Heart, Eye, Brain, Volume2, BarChart3, CheckCircle, AlertTriangle, BookOpen,
+  Package, Timer, Zap, Building2, Star, Calendar, Clock, X,
+  Flame, Search, Code, Briefcase, GraduationCap
 } from 'lucide-vue-next'
-import { startInterview as apiStartInterview, submitAnswer as apiSubmitAnswer, endInterview as apiEndInterview } from '../api/interview'
+import { startInterview as apiStartInterview, submitAnswer as apiSubmitAnswer, endInterview as apiEndInterview, analyzeSpeechChunk as apiAnalyzeSpeechChunk, drawBlindBoxScenario as apiDrawBlindBox, getInterviewConfig as apiGetInterviewConfig, getHumanInterviewers as apiGetHumanInterviewers, bookHumanInterview as apiBookHumanInterview, getUserBookings as apiGetUserBookings, revealRandomStyle as apiRevealRandomStyle } from '../api/interview'
 import { generateReport as apiGenerateReport } from '../api/report'
+import SpeechDashboard from '../components/SpeechDashboard.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -41,13 +44,223 @@ const settings = ref({
   position: route.query.position || 'Java后端开发',
   difficulty: 'campus_intern',
   mode: route.query.mode || 'technical',
-  style: 'gentle'
+  style: 'gentle',
+  company: '',
+  interviewMode: 'ai'  // ai, human, random
 })
+
+// Interview Config from server
+const interviewConfig = ref(null)
+
+// Human Interviewer state
+const humanInterviewers = ref([])
+const humanInterviewersLoading = ref(false)
+const selectedInterviewer = ref(null)
+const showBookingDialog = ref(false)
+const bookingForm = ref({ scheduledAt: '', notes: '' })
+const userBookings = ref([])
+const showBookingsPanel = ref(false)
+
+// Random mode reveal state
+const randomStyleRevealed = ref(false)
+const revealedStyleInfo = ref(null)
 
 // AI Shadow Coach
 const shadowCoachEnabled = ref(true)
 const shadowCoachHints = ref([])
 const emotionFeedback = ref({ sentiment: '正常', confidence: 0, heartRate: 72 })
+
+// ===== Blind Box Mode =====
+const blindBoxScenario = ref(null)       // The drawn scenario object
+const blindBoxRevealing = ref(false)     // Whether the reveal animation is playing
+const blindBoxRevealed = ref(false)      // Whether scenario has been revealed
+const questionTimeLimit = ref(0)         // Per-question time limit in seconds
+const questionTimer = ref(0)             // Current countdown
+let questionTimerInterval = null
+
+const pressureLevel = computed(() => blindBoxScenario.value?.pressure || 'low')
+const isHighPressure = computed(() => ['high', 'extreme'].includes(pressureLevel.value))
+
+const pressureColors = {
+  low: { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', badge: 'bg-emerald-100 text-emerald-700' },
+  medium: { bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700', badge: 'bg-amber-100 text-amber-700' },
+  high: { bg: 'bg-rose-50', border: 'border-rose-300', text: 'text-rose-700', badge: 'bg-rose-100 text-rose-700' },
+  extreme: { bg: 'bg-red-50', border: 'border-red-400', text: 'text-red-800', badge: 'bg-red-200 text-red-800' },
+}
+const pressureLabels = { low: '轻松', medium: '中等', high: '高压', extreme: '极限' }
+
+// Draw a blindbox scenario (preview before starting)
+const drawBlindBox = async () => {
+  blindBoxRevealing.value = true
+  blindBoxRevealed.value = false
+  blindBoxScenario.value = null
+
+  try {
+    const res = await apiDrawBlindBox()
+    // Simulate slot-machine reveal delay
+    await new Promise(resolve => setTimeout(resolve, 1500))
+    blindBoxScenario.value = res.scenario
+    blindBoxRevealed.value = true
+  } catch (err) {
+    console.error('Failed to draw blindbox:', err)
+    alert('抽取场景失败：' + (err.response?.data?.error || err.message))
+  } finally {
+    blindBoxRevealing.value = false
+  }
+}
+
+// Redraw a different scenario
+const reDrawBlindBox = () => {
+  blindBoxRevealed.value = false
+  drawBlindBox()
+}
+
+// Start per-question timer (for timed scenarios)
+const startQuestionTimer = (limitSec) => {
+  stopQuestionTimer()
+  if (!limitSec || limitSec <= 0) return
+  questionTimeLimit.value = limitSec
+  questionTimer.value = limitSec
+  questionTimerInterval = setInterval(() => {
+    questionTimer.value--
+    if (questionTimer.value <= 0) {
+      stopQuestionTimer()
+    }
+  }, 1000)
+}
+
+const stopQuestionTimer = () => {
+  if (questionTimerInterval) {
+    clearInterval(questionTimerInterval)
+    questionTimerInterval = null
+  }
+  questionTimer.value = 0
+}
+
+// ===== Real-time Speech Metrics =====
+const speechMetrics = ref({
+  speechRate: 0,
+  speechRateLevel: 'normal',
+  fillerWordCount: 0,
+  fluencyAlert: false,
+  totalFillerWords: 0
+})
+const energyLevel = ref(0)
+const speechAnalysisActive = ref(false)
+
+// Audio chunk recording for speech analysis
+let audioContext = null
+let analyserNode = null
+let chunkMediaRecorder = null
+let chunkRecordingStream = null
+let chunkInterval = null
+let energyAnimFrame = null
+
+const startSpeechAnalysis = () => {
+  if (speechAnalysisActive.value || !stream.value) return
+  speechAnalysisActive.value = true
+
+  // Set up Web Audio API for real-time energy
+  audioContext = new (window.AudioContext || window.webkitAudioContext)()
+  const source = audioContext.createMediaStreamSource(stream.value)
+  analyserNode = audioContext.createAnalyser()
+  analyserNode.fftSize = 256
+  source.connect(analyserNode)
+
+  // Animate energy level
+  const dataArray = new Uint8Array(analyserNode.frequencyBinCount)
+  const updateEnergy = () => {
+    if (!speechAnalysisActive.value) return
+    analyserNode.getByteFrequencyData(dataArray)
+    let sum = 0
+    for (let i = 0; i < dataArray.length; i++) sum += dataArray[i]
+    const avg = sum / dataArray.length / 255
+    energyLevel.value = avg
+    energyAnimFrame = requestAnimationFrame(updateEnergy)
+  }
+  updateEnergy()
+
+  // Start chunked recording: every 4 seconds, capture a chunk and send for analysis
+  startChunkRecording()
+}
+
+const startChunkRecording = () => {
+  if (!stream.value) return
+
+  const startNewChunk = () => {
+    if (!speechAnalysisActive.value || !stream.value) return
+
+    // Clone audio tracks for chunk recording
+    const audioTracks = stream.value.getAudioTracks()
+    if (audioTracks.length === 0) return
+    chunkRecordingStream = new MediaStream(audioTracks)
+
+    try {
+      chunkMediaRecorder = new MediaRecorder(chunkRecordingStream, { mimeType: 'audio/webm' })
+    } catch {
+      chunkMediaRecorder = new MediaRecorder(chunkRecordingStream)
+    }
+
+    const chunks = []
+    chunkMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }
+    chunkMediaRecorder.onstop = () => {
+      if (chunks.length === 0 || !interviewId.value) return
+      const blob = new Blob(chunks, { type: 'audio/webm' })
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const base64 = reader.result.split(',')[1]
+        sendSpeechChunk(base64, 4.0)
+      }
+      reader.readAsDataURL(blob)
+    }
+
+    chunkMediaRecorder.start()
+
+    // Stop after 4 seconds and restart
+    chunkInterval = setTimeout(() => {
+      if (chunkMediaRecorder && chunkMediaRecorder.state === 'recording') {
+        chunkMediaRecorder.stop()
+      }
+      // Start next chunk
+      if (speechAnalysisActive.value) startNewChunk()
+    }, 4000)
+  }
+
+  startNewChunk()
+}
+
+const sendSpeechChunk = async (audioBase64, duration) => {
+  if (!interviewId.value) return
+  try {
+    const res = await apiAnalyzeSpeechChunk(interviewId.value, {
+      audio_data: audioBase64,
+      duration: duration
+    })
+    if (res.metrics) {
+      const m = res.metrics
+      speechMetrics.value.speechRate = m.speech_rate
+      speechMetrics.value.speechRateLevel = m.speech_rate_level
+      speechMetrics.value.fillerWordCount = m.filler_word_count
+      speechMetrics.value.fluencyAlert = m.fluency_alert
+      speechMetrics.value.totalFillerWords += m.filler_word_count
+    }
+  } catch (err) {
+    console.warn('Speech analysis chunk failed:', err)
+  }
+}
+
+const stopSpeechAnalysis = () => {
+  speechAnalysisActive.value = false
+  if (chunkInterval) { clearTimeout(chunkInterval); chunkInterval = null }
+  if (chunkMediaRecorder && chunkMediaRecorder.state === 'recording') {
+    chunkMediaRecorder.stop()
+  }
+  if (energyAnimFrame) { cancelAnimationFrame(energyAnimFrame); energyAnimFrame = null }
+  if (audioContext) { audioContext.close(); audioContext = null }
+  analyserNode = null
+  chunkMediaRecorder = null
+  chunkRecordingStream = null
+}
 
 // Camera Logic
 const toggleCamera = async () => {
@@ -82,6 +295,7 @@ const stopCamera = () => {
     stream.value = null
   }
   isCameraOn.value = false
+  stopSpeechAnalysis()
 }
 
 // Interview Logic
@@ -92,13 +306,30 @@ const startInterview = async () => {
       position: settings.value.position,
       difficulty: settings.value.difficulty,
       mode: settings.value.mode,
-      style: settings.value.style
+      style: settings.value.style,
+      company: settings.value.company,
+      interview_mode: settings.value.interviewMode
     })
     
     // Backend returns { message: "...", interview: { ... } }
     // The interview object contains questions array if loaded correctly
     const interview = res.interview
     interviewId.value = interview.id
+
+    // Parse blindbox scenario if present
+    if (interview.scenario) {
+      try {
+        blindBoxScenario.value = typeof interview.scenario === 'string'
+          ? JSON.parse(interview.scenario)
+          : interview.scenario
+        blindBoxRevealed.value = true
+        // Set time limit from scenario
+        if (blindBoxScenario.value?.time_limit) {
+          questionTimeLimit.value = blindBoxScenario.value.time_limit
+        }
+      } catch (_) { /* ignore parse errors */ }
+    }
+
     const rawQuestions = interview.questions || []
     questions.value = rawQuestions
       .map((item) => {
@@ -123,17 +354,40 @@ const startInterview = async () => {
     phase.value = 'interview'
     currentQuestionIndex.value = 0
     
-    // Initialize Chat
+    // Initialize Chat — adapt greeting for different modes
+    const isBlindBox = settings.value.mode === 'blindbox' && blindBoxScenario.value
+    const isRandom = settings.value.interviewMode === 'random'
+    
+    const modeLabels = { technical: '技术', hr: 'HR', comprehensive: '综合' }
+    const styleLabels = { gentle: '温和型', stress: '压力型', deep: '技术深挖型', practical: '项目实战型', algorithm: '算法考察型' }
+    const companyLabels = { ali: '阿里巴巴', bytedance: '字节跳动', tencent: '腾讯', meituan: '美团', baidu: '百度' }
+
+    let scenarioGreeting
+    if (isBlindBox) {
+      scenarioGreeting = `🎲 盲盒场景已揭晓：${blindBoxScenario.value.icon} **${blindBoxScenario.value.name}**\n\n${blindBoxScenario.value.description}\n\n压力等级：${pressureLabels[blindBoxScenario.value.pressure] || '未知'}${blindBoxScenario.value.time_limit ? `\n每题限时：${blindBoxScenario.value.time_limit}秒` : ''}\n\n准备好了吗？让我们开始！`
+    } else if (isRandom) {
+      scenarioGreeting = `🎲 随机模式已启动！\n\n系统已为您随机分配了面试官风格，在面试过程中不会提前告知。\n这模拟了真实企业面试中的"突然切换风格"场景，请保持灵活应变！\n\n面试岗位：${settings.value.position}\n面试结束后将揭晓面试官风格，让我们开始吧！`
+    } else {
+      const modeLabel = modeLabels[settings.value.mode] || settings.value.mode
+      const companyInfo = settings.value.company ? `（${companyLabels[settings.value.company] || settings.value.company}风格）` : ''
+      scenarioGreeting = `你好！我是你的 AI 面试官${companyInfo}。我们将进行一场关于 ${settings.value.position} 的${modeLabel}面试，采用${styleLabels[settings.value.style] || settings.value.style}提问方式。准备好了吗？让我们开始吧。`
+    }
+
     messages.value = [
       {
         role: 'ai',
-        content: `你好！我是你的 AI 面试官。我们将进行一场关于 ${settings.value.position} 的 ${settings.value.mode === 'technical' ? '技术' : '综合'} 面试。准备好了吗？让我们开始吧。`
+        content: scenarioGreeting,
+        type: isBlindBox ? 'scenario' : undefined
       }
     ]
     
     // Push first question after a short delay
     setTimeout(() => {
       pushAIQuestion(questions.value[0])
+      // Start question timer if scenario has time limit
+      if (blindBoxScenario.value?.time_limit) {
+        startQuestionTimer(blindBoxScenario.value.time_limit)
+      }
       scrollToBottom()
     }, 1000)
 
@@ -143,6 +397,8 @@ const startInterview = async () => {
       setTimeout(async () => {
         if (!stream.value) await startCamera()
         else if (interviewVideo.value) interviewVideo.value.srcObject = stream.value
+        // Start real-time speech analysis
+        startSpeechAnalysis()
       }, 500)
     }
 
@@ -358,14 +614,23 @@ const sendMessage = async () => {
       currentQuestionIndex.value++
       setTimeout(() => {
         pushAIQuestion(questions.value[currentQuestionIndex.value])
+        // Restart question timer for blindbox timed scenarios
+        if (blindBoxScenario.value?.time_limit) {
+          startQuestionTimer(blindBoxScenario.value.time_limit)
+        }
       }, 1500)
     } else {
+      stopQuestionTimer()
       setTimeout(() => {
         messages.value.push({
           role: 'ai',
           content: "面试结束！辛苦了。您可以点击下方按钮查看详细报告。",
           type: 'system'
         })
+        // Reveal random style if applicable
+        if (settings.value.interviewMode === 'random') {
+          revealStyle()
+        }
         completeInterview()
       }, 1500)
     }
@@ -437,7 +702,7 @@ const viewReport = async () => {
     }
   }
   if (reportId.value) {
-    router.push(`/report/${reportId.value}`)
+    router.push(`/student/report/${reportId.value}`)
     return
   }
   messages.value.push({
@@ -458,21 +723,98 @@ const scrollToBottom = () => {
 const endInterviewEarly = async () => {
   if (confirm('确定要结束面试吗？进度将不会保存。')) {
     stopCamera()
+    stopQuestionTimer()
     phase.value = 'setup'
     currentQuestionIndex.value = 0
     messages.value = []
+    blindBoxScenario.value = null
+    blindBoxRevealed.value = false
+    randomStyleRevealed.value = false
+    revealedStyleInfo.value = null
     if (interviewId.value) {
         try { await apiEndInterview(interviewId.value) } catch(e){}
     }
   }
 }
 
+// ===== Load Interview Config =====
+const loadInterviewConfig = async () => {
+  try {
+    const res = await apiGetInterviewConfig()
+    interviewConfig.value = res
+  } catch (err) {
+    console.warn('Failed to load interview config:', err)
+  }
+}
+
+// ===== Human Interviewer Functions =====
+const loadHumanInterviewers = async (type_filter = '') => {
+  humanInterviewersLoading.value = true
+  try {
+    const res = await apiGetHumanInterviewers({ type: type_filter, page: 1, page_size: 50 })
+    humanInterviewers.value = res.interviewers || []
+  } catch (err) {
+    console.warn('Failed to load human interviewers:', err)
+    humanInterviewers.value = []
+  } finally {
+    humanInterviewersLoading.value = false
+  }
+}
+
+const selectInterviewer = (interviewer) => {
+  selectedInterviewer.value = interviewer
+  showBookingDialog.value = true
+}
+
+const submitBooking = async () => {
+  if (!selectedInterviewer.value || !bookingForm.value.scheduledAt) return
+  try {
+    const res = await apiBookHumanInterview({
+      interviewer_id: selectedInterviewer.value.id,
+      scheduled_at: new Date(bookingForm.value.scheduledAt).toISOString(),
+      position: settings.value.position,
+      difficulty: settings.value.difficulty,
+      notes: bookingForm.value.notes
+    })
+    alert('预约成功！面试官确认后将收到通知。')
+    showBookingDialog.value = false
+    bookingForm.value = { scheduledAt: '', notes: '' }
+    selectedInterviewer.value = null
+    loadUserBookings()
+  } catch (err) {
+    alert('预约失败：' + (err.response?.data?.error || err.message))
+  }
+}
+
+const loadUserBookings = async () => {
+  try {
+    const res = await apiGetUserBookings()
+    userBookings.value = res.bookings || []
+  } catch (err) {
+    console.warn('Failed to load bookings:', err)
+  }
+}
+
+// ===== Random Mode Reveal =====
+const revealStyle = async () => {
+  if (!interviewId.value) return
+  try {
+    const res = await apiRevealRandomStyle(interviewId.value)
+    revealedStyleInfo.value = res
+    randomStyleRevealed.value = true
+  } catch (err) {
+    console.warn('Failed to reveal style:', err)
+  }
+}
+
 onMounted(() => {
   startCamera()
+  loadInterviewConfig()
 })
 
 onUnmounted(() => {
   stopCamera()
+  stopSpeechAnalysis()
 })
 </script>
 
@@ -525,62 +867,239 @@ onUnmounted(() => {
             />
           </div>
 
-          <!-- Interview Mode -->
+          <!-- ===== 1. Interview Type (面试类型) ===== -->
           <div class="space-y-2">
-            <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider">面试模式</label>
-            <div class="grid grid-cols-2 gap-2">
+            <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider">面试类型</label>
+            <div class="grid grid-cols-3 gap-2">
               <button 
                 v-for="m in [
-                  { key: 'technical', label: 'AI 技术面', icon: Monitor },
-                  { key: 'hr', label: 'AI HR面', icon: UserCheck },
-                  { key: 'accessibility', label: '无障碍面试', icon: Shield },
-                  { key: 'group', label: '无领导小组', icon: Users },
-                  { key: 'random', label: '随机模式', icon: Shuffle },
-                  { key: 'comprehensive', label: '综合评估', icon: BrainCircuit }
+                  { key: 'technical', label: '技术面', icon: Monitor, desc: '编程/算法/系统设计' },
+                  { key: 'hr', label: 'HR面', icon: UserCheck, desc: '沟通/职业规划/软技能' },
+                  { key: 'comprehensive', label: '综合面', icon: BrainCircuit, desc: '技术+HR联合面试' }
                 ]"
                 :key="m.key"
                 @click="settings.mode = m.key"
-                class="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium border transition-all text-left"
-                :class="settings.mode === m.key ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
+                class="flex flex-col items-center gap-1 px-3 py-3 rounded-xl text-sm font-medium border transition-all text-center relative group"
+                :class="settings.mode === m.key 
+                  ? 'bg-indigo-50 border-indigo-200 text-indigo-600 ring-1 ring-indigo-200'
+                  : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
               >
-                <component :is="m.icon" class="h-4 w-4 shrink-0" />
-                {{ m.label }}
-              </button>
-            </div>
-          </div>
-          
-          <!-- Difficulty -->
-          <div class="space-y-2">
-            <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider">难度等级</label>
-            <div class="grid grid-cols-3 gap-2">
-              <button 
-                v-for="d in [
-                  { key: 'campus_intern', label: '校招实习' },
-                  { key: 'campus_graduate', label: '校招应届' },
-                  { key: 'social_junior', label: '社招初级' }
-                ]" 
-                :key="d.key"
-                @click="settings.difficulty = d.key"
-                class="px-3 py-2 rounded-lg text-sm font-medium border transition-all"
-                :class="settings.difficulty === d.key ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
-              >
-                {{ d.label }}
+                <component :is="m.icon" class="h-5 w-5 shrink-0" />
+                <span class="font-bold text-xs">{{ m.label }}</span>
+                <span class="text-[10px] text-zinc-400 leading-tight">{{ m.desc }}</span>
               </button>
             </div>
           </div>
 
-          <!-- Interviewer Style -->
+          <!-- ===== 2. Interviewer Style (面试官风格) ===== -->
           <div class="space-y-2">
             <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider">面试官风格</label>
             <div class="grid grid-cols-3 gap-2">
               <button 
-                v-for="style in ['gentle', 'stress', 'deep']" 
-                :key="style"
-                @click="settings.style = style"
-                class="px-3 py-2 rounded-lg text-sm font-medium border transition-all"
-                :class="settings.style === style ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
+                v-for="s in [
+                  { key: 'gentle', label: '温和型', icon: Heart, color: 'emerald' },
+                  { key: 'stress', label: '压力型', icon: Flame, color: 'rose' },
+                  { key: 'deep', label: '技术深挖', icon: Search, color: 'violet' },
+                  { key: 'practical', label: '项目实战', icon: Briefcase, color: 'amber' },
+                  { key: 'algorithm', label: '算法考察', icon: Code, color: 'cyan' }
+                ]" 
+                :key="s.key"
+                @click="settings.style = s.key"
+                class="flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium border transition-all"
+                :class="settings.style === s.key ? 'bg-indigo-50 border-indigo-200 text-indigo-600 ring-1 ring-indigo-200' : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
               >
-                {{ style === 'gentle' ? '温和型' : style === 'stress' ? '压力型' : '技术深挖' }}
+                <component :is="s.icon" class="h-3.5 w-3.5 shrink-0" />
+                {{ s.label }}
+              </button>
+            </div>
+          </div>
+
+          <!-- ===== Company Style (大厂面试风格复刻) ===== -->
+          <div class="space-y-2">
+            <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
+              <Building2 class="w-3.5 h-3.5" /> 大厂面试风格（可选）
+            </label>
+            <div class="grid grid-cols-3 gap-2">
+              <button 
+                v-for="c in [
+                  { key: '', label: '不限', emoji: '🌐' },
+                  { key: 'ali', label: '阿里', emoji: '🟠' },
+                  { key: 'bytedance', label: '字节', emoji: '⚡' },
+                  { key: 'tencent', label: '腾讯', emoji: '🐧' },
+                  { key: 'meituan', label: '美团', emoji: '🟡' },
+                  { key: 'baidu', label: '百度', emoji: '🔵' }
+                ]" 
+                :key="c.key"
+                @click="settings.company = c.key"
+                class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all"
+                :class="settings.company === c.key ? 'bg-orange-50 border-orange-200 text-orange-700 ring-1 ring-orange-200' : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
+              >
+                <span>{{ c.emoji }}</span>
+                {{ c.label }}
+              </button>
+            </div>
+          </div>
+          
+          <!-- ===== 3. Difficulty Level (难度等级) ===== -->
+          <div class="space-y-2">
+            <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
+              <GraduationCap class="w-3.5 h-3.5" /> 难度等级
+            </label>
+            <div class="grid grid-cols-3 gap-2">
+              <button 
+                v-for="d in [
+                  { key: 'campus_intern', label: '校招实习', desc: '在校实习生' },
+                  { key: 'campus_graduate', label: '校招应届', desc: '应届毕业生' },
+                  { key: 'social_junior', label: '社招初级', desc: '1-3年经验' }
+                ]" 
+                :key="d.key"
+                @click="settings.difficulty = d.key"
+                class="flex flex-col items-center gap-0.5 px-3 py-2.5 rounded-xl text-xs font-medium border transition-all"
+                :class="settings.difficulty === d.key ? 'bg-indigo-50 border-indigo-200 text-indigo-600 ring-1 ring-indigo-200' : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
+              >
+                <span class="font-bold">{{ d.label }}</span>
+                <span class="text-[10px] text-zinc-400">{{ d.desc }}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- ===== 4. Interview Mode (面试模式: AI/真人/随机) ===== -->
+          <div class="space-y-2">
+            <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider">面试模式</label>
+            <div class="grid grid-cols-3 gap-2">
+              <button 
+                v-for="im in [
+                  { key: 'ai', label: 'AI仿真面试官', icon: '🤖', desc: 'AI模拟真实面试' },
+                  { key: 'human', label: '真人面试', icon: '👤', desc: '预约真人面试官' },
+                  { key: 'random', label: '随机模式', icon: '🎲', desc: '风格随机不提前告知' }
+                ]" 
+                :key="im.key"
+                @click="settings.interviewMode = im.key; if(im.key === 'human') loadHumanInterviewers()"
+                class="flex flex-col items-center gap-1 px-3 py-3 rounded-xl text-xs font-medium border transition-all text-center"
+                :class="settings.interviewMode === im.key 
+                  ? (im.key === 'random' ? 'bg-violet-50 border-violet-300 text-violet-700 ring-1 ring-violet-200' : im.key === 'human' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 ring-1 ring-emerald-200' : 'bg-indigo-50 border-indigo-200 text-indigo-600 ring-1 ring-indigo-200')
+                  : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
+              >
+                <span class="text-xl">{{ im.icon }}</span>
+                <span class="font-bold">{{ im.label }}</span>
+                <span class="text-[10px] text-zinc-400 leading-tight">{{ im.desc }}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Random Mode Notice -->
+          <div v-if="settings.interviewMode === 'random'" class="p-3 bg-violet-50 rounded-xl border border-violet-200 animate-in fade-in duration-300">
+            <div class="flex items-start gap-2">
+              <Shuffle class="w-4 h-4 text-violet-600 mt-0.5 shrink-0" />
+              <div>
+                <p class="text-xs font-bold text-violet-700">随机模式说明</p>
+                <p class="text-[11px] text-violet-600 leading-relaxed mt-1">
+                  系统将随机分配面试官风格（温和/压力/深挖等），可能随机匹配大厂面试风格。
+                  面试过程中不会提前告知风格类型，模拟真实企业的"突然压力追问"场景。
+                  面试结束后将揭晓本次的面试官风格。
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===== Human Interview Panel ===== -->
+          <div v-if="settings.interviewMode === 'human'" class="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+            <!-- Interviewer Type Tabs -->
+            <div class="flex gap-2">
+              <button 
+                v-for="t in [{key: '', label: '全部'}, {key: 'campus', label: '🏫 校内老师'}, {key: 'enterprise', label: '🏢 企业专家'}]"
+                :key="t.key"
+                @click="loadHumanInterviewers(t.key)"
+                class="px-3 py-1.5 rounded-lg text-xs font-medium border transition-all"
+                :class="'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
+              >
+                {{ t.label }}
+              </button>
+            </div>
+
+            <!-- Interviewers List -->
+            <div v-if="humanInterviewersLoading" class="text-center py-4">
+              <Loader2 class="w-6 h-6 text-zinc-400 animate-spin mx-auto" />
+              <p class="text-xs text-zinc-400 mt-2">加载面试官列表...</p>
+            </div>
+            <div v-else-if="humanInterviewers.length > 0" class="space-y-2 max-h-[180px] overflow-y-auto custom-scrollbar">
+              <div 
+                v-for="interviewer in humanInterviewers" 
+                :key="interviewer.id"
+                @click="selectInterviewer(interviewer)"
+                class="flex items-center gap-3 p-3 rounded-xl border border-zinc-100 hover:border-indigo-200 hover:bg-indigo-50/30 cursor-pointer transition-all group"
+              >
+                <div class="h-10 w-10 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 flex items-center justify-center text-indigo-700 font-bold text-sm shrink-0">
+                  {{ interviewer.name?.[0] || '?' }}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="text-sm font-bold text-zinc-800">{{ interviewer.name }}</span>
+                    <span class="text-[10px] px-1.5 py-0.5 rounded-full" 
+                      :class="interviewer.type === 'campus' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'">
+                      {{ interviewer.type === 'campus' ? '校内' : '企业' }}
+                    </span>
+                  </div>
+                  <p class="text-[11px] text-zinc-500 truncate">{{ interviewer.title }}{{ interviewer.company ? ` · ${interviewer.company}` : '' }}</p>
+                  <div class="flex items-center gap-2 mt-0.5">
+                    <span class="text-[10px] text-amber-600 flex items-center gap-0.5">
+                      <Star class="w-2.5 h-2.5 fill-amber-400 text-amber-400" /> {{ interviewer.rating?.toFixed(1) }}
+                    </span>
+                    <span class="text-[10px] text-zinc-400">{{ interviewer.total_sessions }}次面试</span>
+                  </div>
+                </div>
+                <Calendar class="w-4 h-4 text-zinc-300 group-hover:text-indigo-500 transition-colors shrink-0" />
+              </div>
+            </div>
+            <div v-else class="p-4 bg-zinc-50 rounded-xl text-center">
+              <p class="text-xs text-zinc-400">暂无可用面试官。校内老师和企业专家将陆续上线。</p>
+            </div>
+
+            <!-- Bookings Button -->
+            <button @click="showBookingsPanel = true; loadUserBookings()" class="w-full py-2 rounded-xl text-xs font-medium border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-600 transition-all flex items-center justify-center gap-1.5">
+              <Clock class="w-3 h-3" /> 查看我的预约
+            </button>
+          </div>
+
+          <!-- Blind Box Mode (unchanged) -->
+          <div v-if="settings.mode === 'blindbox'" class="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+            <div v-if="blindBoxRevealing" class="p-6 bg-gradient-to-br from-violet-100 to-purple-50 rounded-2xl border border-violet-200 flex flex-col items-center justify-center gap-3">
+              <div class="relative">
+                <Package class="h-12 w-12 text-violet-600 animate-bounce" />
+                <div class="absolute -top-1 -right-1 w-4 h-4 bg-yellow-400 rounded-full animate-ping"></div>
+              </div>
+              <p class="text-sm font-bold text-violet-700 animate-pulse">正在抽取面试场景...</p>
+            </div>
+            <div v-else-if="blindBoxRevealed && blindBoxScenario" 
+              class="p-4 rounded-2xl border-2 shadow-md animate-in fade-in zoom-in-95 duration-500 relative overflow-hidden"
+              :class="[pressureColors[pressureLevel]?.bg, pressureColors[pressureLevel]?.border]"
+            >
+              <div class="absolute top-0 right-0 w-20 h-20 bg-gradient-to-bl from-white/40 to-transparent rounded-bl-full pointer-events-none"></div>
+              <div class="flex items-start gap-3">
+                <span class="text-3xl">{{ blindBoxScenario.icon }}</span>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2 mb-1">
+                    <h4 class="font-bold text-base" :class="pressureColors[pressureLevel]?.text">{{ blindBoxScenario.name }}</h4>
+                    <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" :class="pressureColors[pressureLevel]?.badge">
+                      {{ pressureLabels[pressureLevel] }}
+                    </span>
+                  </div>
+                  <p class="text-xs text-zinc-600 leading-relaxed mb-2">{{ blindBoxScenario.description }}</p>
+                  <div class="flex flex-wrap gap-1.5">
+                    <span v-for="tag in blindBoxScenario.tags" :key="tag" class="text-[10px] px-2 py-0.5 rounded-full bg-white/60 text-zinc-500 border border-zinc-200">{{ tag }}</span>
+                    <span v-if="blindBoxScenario.time_limit" class="text-[10px] px-2 py-0.5 rounded-full bg-white/60 text-zinc-500 border border-zinc-200 flex items-center gap-1">
+                      <Timer class="w-2.5 h-2.5" /> {{ blindBoxScenario.time_limit }}s/题
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <button @click="reDrawBlindBox" class="mt-3 w-full py-2 rounded-xl text-xs font-medium border border-zinc-200 bg-white/80 hover:bg-white text-zinc-600 transition-all flex items-center justify-center gap-1.5">
+                <Shuffle class="w-3 h-3" /> 换一个场景
+              </button>
+            </div>
+            <div v-else class="p-4 bg-zinc-50 rounded-2xl border border-dashed border-zinc-300 text-center">
+              <button @click="drawBlindBox" class="px-4 py-2 rounded-xl bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 transition-all flex items-center gap-2 mx-auto">
+                <Package class="w-4 h-4" /> 抽取盲盒场景
               </button>
             </div>
           </div>
@@ -602,12 +1121,13 @@ onUnmounted(() => {
 
           <button 
             @click="startInterview"
-            :disabled="isProcessing"
+            :disabled="isProcessing || (settings.interviewMode === 'human')"
             class="w-full mt-2 py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Loader2 v-if="isProcessing" class="h-5 w-5 animate-spin" />
+            <span v-else-if="settings.interviewMode === 'human'">请先预约真人面试官</span>
             <span v-else>开始面试</span>
-            <ChevronRight v-if="!isProcessing" class="h-5 w-5" />
+            <ChevronRight v-if="!isProcessing && settings.interviewMode !== 'human'" class="h-5 w-5" />
           </button>
         </div>
       </div>
@@ -626,10 +1146,38 @@ onUnmounted(() => {
               <div class="w-2 h-2 bg-white rounded-full animate-pulse"></div>
               REC
             </div>
-            <div class="bg-black/40 text-white/90 text-xs px-3 py-1.5 rounded-full backdrop-blur-md border border-white/10 shadow-sm">
+            <!-- Blind Box scenario badge -->
+            <div v-if="blindBoxScenario" class="text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-2 backdrop-blur-md border border-white/10 shadow-sm"
+              :class="isHighPressure ? 'bg-rose-600/60' : 'bg-black/40'">
+              <span>{{ blindBoxScenario.icon }}</span>
+              {{ blindBoxScenario.name }}
+            </div>
+            <div v-else class="bg-black/40 text-white/90 text-xs px-3 py-1.5 rounded-full backdrop-blur-md border border-white/10 shadow-sm">
               多模态情绪监测中...
             </div>
           </div>
+
+          <!-- Question Timer (top-right, for timed scenarios) -->
+          <div v-if="questionTimer > 0" class="absolute top-6 right-6 z-10 pointer-events-none">
+            <div class="flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md shadow-lg border"
+              :class="questionTimer <= 10 
+                ? 'bg-rose-600/80 border-rose-400 text-white animate-pulse' 
+                : questionTimer <= 30 
+                  ? 'bg-amber-500/70 border-amber-300 text-white' 
+                  : 'bg-black/40 border-white/10 text-white/90'">
+              <Timer class="w-4 h-4" />
+              <span class="text-lg font-mono font-black tracking-wider">
+                {{ Math.floor(questionTimer / 60) }}:{{ (questionTimer % 60).toString().padStart(2, '0') }}
+              </span>
+            </div>
+          </div>
+
+          <!-- High-pressure overlay vignette -->
+          <div v-if="isHighPressure" class="absolute inset-0 pointer-events-none z-[5]"
+            :class="pressureLevel === 'extreme' 
+              ? 'shadow-[inset_0_0_80px_rgba(220,38,38,0.25)]' 
+              : 'shadow-[inset_0_0_60px_rgba(220,38,38,0.1)]'"
+          ></div>
           
           <!-- Video Element -->
           <video ref="interviewVideo" class="w-full h-full object-cover transform scale-x-[-1]" autoplay muted v-if="isCameraOn"></video>
@@ -702,17 +1250,42 @@ onUnmounted(() => {
             <h3 class="font-bold text-zinc-900 text-lg">智聘智能引擎</h3>
             <p class="text-xs text-zinc-500 font-medium flex items-center gap-1">
               <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>
-              AI 面试官在线
+              <span v-if="settings.interviewMode === 'random'">🎲 随机面试模式</span>
+              <span v-else>{{ settings.mode === 'hr' ? 'HR面试官' : settings.mode === 'comprehensive' ? '综合面试官' : 'AI 技术面试官' }} · {{ settings.style === 'gentle' ? '温和型' : settings.style === 'stress' ? '压力型' : settings.style === 'deep' ? '深挖型' : settings.style === 'practical' ? '实战型' : settings.style === 'algorithm' ? '算法型' : '标准' }}</span>
             </p>
           </div>
         </div>
 
+        <!-- Blind Box Scenario Banner (during interview) -->
+        <div v-if="blindBoxScenario" 
+          class="p-3 rounded-2xl border shadow-sm shrink-0 flex items-center gap-3 animate-in fade-in duration-500"
+          :class="[pressureColors[pressureLevel]?.bg, pressureColors[pressureLevel]?.border]">
+          <span class="text-2xl">{{ blindBoxScenario.icon }}</span>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-bold" :class="pressureColors[pressureLevel]?.text">{{ blindBoxScenario.name }}</span>
+              <span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full" :class="pressureColors[pressureLevel]?.badge">
+                {{ pressureLabels[pressureLevel] }}
+              </span>
+            </div>
+            <p class="text-[10px] text-zinc-500 truncate mt-0.5">{{ blindBoxScenario.description }}</p>
+          </div>
+          <div v-if="questionTimer > 0" class="flex items-center gap-1 px-2 py-1 rounded-lg shrink-0"
+            :class="questionTimer <= 10 ? 'bg-rose-200 text-rose-800 animate-pulse' : 'bg-white/60 text-zinc-600'">
+            <Timer class="w-3 h-3" />
+            <span class="text-xs font-mono font-bold">{{ Math.floor(questionTimer / 60) }}:{{ (questionTimer % 60).toString().padStart(2, '0') }}</span>
+          </div>
+        </div>
+
         <!-- Question / Feedback Card -->
-        <div class="bg-white rounded-3xl border border-white shadow-xl shadow-zinc-200/50 flex-[1.6] min-h-64 flex flex-col relative overflow-hidden group transition-all duration-300 hover:shadow-2xl hover:shadow-zinc-200/60">
+        <div class="bg-white rounded-3xl border shadow-xl shadow-zinc-200/50 flex-[1.6] min-h-64 flex flex-col relative overflow-hidden group transition-all duration-300 hover:shadow-2xl hover:shadow-zinc-200/60"
+          :class="isHighPressure ? 'border-rose-100' : 'border-white'">
            <!-- Card Header -->
-           <div class="px-6 py-5 border-b border-zinc-50 flex justify-between items-center bg-zinc-50/50 backdrop-blur-sm z-10">
-             <div class="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-full border border-indigo-100/50">
-               <span class="w-1.5 h-1.5 rounded-full bg-indigo-600"></span>
+           <div class="px-6 py-5 border-b flex justify-between items-center backdrop-blur-sm z-10"
+             :class="isHighPressure ? 'border-rose-50 bg-rose-50/30' : 'border-zinc-50 bg-zinc-50/50'">
+             <div class="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-full border"
+               :class="isHighPressure ? 'bg-rose-50 text-rose-700 border-rose-100/50' : 'bg-indigo-50 text-indigo-700 border-indigo-100/50'">
+               <span class="w-1.5 h-1.5 rounded-full" :class="isHighPressure ? 'bg-rose-600' : 'bg-indigo-600'"></span>
                当前提问 ({{ currentQuestionIndex + 1 }}/{{ questions.length }})
              </div>
              <div v-if="latestAIMessage?.type === 'feedback'" class="flex items-center gap-2 animate-in fade-in slide-in-from-right duration-500">
@@ -871,46 +1444,17 @@ onUnmounted(() => {
           </p>
         </div>
 
-        <!-- Multi-modal Emotion Monitoring Panel -->
+        <!-- Real-time Speech Dashboard -->
         <div class="bg-white rounded-3xl p-4 border border-zinc-100 shadow-sm shrink-0">
-          <h4 class="text-xs font-bold text-zinc-400 uppercase mb-4 flex items-center gap-2">
-            <Heart class="w-3.5 h-3.5 text-rose-500" />
-            多维度情感监测
-          </h4>
-          <div class="space-y-3">
-            <!-- Voice Analysis -->
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2 text-sm text-zinc-600">
-                <Volume2 class="w-3.5 h-3.5 text-indigo-500" />
-                声学分析
-              </div>
-              <span class="text-xs font-medium px-2 py-1 rounded-full bg-emerald-50 text-emerald-600">稳定</span>
-            </div>
-            <!-- Semantic Analysis -->
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2 text-sm text-zinc-600">
-                <Brain class="w-3.5 h-3.5 text-amber-500" />
-                语义层
-              </div>
-              <span class="text-xs font-medium px-2 py-1 rounded-full bg-amber-50 text-amber-600">逻辑性良好</span>
-            </div>
-            <!-- Expression -->
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2 text-sm text-zinc-600">
-                <Eye class="w-3.5 h-3.5 text-violet-500" />
-                表情+行为
-              </div>
-              <span class="text-xs font-medium px-2 py-1 rounded-full bg-indigo-50 text-indigo-600">自然</span>
-            </div>
-            <!-- Heart Rate -->
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2 text-sm text-zinc-600">
-                <Heart class="w-3.5 h-3.5 text-rose-500" />
-                心率估算
-              </div>
-              <span class="text-xs font-medium px-2 py-1 rounded-full bg-rose-50 text-rose-600">{{ emotionFeedback.heartRate }} bpm</span>
-            </div>
-          </div>
+          <SpeechDashboard
+            :speechRate="speechMetrics.speechRate"
+            :speechRateLevel="speechMetrics.speechRateLevel"
+            :energyLevel="energyLevel"
+            :fillerWordCount="speechMetrics.fillerWordCount"
+            :fluencyAlert="speechMetrics.fluencyAlert"
+            :totalFillerWords="speechMetrics.totalFillerWords"
+            :isActive="speechAnalysisActive"
+          />
         </div>
 
         <!-- Action Button -->
@@ -961,6 +1505,126 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <!-- Random Style Reveal Banner (shown after interview ends in random mode) -->
+      <div v-if="randomStyleRevealed && revealedStyleInfo" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div class="bg-white rounded-2xl shadow-2xl border border-violet-200 p-5 min-w-[360px] max-w-md">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="p-2 bg-violet-100 rounded-xl">
+              <Shuffle class="w-5 h-5 text-violet-600" />
+            </div>
+            <div>
+              <h4 class="font-bold text-zinc-900">🎲 随机面试风格揭晓！</h4>
+              <p class="text-xs text-zinc-500">本次面试采用的隐藏风格</p>
+            </div>
+            <button @click="randomStyleRevealed = false" class="ml-auto p-1 hover:bg-zinc-100 rounded-lg transition-colors">
+              <X class="w-4 h-4 text-zinc-400" />
+            </button>
+          </div>
+          <div class="flex gap-3">
+            <div class="flex-1 p-3 bg-violet-50 rounded-xl border border-violet-100">
+              <p class="text-[10px] text-violet-500 font-bold uppercase mb-1">面试官风格</p>
+              <p class="text-sm font-bold text-violet-700">{{ revealedStyleInfo.style_label }}</p>
+            </div>
+            <div v-if="revealedStyleInfo.company_label" class="flex-1 p-3 bg-orange-50 rounded-xl border border-orange-100">
+              <p class="text-[10px] text-orange-500 font-bold uppercase mb-1">匹配公司</p>
+              <p class="text-sm font-bold text-orange-700">{{ revealedStyleInfo.company_label }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ===== Booking Dialog (Overlay) ===== -->
+    <div v-if="showBookingDialog && selectedInterviewer" class="fixed inset-0 z-[60] bg-black/30 backdrop-blur-sm flex items-center justify-center" @click.self="showBookingDialog = false">
+      <div class="bg-white rounded-2xl shadow-2xl border border-zinc-100 p-6 w-[420px] max-w-[90vw] animate-in fade-in zoom-in-95 duration-300">
+        <div class="flex items-center justify-between mb-5">
+          <h3 class="font-bold text-lg text-zinc-900">预约面试</h3>
+          <button @click="showBookingDialog = false" class="p-2 hover:bg-zinc-100 rounded-lg transition-colors">
+            <X class="w-4 h-4 text-zinc-400" />
+          </button>
+        </div>
+
+        <!-- Interviewer Info -->
+        <div class="flex items-center gap-3 p-3 bg-zinc-50 rounded-xl mb-4">
+          <div class="h-12 w-12 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 flex items-center justify-center text-indigo-700 font-bold shrink-0">
+            {{ selectedInterviewer.name?.[0] || '?' }}
+          </div>
+          <div>
+            <p class="font-bold text-zinc-800">{{ selectedInterviewer.name }}</p>
+            <p class="text-xs text-zinc-500">{{ selectedInterviewer.title }}{{ selectedInterviewer.company ? ` · ${selectedInterviewer.company}` : '' }}</p>
+          </div>
+        </div>
+
+        <!-- Booking Form -->
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs font-bold text-zinc-500 mb-1 block">预约时间</label>
+            <input 
+              type="datetime-local" 
+              v-model="bookingForm.scheduledAt" 
+              class="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div>
+            <label class="text-xs font-bold text-zinc-500 mb-1 block">备注（可选）</label>
+            <textarea 
+              v-model="bookingForm.notes" 
+              placeholder="如：希望重点考察微服务架构设计能力"
+              class="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none h-20"
+            ></textarea>
+          </div>
+        </div>
+
+        <button 
+          @click="submitBooking"
+          :disabled="!bookingForm.scheduledAt"
+          class="w-full mt-4 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          确认预约
+        </button>
+      </div>
+    </div>
+
+    <!-- ===== Bookings Panel (Overlay) ===== -->
+    <div v-if="showBookingsPanel" class="fixed inset-0 z-[60] bg-black/30 backdrop-blur-sm flex items-center justify-center" @click.self="showBookingsPanel = false">
+      <div class="bg-white rounded-2xl shadow-2xl border border-zinc-100 p-6 w-[480px] max-w-[90vw] max-h-[70vh] flex flex-col animate-in fade-in zoom-in-95 duration-300">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-bold text-lg text-zinc-900 flex items-center gap-2">
+            <Calendar class="w-5 h-5 text-indigo-600" />
+            我的面试预约
+          </h3>
+          <button @click="showBookingsPanel = false" class="p-2 hover:bg-zinc-100 rounded-lg transition-colors">
+            <X class="w-4 h-4 text-zinc-400" />
+          </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto space-y-3 custom-scrollbar">
+          <div v-if="userBookings.length === 0" class="text-center py-8">
+            <Calendar class="w-10 h-10 text-zinc-200 mx-auto mb-3" />
+            <p class="text-sm text-zinc-400">暂无预约记录</p>
+          </div>
+          <div v-for="booking in userBookings" :key="booking.id" class="p-4 rounded-xl border border-zinc-100 hover:border-zinc-200 transition-all">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm font-bold text-zinc-800">{{ booking.interviewer?.name || '面试官' }}</span>
+              <span class="text-[10px] px-2 py-0.5 rounded-full font-bold"
+                :class="{
+                  'bg-amber-100 text-amber-700': booking.status === 'pending',
+                  'bg-emerald-100 text-emerald-700': booking.status === 'confirmed',
+                  'bg-blue-100 text-blue-700': booking.status === 'completed',
+                  'bg-zinc-100 text-zinc-500': booking.status === 'cancelled'
+                }">
+                {{ booking.status === 'pending' ? '待确认' : booking.status === 'confirmed' ? '已确认' : booking.status === 'completed' ? '已完成' : '已取消' }}
+              </span>
+            </div>
+            <div class="text-xs text-zinc-500 space-y-1">
+              <p class="flex items-center gap-1.5"><Clock class="w-3 h-3" /> {{ new Date(booking.scheduled_at).toLocaleString('zh-CN') }}</p>
+              <p class="flex items-center gap-1.5"><Briefcase class="w-3 h-3" /> {{ booking.position }} · {{ booking.difficulty }}</p>
+              <p v-if="booking.notes" class="flex items-start gap-1.5"><MessageSquare class="w-3 h-3 mt-0.5 shrink-0" /> {{ booking.notes }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>

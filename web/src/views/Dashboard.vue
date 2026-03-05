@@ -43,7 +43,7 @@ const router = useRouter()
 
 const handleLogout = () => {
   userStore.logout()
-  router.push('/login')
+  router.push('/')
 }
 
 onMounted(() => {

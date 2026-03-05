@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"your-project/config"
@@ -677,6 +679,10 @@ func (s *AIService) normalizeStructuredFeedback(feedback string, score int) stri
 }
 
 func (s *AIService) GenerateQuestions(interview *model.Interview, count int) ([]*model.Question, error) {
+	modeInstruction := buildModePrompt(interview.Mode)
+	styleInstruction := buildStylePrompt(interview.Style, interview.Company)
+	difficultyInstruction := buildDifficultyPrompt(interview.Difficulty)
+
 	prompt := fmt.Sprintf(`
 		请为以下面试场景生成 %d 个面试问题：
 		
@@ -685,6 +691,12 @@ func (s *AIService) GenerateQuestions(interview *model.Interview, count int) ([]
 		面试模式：%s
 		面试风格：%s
 		
+		%s
+
+		%s
+
+		%s
+
 		要求：
 		1. 问题应循序渐进，涵盖该职位的核心技能点。
 		2. 问题应具有针对性，考察候选人的实际能力。
@@ -696,7 +708,8 @@ func (s *AIService) GenerateQuestions(interview *model.Interview, count int) ([]
 			{"title": "问题1标题", "content": "问题1内容", "expected_answer": "期望回答1"},
 			{"title": "问题2标题", "content": "问题2内容", "expected_answer": "期望回答2"}
 		]
-	`, count, interview.Position, interview.Difficulty, interview.Mode, interview.Style)
+	`, count, interview.Position, interview.Difficulty, interview.Mode, interview.Style,
+		modeInstruction, styleInstruction, difficultyInstruction)
 
 	response, err := s.callLLM(prompt, "chat")
 	if err != nil {
@@ -731,7 +744,85 @@ func (s *AIService) GenerateQuestions(interview *model.Interview, count int) ([]
 	return questions, nil
 }
 
+// GenerateNextQuestionWithWeights generates next question considering capability weights
+func (s *AIService) GenerateNextQuestionWithWeights(interview *model.Interview, previousAnswers []model.AnswerResult, capabilityGraph *model.JobCapabilityDimension) (*model.Question, error) {
+	// If no capability graph provided, fallback to standard generation
+	if capabilityGraph == nil {
+		return s.GenerateNextQuestion(interview, previousAnswers)
+	}
+
+	modeInstruction := buildModePrompt(interview.Mode)
+	styleInstruction := buildStylePrompt(interview.Style, interview.Company)
+	difficultyInstruction := buildDifficultyPrompt(interview.Difficulty)
+
+	// Build weights instruction
+	var weightsBuilder strings.Builder
+	weightsBuilder.WriteString("【岗位能力侧重】\n")
+	weightsBuilder.WriteString(fmt.Sprintf("- %s: 权重 %d%%\n", capabilityGraph.Name, capabilityGraph.Weight))
+	for _, sub := range capabilityGraph.SubDimensions {
+		weightsBuilder.WriteString(fmt.Sprintf("  - %s (权重 %d%%): %s\n", sub.Name, sub.Weight, strings.Join(sub.Tags, ", ")))
+	}
+
+	// Calculate which dimension needs more coverage based on previous questions
+	// This is a simplified logic; in a real system, we'd track coverage per dimension
+	nextFocus := "请根据上述权重分布，选择一个尚未充分考察或权重较高的维度进行提问。"
+
+	prompt := fmt.Sprintf(`
+		基于以下面试信息和岗位能力图谱，生成下一个合适的面试问题：
+		
+		职位：%s
+		难度级别：%s
+		面试模式：%s
+		面试风格：%s
+		已回答问题数量：%d
+		
+		%s
+		%s
+		%s
+		
+		%s
+
+		%s
+
+		请生成一个合适的后续问题，以深入了解候选人的技术能力。
+		只使用简体中文。
+		返回格式：{"title": "问题标题", "content": "具体问题内容", "expected_answer": "简要的期望回答"}
+	`, interview.Position, interview.Difficulty, interview.Mode, interview.Style, len(previousAnswers),
+		modeInstruction, styleInstruction, difficultyInstruction, weightsBuilder.String(), nextFocus)
+
+	response, err := s.callLLM(prompt, "chat")
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate question: %w", err)
+	}
+
+	var question struct {
+		Title          string `json:"title"`
+		Content        string `json:"content"`
+		ExpectedAnswer string `json:"expected_answer"`
+	}
+
+	cleanResponse := extractJSONContent(response)
+
+	if err := json.Unmarshal([]byte(cleanResponse), &question); err != nil {
+		return nil, fmt.Errorf("failed to parse question response: %w, body: %s", err, response)
+	}
+
+	result := &model.Question{
+		Title:          question.Title,
+		Content:        question.Content,
+		ExpectedAnswer: question.ExpectedAnswer,
+		Position:       interview.Position,
+		Difficulty:     interview.Difficulty,
+	}
+	s.EnsureQuestionChinese(result)
+	return result, nil
+}
+
 func (s *AIService) GenerateNextQuestion(interview *model.Interview, previousAnswers []model.AnswerResult) (*model.Question, error) {
+	modeInstruction := buildModePrompt(interview.Mode)
+	styleInstruction := buildStylePrompt(interview.Style, interview.Company)
+	difficultyInstruction := buildDifficultyPrompt(interview.Difficulty)
+
 	prompt := fmt.Sprintf(`
 		基于以下面试信息，生成下一个合适的面试问题：
 		
@@ -741,10 +832,15 @@ func (s *AIService) GenerateNextQuestion(interview *model.Interview, previousAns
 		面试风格：%s
 		已回答问题数量：%d
 		
+		%s
+		%s
+		%s
+
 		请生成一个合适的后续问题，以深入了解候选人的技术能力。
 		只使用简体中文。
 		返回格式：{"title": "问题标题", "content": "具体问题内容", "expected_answer": "简要的期望回答"}
-	`, interview.Position, interview.Difficulty, interview.Mode, interview.Style, len(previousAnswers))
+	`, interview.Position, interview.Difficulty, interview.Mode, interview.Style, len(previousAnswers),
+		modeInstruction, styleInstruction, difficultyInstruction)
 
 	response, err := s.callLLM(prompt, "chat")
 	if err != nil {
@@ -1015,4 +1111,169 @@ func clampScore(value int) int {
 
 func (s *AIService) transcribeWithWhisper(audioData []byte) (string, error) {
 	return "音频转录功能待实现", nil
+}
+
+// ========== Interview Mode / Style / Difficulty Prompt Builders ==========
+
+// buildModePrompt generates prompt instructions based on interview type
+func buildModePrompt(mode string) string {
+	switch mode {
+	case "technical":
+		return `【面试类型：技术面】
+- 所有题目必须聚焦技术能力考察。
+- 涵盖：编程基础、数据结构与算法、系统设计、框架原理、性能优化等。
+- 可以包含代码题、设计题和原理解释题。
+- 不涉及行为面或软技能相关问题。`
+
+	case "hr":
+		return `【面试类型：HR面】
+- 所有题目聚焦软实力与职业素养考察。
+- 涵盖：自我介绍、职业规划、团队协作、抗压能力、价值观与文化匹配。
+- 使用STAR法则场景题（情境+任务+行动+结果）。
+- 包含：优势劣势分析、离职原因、薪资期望引导、冲突处理等经典HR问题。
+- 不涉及具体技术实现细节。`
+
+	case "comprehensive":
+		return `【面试类型：综合面（技术+HR联合面试）】
+- 前3题为技术面，考察核心技术能力。
+- 后2题为HR面，考察软实力与职业匹配度。
+- 技术题考察深度与广度，HR题需要有STAR法则场景。
+- 模拟企业终面场景，同时由技术主管和HR共同评估。`
+
+	default:
+		return ""
+	}
+}
+
+// companyStyleProfiles maps company names to their interview characteristics
+var companyStyleProfiles = map[string]string{
+	"ali": `【阿里面试风格】
+- 重视系统设计与「大局观」，偏好追问"如果量级增大10倍怎么办"。
+- 提问逻辑：先考基础 → 追问原理 → 延伸到实际业务场景。
+- 注重候选人的"思考过程"而非只看最终答案。
+- 常见追问："这个方案能否支撑双11级别的流量？瓶颈在哪？"
+- 风格关键词：务实、重业务、追求ROI。`,
+
+	"bytedance": `【字节跳动面试风格】
+- 面试节奏非常快，讲究"逻辑倒推"和"5-why 追问"。
+- 习惯连续深挖3-5层，每一层都要求候选人给出更底层的原理。
+- 偏好算法思维与系统设计并重，代码能力要求严格。
+- 典型追问链：概念 → 原理 → 源码 → 性能 → 边界case。
+- 风格关键词：极致深挖、高效、不留情面。`,
+
+	"tencent": `【腾讯面试风格】
+- 面试氛围相对轻松，但技术深度不减。
+- 偏好从项目经验出发，延伸到技术细节和方案权衡。
+- 重视候选人的"沟通表达"能力和"技术视野"。
+- 喜欢考察设计模式、架构演进、技术选型理由。
+- 风格关键词：聊项目、讲思路、重视技术品味。`,
+
+	"meituan": `【美团面试风格】
+- 偏务实，题目贴近实际业务场景（高并发、分布式事务、数据一致性）。
+- 重视候选人解决实际问题的能力而非纯理论。
+- 常见场景：外卖系统设计、库存扣减、订单拆分、配送路径。
+- 追问方向偏重"在实际项目中你是怎么做的？遇到什么坑？"
+- 风格关键词：实战、业务导向、场景驱动。`,
+
+	"baidu": `【百度面试风格】
+- 技术基础考察非常扎实，重视数据结构和算法功底。
+- 偏好考察候选人的工程素养和代码规范。
+- 喜欢出设计类问题，考察搜索、推荐、NLP相关系统设计。
+- 风格关键词：基础扎实、算法能力、工程规范。`,
+}
+
+// buildStylePrompt generates prompt instructions based on interviewer style and optional company
+func buildStylePrompt(style, company string) string {
+	var parts []string
+
+	switch style {
+	case "gentle":
+		parts = append(parts, `【面试官风格：温和型】
+- 语气友好、有引导性，像一场技术交流。
+- 遇到候选人回答不上来时，给予适当提示而非施压。
+- 提问方式："你觉得……"、"可以聊聊你的想法吗？"
+- 关注候选人潜力和学习能力，不过分追求标准答案。`)
+
+	case "stress":
+		parts = append(parts, `【面试官风格：压力型】
+- 模拟高压面试环境，面试官语气严肃、节奏紧凑。
+- 不论候选人回答是否正确，都会质疑："你确定吗？"、"还有其他方案吗？"
+- 连续追问，不给喘息空间，测试抗压和临场反应。
+- 遇到回答含糊的地方立即要求澄清，不接受模棱两可。
+- 偶尔故意提出反驳意见，测试候选人是否能坚持正确观点。`)
+
+	case "deep":
+		parts = append(parts, `【面试官风格：技术深挖型】
+- 每个问题追问到底层原理（源码级别）。
+- 追问链示例：概念 → 实现原理 → 数据结构 → 时间复杂度 → JVM/操作系统层面 → 优化空间。
+- 期望候选人能画出内存模型、讲清字节码或汇编层面的行为。
+- 不满足于"知道怎么用"，必须"知道为什么这样设计"。`)
+
+	case "practical":
+		parts = append(parts, `【面试官风格：项目实战型】
+- 围绕候选人简历中的项目经历深入提问。
+- 考察"你在项目中具体负责什么？遇到什么技术难题？如何解决的？"
+- 追问项目的架构、技术选型、可扩展性、实际效果。
+- 关注候选人在团队中的角色和贡献。`)
+
+	case "algorithm":
+		parts = append(parts, `【面试官风格：算法考察型】
+- 每题都要求候选人写出思路或手撕代码。
+- 追问时间/空间复杂度，以及是否有更优解法。
+- 考察数据结构选择、边界条件处理、代码鲁棒性。`)
+
+	default:
+		parts = append(parts, `【面试官风格：标准型】
+- 按照标准面试流程进行，节奏适中。
+- 考察全面，深度适中。`)
+	}
+
+	// Add company-specific instructions if available
+	if company != "" {
+		if profile, ok := companyStyleProfiles[company]; ok {
+			parts = append(parts, profile)
+		}
+	}
+
+	return strings.Join(parts, "\n\n")
+}
+
+// buildDifficultyPrompt generates difficulty-specific instructions
+func buildDifficultyPrompt(difficulty string) string {
+	switch difficulty {
+	case "campus_intern":
+		return `【难度等级：校招实习】
+- 主要考察基础知识掌握程度，不要求太深的原理。
+- 题目偏向：语言基础、常见数据结构、基本算法、简单项目理解。
+- 允许候选人在某些方面有知识空白，重点考察学习能力和逻辑思维。
+- 评分标准适度宽松，展现出学习意愿和基本功即可获得及格分。`
+
+	case "campus_graduate":
+		return `【难度等级：校招应届】
+- 考察扎实的计算机基础和一定的项目经验。
+- 题目涵盖：核心框架原理、中等难度算法、基础系统设计、项目深度复盘。
+- 要求候选人能够解释"为什么"而非仅仅"是什么"。
+- 评分标准正常，需要展现一定的技术深度和独立思考能力。`
+
+	case "social_junior":
+		return `【难度等级：社招初级（1-3年经验）】
+- 考察实际工作经验和解决问题的能力。
+- 题目偏向：生产环境问题排查、性能优化经验、架构设计思路、中高难度算法。
+- 要求候选人能结合真实项目案例说明技术选型和权衡。
+- 评分标准严格，要求有实战经验支撑回答，不接受纯理论背诵。`
+
+	default:
+		return ""
+	}
+}
+
+// GenerateRandomStyleForInterview picks a random style for "random" interview mode
+// The style is not revealed to the user until after the interview
+func GenerateRandomStyleForInterview() (style string, company string) {
+	styles := []string{"gentle", "stress", "deep", "practical"}
+	companies := []string{"", "ali", "bytedance", "tencent", "meituan", ""}
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	style = styles[rng.Intn(len(styles))]
+	company = companies[rng.Intn(len(companies))]
+	return
 }

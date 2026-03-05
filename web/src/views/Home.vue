@@ -124,7 +124,7 @@
             <h3 class="text-lg font-bold mb-1">准备好面试了吗？</h3>
             <p class="text-indigo-200 text-sm mb-5">开启 AI 模拟面试，获取实时反馈与专业评估</p>
             <router-link
-              to="/interview"
+              to="/student/interview"
               class="inline-flex items-center gap-2 px-6 py-3 bg-white text-indigo-600 rounded-xl font-bold text-sm hover:bg-indigo-50 transition-colors shadow-lg"
             >
               <Video class="h-4 w-4" />
@@ -205,9 +205,9 @@ const interviewModes = [
 ]
 
 const growthFeatures = [
-  { label: '综合报告', desc: '可视化分析', icon: BarChart3, action: () => router.push('/history') },
-  { label: '面试回放', desc: '对比优化', icon: PlayCircle, action: () => router.push('/history') },
-  { label: '学习地图', desc: '技能提升', icon: BookOpen, action: () => router.push('/growth') },
+  { label: '综合报告', desc: '可视化分析', icon: BarChart3, action: () => router.push('/student/history') },
+  { label: '面试回放', desc: '对比优化', icon: PlayCircle, action: () => router.push('/student/history') },
+  { label: '学习地图', desc: '技能提升', icon: BookOpen, action: () => router.push('/student/growth') },
 ]
 
 const activities = ref([])
@@ -221,8 +221,8 @@ const abilityOverview = ref([
 const prevSlide = () => { activeSlide.value = (activeSlide.value - 1 + 3) % 3 }
 const nextSlide = () => { activeSlide.value = (activeSlide.value + 1) % 3 }
 
-const goToResume = () => router.push('/resume')
-const startMode = (mode) => router.push({ path: '/interview', query: { mode } })
+const goToResume = () => router.push('/student/resume')
+const startMode = (mode) => router.push({ path: '/student/interview', query: { mode } })
 
 const fetchRecentActivity = async () => {
   try {

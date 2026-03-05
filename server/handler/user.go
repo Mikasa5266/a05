@@ -1,10 +1,10 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
-	"fmt"
 	"time"
 
 	"your-project/middleware"
@@ -18,6 +18,7 @@ func Register(c *gin.Context) {
 		Username string `json:"username" binding:"required"`
 		Email    string `json:"email" binding:"required,email"`
 		Password string `json:"password" binding:"required,min=6"`
+		Role     string `json:"role"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -25,7 +26,17 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	user, err := service.CreateUser(req.Username, req.Email, req.Password)
+	// Validate role
+	role := req.Role
+	if role == "" {
+		role = "student"
+	}
+	if role != "student" && role != "enterprise" && role != "university" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid role, must be student, enterprise, or university"})
+		return
+	}
+
+	user, err := service.CreateUser(req.Username, req.Email, req.Password, role)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -41,6 +52,7 @@ func Login(c *gin.Context) {
 	var req struct {
 		Email    string `json:"email" binding:"required,email"`
 		Password string `json:"password" binding:"required"`
+		Role     string `json:"role"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -51,6 +63,12 @@ func Login(c *gin.Context) {
 	user, err := service.AuthenticateUser(req.Email, req.Password)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		return
+	}
+
+	// Validate role if provided
+	if req.Role != "" && user.Role != req.Role {
+		c.JSON(http.StatusForbidden, gin.H{"error": "该账号不属于此端，请切换到正确的登录入口"})
 		return
 	}
 

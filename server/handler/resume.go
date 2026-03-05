@@ -4,12 +4,14 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"your-project/model"
 	"your-project/service"
 	"your-project/utils"
 
 	"github.com/gin-gonic/gin"
 )
 
+// ParseResume handles resume upload and parsing
 func ParseResume(c *gin.Context) {
 	file, err := c.FormFile("file")
 	if err != nil {
@@ -65,5 +67,30 @@ func ParseResume(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"resume":  resumeData,
 		"matches": matches,
+	})
+}
+
+// GenerateQuestions generates personalized interview questions based on resume and selected job
+func GenerateQuestions(c *gin.Context) {
+	var req struct {
+		ResumeData *model.ResumeData `json:"resumeData" binding:"required"`
+		JobTitle   string            `json:"jobTitle" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	svc := service.NewResumeService()
+	questions, err := svc.GenerateInterviewQuestions(req.ResumeData, req.JobTitle)
+	if err != nil {
+		log.Printf("Failed to generate interview questions: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate questions: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"questions": questions,
 	})
 }

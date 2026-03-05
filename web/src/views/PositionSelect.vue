@@ -60,7 +60,7 @@ const handleStart = async () => {
       loading.value = true
       try {
         await interviewStore.start(form)
-        router.push(`/interview/${interviewStore.interview.id}`)
+        router.push(`/student/interview/${interviewStore.interview.id}`)
       } catch (error) {
         ElMessage.error(error.response?.data?.error || '开始面试失败')
       } finally {

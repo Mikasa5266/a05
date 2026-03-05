@@ -155,3 +155,51 @@ func (r *InterviewRepository) GetInterviewStatistics(userID uint) (map[string]in
 
 	return stats, nil
 }
+
+// ========== Human Interviewer Repository Methods ==========
+
+func (r *InterviewRepository) GetInterviewers(interviewerType string, page, pageSize int) ([]model.HumanInterviewer, int64, error) {
+	var interviewers []model.HumanInterviewer
+	var total int64
+
+	query := r.db.Model(&model.HumanInterviewer{}).Where("available = ?", true)
+	if interviewerType != "" {
+		query = query.Where("type = ?", interviewerType)
+	}
+
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	offset := (page - 1) * pageSize
+	if err := query.Order("rating DESC").Limit(pageSize).Offset(offset).Find(&interviewers).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return interviewers, total, nil
+}
+
+func (r *InterviewRepository) GetInterviewerByID(id uint) (*model.HumanInterviewer, error) {
+	var interviewer model.HumanInterviewer
+	if err := r.db.First(&interviewer, id).Error; err != nil {
+		return nil, err
+	}
+	return &interviewer, nil
+}
+
+func (r *InterviewRepository) CreateBooking(booking *model.InterviewBooking) error {
+	return r.db.Create(booking).Error
+}
+
+func (r *InterviewRepository) GetBookingsByUserID(userID uint) ([]model.InterviewBooking, error) {
+	var bookings []model.InterviewBooking
+	err := r.db.Preload("Interviewer").
+		Where("user_id = ?", userID).
+		Order("scheduled_at DESC").
+		Find(&bookings).Error
+	return bookings, err
+}
+
+func (r *InterviewRepository) UpdateBooking(booking *model.InterviewBooking) error {
+	return r.db.Save(booking).Error
+}

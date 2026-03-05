@@ -212,7 +212,7 @@ const handleUpdatePassword = async () => {
 const handleLogout = () => {
   if (confirm('确定要退出登录吗？')) {
     userStore.logout()
-    router.push('/login')
+    router.push('/')
   }
 }
 </script>

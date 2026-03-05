@@ -1,28 +1,18 @@
 <template>
   <header class="h-16 bg-white border-b border-zinc-100 sticky top-0 z-50 flex items-center px-6 shadow-sm">
     <!-- Logo -->
-    <router-link to="/dashboard" class="flex items-center gap-2.5 mr-8">
-      <div class="h-9 w-9 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
-        <BrainCircuit class="h-5 w-5" />
+    <router-link :to="portalHome" class="flex items-center gap-2.5 mr-8">
+      <div class="h-9 w-9 rounded-xl flex items-center justify-center text-white shadow-lg" :class="portalConfig.logoBg">
+        <component :is="portalConfig.icon" class="h-5 w-5" />
       </div>
-      <span class="font-bold text-xl text-indigo-600 tracking-tight">智聘AI</span>
+      <span class="font-bold text-xl tracking-tight" :class="portalConfig.logoText">{{ portalConfig.title }}</span>
     </router-link>
 
-    <!-- Portal Switcher (Center) -->
+    <!-- Portal Badge (Center) -->
     <div class="flex-1 flex justify-center">
-      <div class="inline-flex items-center bg-zinc-50 rounded-full p-1 border border-zinc-100">
-        <button
-          v-for="portal in portals"
-          :key="portal.key"
-          @click="switchPortal(portal.key)"
-          class="flex items-center gap-2 px-5 py-2 rounded-full text-sm font-medium transition-all duration-200"
-          :class="currentPortal === portal.key
-            ? 'bg-white text-indigo-600 shadow-sm border border-indigo-100'
-            : 'text-zinc-500 hover:text-zinc-700'"
-        >
-          <component :is="portal.icon" class="h-4 w-4" />
-          {{ portal.label }}
-        </button>
+      <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium" :class="portalConfig.badgeClass">
+        <component :is="portalConfig.icon" class="h-4 w-4" />
+        {{ portalConfig.label }}
       </div>
     </div>
 
@@ -60,7 +50,7 @@
               <div class="font-medium text-zinc-900 text-sm">{{ userStore.userInfo?.username || 'Guest' }}</div>
               <div class="text-xs text-zinc-400">{{ userStore.userInfo?.email || '' }}</div>
             </div>
-            <router-link to="/settings" @click="showDropdown = false" class="flex items-center gap-3 px-4 py-2.5 text-sm text-zinc-600 hover:bg-zinc-50 transition-colors">
+            <router-link :to="settingsPath" @click="showDropdown = false" class="flex items-center gap-3 px-4 py-2.5 text-sm text-zinc-600 hover:bg-zinc-50 transition-colors">
               <Settings class="h-4 w-4" /> 设置
             </router-link>
             <button @click="handleLogout" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50 transition-colors">
@@ -75,35 +65,59 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../../stores/user'
 import {
-  BrainCircuit, Bell, Settings, LogOut,
+  Bell, Settings, LogOut,
   User, Building2, GraduationCap
 } from 'lucide-vue-next'
 
-const emit = defineEmits(['portal-change'])
 const router = useRouter()
+const route = useRoute()
 const userStore = useUserStore()
 const showDropdown = ref(false)
 const dropdownRef = ref(null)
-const currentPortal = ref(localStorage.getItem('portal') || 'student')
 
-const portals = [
-  { key: 'student', label: '学生端', icon: User },
-  { key: 'enterprise', label: '企业端', icon: Building2 },
-  { key: 'university', label: '高校端', icon: GraduationCap },
-]
+// Derive portal from current route
+const currentPortal = computed(() => {
+  const path = route.path
+  if (path.startsWith('/enterprise')) return 'enterprise'
+  if (path.startsWith('/university')) return 'university'
+  return 'student'
+})
 
-const switchPortal = (key) => {
-  currentPortal.value = key
-  localStorage.setItem('portal', key)
-  emit('portal-change', key)
-  // Navigate to portal root
-  if (key === 'student') router.push('/dashboard')
-  else if (key === 'enterprise') router.push('/enterprise')
-  else if (key === 'university') router.push('/university')
+const portalConfigs = {
+  student: {
+    title: '智聘AI',
+    label: '学生端',
+    icon: User,
+    logoBg: 'bg-indigo-600 shadow-indigo-200',
+    logoText: 'text-indigo-600',
+    badgeClass: 'bg-indigo-50 text-indigo-600 border border-indigo-100',
+  },
+  enterprise: {
+    title: '智聘AI',
+    label: '企业端',
+    icon: Building2,
+    logoBg: 'bg-emerald-600 shadow-emerald-200',
+    logoText: 'text-emerald-600',
+    badgeClass: 'bg-emerald-50 text-emerald-600 border border-emerald-100',
+  },
+  university: {
+    title: '智聘AI',
+    label: '高校端',
+    icon: GraduationCap,
+    logoBg: 'bg-amber-600 shadow-amber-200',
+    logoText: 'text-amber-600',
+    badgeClass: 'bg-amber-50 text-amber-600 border border-amber-100',
+  }
 }
+
+const portalConfig = computed(() => portalConfigs[currentPortal.value])
+
+const portalHome = computed(() => `/${currentPortal.value}/dashboard`)
+
+const settingsPath = computed(() => `/${currentPortal.value}/settings`)
 
 const userInitials = computed(() => {
   const name = userStore.userInfo?.username || 'G'
@@ -119,7 +133,7 @@ const avatarUrl = computed(() => {
 const handleLogout = () => {
   showDropdown.value = false
   userStore.logout()
-  router.push('/login')
+  router.push('/')
 }
 
 // Close dropdown on outside click

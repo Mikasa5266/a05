@@ -33,9 +33,21 @@ func SetupRouter() *gin.Engine {
 
 			protected.POST("/interview/start", handler.StartInterview)
 			protected.GET("/interview", handler.GetInterviews)
+			protected.GET("/interview/config", handler.GetInterviewConfig)
 			protected.GET("/interview/:id", handler.GetInterview)
 			protected.PUT("/interview/:id/answer", handler.SubmitAnswer)
 			protected.POST("/interview/:id/end", handler.EndInterview)
+			protected.POST("/interview/:id/speech-analyze", handler.AnalyzeSpeechChunk)
+			protected.POST("/interview/:id/human-feedback", handler.SubmitHumanFeedback)
+			protected.GET("/interview/:id/reveal-style", handler.RevealRandomStyle)
+			protected.POST("/interview/blindbox/draw", handler.DrawBlindBoxScenario)
+			protected.GET("/interview/blindbox/scenarios", handler.GetBlindBoxScenarios)
+
+			// Human Interviewers & Bookings
+			protected.GET("/interview/human-interviewers", handler.GetHumanInterviewers)
+			protected.GET("/interview/human-interviewers/:id", handler.GetHumanInterviewer)
+			protected.POST("/interview/booking", handler.BookHumanInterview)
+			protected.GET("/interview/bookings", handler.GetUserBookings)
 
 			protected.GET("/questions", handler.GetQuestions)
 			protected.GET("/questions/:id", handler.GetQuestion)
@@ -47,6 +59,7 @@ func SetupRouter() *gin.Engine {
 
 			// Resume
 			protected.POST("/resume/parse", handler.ParseResume)
+			protected.POST("/resume/generate-questions", handler.GenerateQuestions)
 			// protected.POST("/resume/match", handler.MatchJobs) // Merged into ParseResume for now
 
 			// Growth

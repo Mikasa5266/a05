@@ -3,12 +3,22 @@ package service
 import (
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"your-project/model"
 	"your-project/repository"
 )
+
+type KnowledgeChunk struct {
+	ID       string
+	Content  string
+	Category string
+	Source   string
+}
 
 type RAGService struct {
 	questionRepo *repository.QuestionRepository
@@ -17,19 +27,124 @@ type RAGService struct {
 
 type VectorStore interface {
 	Search(query string, limit int) ([]SimilarityResult, error)
-	Index(questions []*model.Question) error
+	IndexQuestions(questions []*model.Question) error
+	IndexDocuments(docs []KnowledgeChunk) error
 }
 
 type SimilarityResult struct {
-	Question *model.Question
+	Question *model.Question // Optional, if it's a question match
+	Document *KnowledgeChunk // Optional, if it's a doc match
 	Score    float64
 }
 
+var (
+	globalRAGService *RAGService
+	ragOnce          sync.Once
+)
+
+func GetRAGService() *RAGService {
+	ragOnce.Do(func() {
+		globalRAGService = &RAGService{
+			questionRepo: repository.NewQuestionRepository(),
+			vectorStore:  NewSimpleVectorStore(),
+		}
+		// Asynchronously load knowledge base on startup
+		go func() {
+			if err := globalRAGService.LoadKnowledgeBase("knowledge_base"); err != nil {
+				fmt.Printf("Failed to load knowledge base: %v\n", err)
+			}
+		}()
+	})
+	return globalRAGService
+}
+
 func NewRAGService() *RAGService {
-	return &RAGService{
-		questionRepo: repository.NewQuestionRepository(),
-		vectorStore:  NewSimpleVectorStore(),
+	return GetRAGService()
+}
+
+func (s *RAGService) LoadKnowledgeBase(rootPath string) error {
+	var chunks []KnowledgeChunk
+
+	err := filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".md") {
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			
+			// Simple chunking strategy: split by headers or paragraphs
+			// Here we do a simplified split by double newlines for paragraphs
+			// In a real scenario, use a better markdown parser/splitter
+			text := string(content)
+			parts := strings.Split(text, "\n\n")
+			
+			category := filepath.Base(filepath.Dir(path))
+			
+			for i, part := range parts {
+				trimmed := strings.TrimSpace(part)
+				if len(trimmed) < 20 { // Skip too short segments
+					continue
+				}
+				chunks = append(chunks, KnowledgeChunk{
+					ID:       fmt.Sprintf("%s_%d", info.Name(), i),
+					Content:  trimmed,
+					Category: category,
+					Source:   path,
+				})
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return err
 	}
+
+	return s.vectorStore.IndexDocuments(chunks)
+}
+
+func (s *RAGService) SearchKnowledgeChunks(query string) ([]KnowledgeChunk, error) {
+	results, err := s.vectorStore.Search(query, 3)
+	if err != nil {
+		return nil, err
+	}
+
+	var chunks []KnowledgeChunk
+	for _, res := range results {
+		if res.Document != nil {
+			chunks = append(chunks, *res.Document)
+		} else if res.Question != nil {
+			// Convert question to chunk if needed, or skip
+			chunks = append(chunks, KnowledgeChunk{
+				ID:       fmt.Sprintf("q_%d", res.Question.ID),
+				Content:  res.Question.Content,
+				Category: "question_bank",
+				Source:   "Interview Question DB",
+			})
+		}
+	}
+	return chunks, nil
+}
+
+func (s *RAGService) SearchKnowledgeBase(query string) (string, error) {
+	chunks, err := s.SearchKnowledgeChunks(query)
+	if err != nil {
+		return "", err
+	}
+
+	if len(chunks) == 0 {
+		return "未找到相关知识点", nil
+	}
+
+	var sb strings.Builder
+	for _, chunk := range chunks {
+		sb.WriteString(chunk.Content)
+		sb.WriteString("\n---\n")
+	}
+	return sb.String(), nil
 }
 
 func (s *RAGService) SearchSimilarQuestions(query string, position, difficulty string, limit int) ([]*model.Question, error) {
@@ -38,7 +153,7 @@ func (s *RAGService) SearchSimilarQuestions(query string, position, difficulty s
 		return nil, fmt.Errorf("failed to get questions: %w", err)
 	}
 
-	if err := s.vectorStore.Index(allQuestions); err != nil {
+	if err := s.vectorStore.IndexQuestions(allQuestions); err != nil {
 		return nil, fmt.Errorf("failed to index questions: %w", err)
 	}
 
@@ -49,7 +164,7 @@ func (s *RAGService) SearchSimilarQuestions(query string, position, difficulty s
 
 	var filteredQuestions []*model.Question
 	for _, result := range similarResults {
-		if result.Score > 0.3 {
+		if result.Question != nil && result.Score > 0.3 {
 			filteredQuestions = append(filteredQuestions, result.Question)
 		}
 		if len(filteredQuestions) >= limit {
@@ -106,27 +221,48 @@ func (s *RAGService) adaptQuestion(original *model.Question, context string) *mo
 
 type SimpleVectorStore struct {
 	questions []*model.Question
+	documents []KnowledgeChunk
 }
 
 func NewSimpleVectorStore() *SimpleVectorStore {
 	return &SimpleVectorStore{
 		questions: make([]*model.Question, 0),
+		documents: make([]KnowledgeChunk, 0),
 	}
 }
 
-func (s *SimpleVectorStore) Index(questions []*model.Question) error {
+func (s *SimpleVectorStore) IndexQuestions(questions []*model.Question) error {
 	s.questions = questions
+	return nil
+}
+
+func (s *SimpleVectorStore) IndexDocuments(docs []KnowledgeChunk) error {
+	s.documents = docs
 	return nil
 }
 
 func (s *SimpleVectorStore) Search(query string, limit int) ([]SimilarityResult, error) {
 	var results []SimilarityResult
 
+	// Search Questions
 	for _, question := range s.questions {
-		similarity := s.calculateSimilarity(query, question)
+		similarity := s.calculateSimilarity(query, question.Content+" "+question.Title)
 		if similarity > 0 {
 			results = append(results, SimilarityResult{
 				Question: question,
+				Score:    similarity,
+			})
+		}
+	}
+
+	// Search Documents
+	for _, doc := range s.documents {
+		similarity := s.calculateSimilarity(query, doc.Content)
+		if similarity > 0 {
+			// Copy loop var
+			d := doc
+			results = append(results, SimilarityResult{
+				Document: &d,
 				Score:    similarity,
 			})
 		}
@@ -143,11 +279,11 @@ func (s *SimpleVectorStore) Search(query string, limit int) ([]SimilarityResult,
 	return results, nil
 }
 
-func (s *SimpleVectorStore) calculateSimilarity(query string, question *model.Question) float64 {
+func (s *SimpleVectorStore) calculateSimilarity(query string, targetText string) float64 {
 	queryWords := s.tokenize(query)
-	questionWords := s.tokenize(question.Content + " " + question.Title)
+	targetWords := s.tokenize(targetText)
 
-	if len(queryWords) == 0 || len(questionWords) == 0 {
+	if len(queryWords) == 0 || len(targetWords) == 0 {
 		return 0
 	}
 
@@ -157,13 +293,13 @@ func (s *SimpleVectorStore) calculateSimilarity(query string, question *model.Qu
 		querySet[word] = true
 	}
 
-	for _, word := range questionWords {
+	for _, word := range targetWords {
 		if querySet[word] {
 			commonWords++
 		}
 	}
 
-	return float64(commonWords) / math.Sqrt(float64(len(queryWords)*len(questionWords)))
+	return float64(commonWords) / math.Sqrt(float64(len(queryWords)*len(targetWords)))
 }
 
 func (s *SimpleVectorStore) tokenize(text string) []string {

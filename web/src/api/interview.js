@@ -45,3 +45,87 @@ export function getQuestions(params) {
     params
   })
 }
+
+export function analyzeSpeechChunk(interviewId, data) {
+  return request({
+    url: `/interview/${interviewId}/speech-analyze`,
+    method: 'post',
+    data
+  })
+}
+
+export function drawBlindBoxScenario(data = {}) {
+  return request({
+    url: '/interview/blindbox/draw',
+    method: 'post',
+    data
+  })
+}
+
+export function getBlindBoxScenarios() {
+  return request({
+    url: '/interview/blindbox/scenarios',
+    method: 'get'
+  })
+}
+
+// ========== New Interview Features ==========
+
+// Get interview configuration options (modes, styles, companies, difficulties)
+export function getInterviewConfig() {
+  return request({
+    url: '/interview/config',
+    method: 'get'
+  })
+}
+
+// Get available human interviewers
+export function getHumanInterviewers(params) {
+  return request({
+    url: '/interview/human-interviewers',
+    method: 'get',
+    params
+  })
+}
+
+// Get a specific human interviewer
+export function getHumanInterviewer(id) {
+  return request({
+    url: `/interview/human-interviewers/${id}`,
+    method: 'get'
+  })
+}
+
+// Book a human interview
+export function bookHumanInterview(data) {
+  return request({
+    url: '/interview/booking',
+    method: 'post',
+    data
+  })
+}
+
+// Get user's interview bookings
+export function getUserBookings() {
+  return request({
+    url: '/interview/bookings',
+    method: 'get'
+  })
+}
+
+// Submit human interviewer feedback
+export function submitHumanFeedback(interviewId, data) {
+  return request({
+    url: `/interview/${interviewId}/human-feedback`,
+    method: 'post',
+    data
+  })
+}
+
+// Reveal the hidden style after a random-mode interview
+export function revealRandomStyle(interviewId) {
+  return request({
+    url: `/interview/${interviewId}/reveal-style`,
+    method: 'get'
+  })
+}

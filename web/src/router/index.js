@@ -1,7 +1,10 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import Login from '../views/Login.vue'
+import PortalSelect from '../views/PortalSelect.vue'
 import Layout from '../components/layout/Layout.vue'
+
+// Student Views
 import Home from '../views/Home.vue'
 import ResumeMatching from '../views/ResumeMatching.vue'
 import MockInterview from '../views/MockInterview.vue'
@@ -29,22 +32,41 @@ import TalentPush from '../views/university/TalentPush.vue'
 
 const routes = [
   {
-    path: '/login',
-    name: 'Login',
+    path: '/',
+    name: 'PortalSelect',
+    component: PortalSelect
+  },
+  // ====== Student Login ======
+  {
+    path: '/student/login',
+    name: 'StudentLogin',
     component: Login
   },
+  // ====== Enterprise Login ======
   {
-    path: '/',
+    path: '/enterprise/login',
+    name: 'EnterpriseLogin',
+    component: Login
+  },
+  // ====== University Login ======
+  {
+    path: '/university/login',
+    name: 'UniversityLogin',
+    component: Login
+  },
+  // ====== Student Portal ======
+  {
+    path: '/student',
     component: Layout,
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, role: 'student' },
     children: [
       {
         path: '',
-        redirect: '/dashboard'
+        redirect: '/student/dashboard'
       },
       {
         path: 'dashboard',
-        name: 'Dashboard',
+        name: 'StudentDashboard',
         component: Home
       },
       {
@@ -56,10 +78,6 @@ const routes = [
         path: 'interview',
         name: 'MockInterview',
         component: MockInterview
-      },
-      {
-        path: 'interview/select',
-        redirect: '/interview'
       },
       {
         path: 'growth',
@@ -83,73 +101,108 @@ const routes = [
       },
       {
         path: 'settings',
-        name: 'Settings',
+        name: 'StudentSettings',
         component: Settings
-      },
-      // Enterprise Portal
+      }
+    ]
+  },
+  // ====== Enterprise Portal ======
+  {
+    path: '/enterprise',
+    component: Layout,
+    meta: { requiresAuth: true, role: 'enterprise' },
+    children: [
       {
-        path: 'enterprise',
+        path: '',
+        redirect: '/enterprise/dashboard'
+      },
+      {
+        path: 'dashboard',
         name: 'EnterpriseDashboard',
         component: EnterpriseDashboard
       },
       {
-        path: 'enterprise/talent',
+        path: 'talent',
         name: 'TalentPool',
         component: TalentPool
       },
       {
-        path: 'enterprise/jobs',
+        path: 'jobs',
         name: 'JobManagement',
         component: JobManagement
       },
       {
-        path: 'enterprise/hr-panel',
+        path: 'hr-panel',
         name: 'HRPanel',
         component: HRPanel
       },
       {
-        path: 'enterprise/analytics',
+        path: 'analytics',
         name: 'Analytics',
         component: Analytics
       },
       {
-        path: 'enterprise/standards',
+        path: 'standards',
         name: 'Standards',
         component: Standards
       },
-      // University Portal
       {
-        path: 'university',
+        path: 'settings',
+        name: 'EnterpriseSettings',
+        component: Settings
+      }
+    ]
+  },
+  // ====== University Portal ======
+  {
+    path: '/university',
+    component: Layout,
+    meta: { requiresAuth: true, role: 'university' },
+    children: [
+      {
+        path: '',
+        redirect: '/university/dashboard'
+      },
+      {
+        path: 'dashboard',
         name: 'UniversityDashboard',
         component: UniversityDashboard
       },
       {
-        path: 'university/tracking',
+        path: 'tracking',
         name: 'StudentTracking',
         component: StudentTracking
       },
       {
-        path: 'university/support',
+        path: 'support',
         name: 'SupportSystem',
         component: SupportSystem
       },
       {
-        path: 'university/courses',
+        path: 'courses',
         name: 'Courses',
         component: Courses
       },
       {
-        path: 'university/employment',
+        path: 'employment',
         name: 'Employment',
         component: Employment
       },
       {
-        path: 'university/talent-push',
+        path: 'talent-push',
         name: 'TalentPush',
         component: TalentPush
+      },
+      {
+        path: 'settings',
+        name: 'UniversitySettings',
+        component: Settings
       }
     ]
-  }
+  },
+  // Legacy redirects for old paths
+  { path: '/login', redirect: '/' },
+  { path: '/dashboard', redirect: '/student/dashboard' }
 ]
 
 const router = createRouter({
@@ -159,12 +212,62 @@ const router = createRouter({
 
 router.beforeEach((to, from, next) => {
   const userStore = useUserStore()
-  // Simple auth check
-  if (to.meta.requiresAuth && !userStore.token && to.path !== '/login') {
-    next('/login')
-  } else {
-    next()
+
+  // If route requires auth
+  if (to.matched.some(record => record.meta.requiresAuth)) {
+    if (!userStore.token) {
+      // Redirect to the appropriate login page based on route
+      const portal = to.path.startsWith('/enterprise') ? 'enterprise'
+                   : to.path.startsWith('/university') ? 'university'
+                   : 'student'
+      next(`/${portal}/login`)
+      return
+    }
+
+    // Check role if specified
+    const requiredRole = to.matched.find(record => record.meta.role)?.meta.role
+    if (requiredRole && userStore.userInfo?.role && userStore.userInfo.role !== requiredRole) {
+      // Add a final level redirect for unknown user roles
+      const userRole = userStore.userInfo.role
+      const targetPath = ['student', 'enterprise', 'university'].includes(userRole)
+        ? `/${userRole}/dashboard`
+        : '/student/dashboard'
+      
+      if (to.path !== targetPath) {
+        next(targetPath)
+      } else {
+        // If we are already at the target path but role mismatch persists,
+        // it means the user's role is invalid for this route.
+        // To avoid loop, we just let it pass (or logout).
+        // Here we pass, assuming the component might handle it or show 403.
+        next()
+      }
+      return
+    }
   }
+
+  // If already logged in and visiting a login page, redirect to their portal
+  if (to.path.endsWith('/login') || (to.path === '/' && userStore.token && userStore.userInfo?.role)) {
+    // Safety check: ensure userInfo exists
+    if (!userStore.userInfo) {
+      userStore.logout()
+      next()
+      return
+    }
+    const role = userStore.userInfo.role
+    const targetPath = ['student', 'enterprise', 'university'].includes(role)
+      ? `/${role}/dashboard`
+      : '/student/dashboard'
+      
+    if (to.path !== targetPath) {
+      next(targetPath)
+    } else {
+      next()
+    }
+    return
+  }
+
+  next()
 })
 
 export default router

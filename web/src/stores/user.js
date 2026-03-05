@@ -4,7 +4,7 @@ import { login, register, getUserProfile } from '../api/auth'
 export const useUserStore = defineStore('user', {
   state: () => ({
     token: localStorage.getItem('token') || '',
-    userInfo: null
+    userInfo: JSON.parse(localStorage.getItem('userInfo') || 'null')
   }),
   actions: {
     async login(data) {
@@ -12,6 +12,7 @@ export const useUserStore = defineStore('user', {
       this.token = res.token
       this.userInfo = res.user
       localStorage.setItem('token', res.token)
+      localStorage.setItem('userInfo', JSON.stringify(res.user))
     },
     async register(data) {
       return register(data)
@@ -21,6 +22,7 @@ export const useUserStore = defineStore('user', {
       try {
         const res = await getUserProfile()
         this.userInfo = res.user
+        localStorage.setItem('userInfo', JSON.stringify(res.user))
       } catch (error) {
         this.logout()
       }
@@ -29,6 +31,7 @@ export const useUserStore = defineStore('user', {
       this.token = ''
       this.userInfo = null
       localStorage.removeItem('token')
+      localStorage.removeItem('userInfo')
     }
   }
 })

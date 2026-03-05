@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+
 	"your-project/model"
 )
 
@@ -93,14 +94,30 @@ func (s *ResumeService) MatchJobs(resumeData *model.ResumeData) ([]*model.JobMat
 	log.Printf("Starting job matching for resume: techStack=%v", resumeData.TechStack)
 
 	resumeJson, _ := json.Marshal(resumeData)
+
+	// 1. Get RAG context for the resume's tech stack and intent
+	ragSvc := GetRAGService()
+	var ragContext string
+	if ragSvc != nil {
+		query := fmt.Sprintf("%s %s", resumeData.Intent, strings.Join(resumeData.TechStack, " "))
+		context, err := ragSvc.SearchKnowledgeBase(query)
+		if err == nil && context != "" {
+			ragContext = context
+		}
+	}
+
 	prompt := fmt.Sprintf(`
-根据以下简历数据，推荐 3 个最适合的职位。
+根据以下简历数据和岗位知识库上下文，推荐 3 个最适合的职位。
+
+【岗位知识库上下文】
+%s
 
 【重要要求】
 1. **必须使用简体中文**输出所有内容。
 2. 职位名称可以是中英文（如 "Go 后端开发" 或 "Backend Engineer"），但描述和理由必须是中文。
 3. **严格根据简历的技术栈和经验推荐职位**，不要推荐与简历内容不符的职位。
-4. 不要输出 Markdown 标记。
+4. 参考知识库中的岗位能力模型，计算匹配度。
+5. 不要输出 Markdown 标记。
 
 简历数据:
 %s
@@ -114,7 +131,7 @@ func (s *ResumeService) MatchJobs(resumeData *model.ResumeData) ([]*model.JobMat
     "requirements": ["该职位的核心要求1", "要求2"]
   }
 ]
-`, string(resumeJson))
+`, ragContext, string(resumeJson))
 
 	log.Printf("Sending request to AI service for job matching")
 
@@ -140,6 +157,63 @@ func (s *ResumeService) MatchJobs(resumeData *model.ResumeData) ([]*model.JobMat
 	}
 
 	return matches, nil
+}
+
+// GenerateInterviewQuestions generates personalized questions based on resume and job title
+func (s *ResumeService) GenerateInterviewQuestions(resumeData *model.ResumeData, jobTitle string) (map[string][]string, error) {
+	resumeJson, _ := json.Marshal(resumeData)
+
+	// 1. Get RAG context for the job title
+	ragSvc := GetRAGService()
+	var ragContext string
+	if ragSvc != nil {
+		context, err := ragSvc.SearchKnowledgeBase(jobTitle)
+		if err == nil && context != "" {
+			ragContext = context
+		}
+	}
+
+	prompt := fmt.Sprintf(`
+你是一位资深技术面试官。请根据候选人的简历和目标岗位，生成一份个性化的面试题库。
+
+【岗位知识库上下文】
+%s
+
+【候选人简历】
+%s
+
+【目标岗位】
+%s
+
+【生成要求】
+1. **深挖追问题库** (3题)：针对简历中的项目经历，设计能考察深度和真实性的追问（例如：“在这个项目中你提到的高并发优化，具体是采用了什么策略？有什么数据支撑？”）。
+2. **岗位高频考点题库** (3题)：基于目标岗位的能力模型，生成该岗位面试中高频出现的核心技术问题。
+3. **基础补漏题库** (3题)：基于简历中技术栈的薄弱点或未提及但该岗位必备的基础知识（例如：如果简历没写并发，就问并发基础）。
+
+【输出格式】
+请直接返回 JSON 对象，不要包含 Markdown 标记：
+{
+  "deep_dive": ["问题1", "问题2", "问题3"],
+  "high_freq": ["问题1", "问题2", "问题3"],
+  "basic_check": ["问题1", "问题2", "问题3"]
+}
+`, ragContext, string(resumeJson), jobTitle)
+
+	log.Printf("Generating interview questions for job: %s", jobTitle)
+
+	resp, err := s.aiService.ChatWithTask(context.Background(), prompt, "chat") // Use chat model for generation
+	if err != nil {
+		return nil, fmt.Errorf("AI generation failed: %w", err)
+	}
+
+	jsonStr := CleanJSON(resp)
+	var result map[string][]string
+	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
+		log.Printf("Failed to parse AI response: %v, response: %s", err, jsonStr)
+		return nil, fmt.Errorf("failed to parse AI response: %w, response: %s", err, jsonStr)
+	}
+
+	return result, nil
 }
 
 // Helper to clean markdown code blocks if AI returns them

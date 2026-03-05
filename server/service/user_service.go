@@ -20,7 +20,7 @@ func NewUserService() *UserService {
 	}
 }
 
-func CreateUser(username, email, password string) (*model.User, error) {
+func CreateUser(username, email, password, role string) (*model.User, error) {
 	service := NewUserService()
 
 	existingUser, _ := service.userRepo.GetByEmail(email)
@@ -33,11 +33,15 @@ func CreateUser(username, email, password string) (*model.User, error) {
 		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
+	if role == "" {
+		role = "student"
+	}
+
 	user := &model.User{
 		Username: username,
 		Email:    email,
 		Password: string(hashedPassword),
-		Role:     "user",
+		Role:     role,
 	}
 
 	if err := service.userRepo.Create(user); err != nil {

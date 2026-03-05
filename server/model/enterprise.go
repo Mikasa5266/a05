@@ -24,9 +24,24 @@ type Job struct {
 	CommunicateWeight int            `gorm:"default:25" json:"communicate_weight"`
 	LogicWeight       int            `gorm:"default:25" json:"logic_weight"`
 	MatchWeight       int            `gorm:"default:20" json:"match_weight"`
+	CapabilityGraph   string         `gorm:"type:text" json:"capability_graph"` // JSON string for capability graph structure
 	CreatedAt         time.Time      `json:"created_at"`
 	UpdatedAt         time.Time      `json:"updated_at"`
 	DeletedAt         gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+// JobCapabilityDimension represents a dimension in the capability graph
+type JobCapabilityDimension struct {
+	Name        string `json:"name"`        // e.g. "后端开发"
+	Weight      int    `json:"weight"`      // e.g. 30
+	Description string `json:"description"` // e.g. "JVM原理、分布式系统"
+	SubDimensions []JobCapabilitySubDimension `json:"sub_dimensions"`
+}
+
+type JobCapabilitySubDimension struct {
+	Name   string `json:"name"`   // e.g. "JVM原理"
+	Weight int    `json:"weight"` // e.g. 30 (relative to parent)
+	Tags   []string `json:"tags"` // Keywords for question generation
 }
 
 // TalentRecord represents talent in the enterprise pool

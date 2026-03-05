@@ -160,7 +160,7 @@ const handleSkip = async () => {
 }
 
 const viewReport = () => {
-  router.push(`/report/${interviewStore.interview.id}`)
+  router.push(`/student/report/${interviewStore.interview.id}`)
 }
 
 onMounted(() => {

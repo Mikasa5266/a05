@@ -19,11 +19,7 @@ export default defineConfig({
       '127.0.0.1'
     ],
     cors: true, // 关闭跨域拦截
-    hmr: {
-      // 解决新版 Vite 的热更新拦截问题（关键）
-      host: 'unpaid-lincoln-drenchingly.ngrok-free.dev',
-      protocol: 'wss'
-    },
+    hmr: true, // 让 Vite 自动推断 HMR 连接参数
     strictPort: false,
     open: false
   }

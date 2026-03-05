@@ -1,11 +1,15 @@
 package handler
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"your-project/model"
 	"your-project/repository"
+	"your-project/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -176,13 +180,41 @@ func QueryKnowledgeBase(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	// TODO: Integrate with RAG service for actual knowledge base retrieval
+
+	ragSvc := service.GetRAGService()
+	chunks, err := ragSvc.SearchKnowledgeChunks(req.Query)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to search knowledge base"})
+		return
+	}
+
+	var contextBuilder strings.Builder
+	var sources []gin.H
+
+	for i, chunk := range chunks {
+		contextBuilder.WriteString(fmt.Sprintf("[%d] %s\n%s\n\n", i+1, chunk.Source, chunk.Content))
+		sources = append(sources, gin.H{
+			"title":     chunk.ID, // Or chunk.Source
+			"relevance": 0.9 - float64(i)*0.1, // Mock relevance score
+			"content":   chunk.Content,
+			"category":  chunk.Category,
+		})
+	}
+
+	aiSvc := service.NewAIService()
+	prompt := fmt.Sprintf("请根据以下参考资料回答问题。如果参考资料不足以回答，请根据你的通用知识补充，但请优先使用参考资料。\n\n参考资料：\n%s\n\n问题：%s", contextBuilder.String(), req.Query)
+	
+	answer, err := aiSvc.Chat(context.Background(), prompt)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate answer: " + err.Error()})
+		return
+	}
+
+	answer = aiSvc.EnsureChineseOutput(answer, "抱歉，我暂时无法回答这个问题。")
+
 	c.JSON(http.StatusOK, gin.H{
-		"answer": "基于RAG知识库的检索结果将在这里显示。当前功能正在开发中。",
-		"sources": []gin.H{
-			{"title": "面试技巧总结", "relevance": 0.95},
-			{"title": "常见面试问题汇总", "relevance": 0.88},
-		},
+		"answer":  answer,
+		"sources": sources,
 	})
 }
 
