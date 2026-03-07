@@ -1,9 +1,11 @@
 # AI Interview Pro (a05)
 
+语言切换: [English](./README.md) | **中文**
+
 AI Interview Pro 是一个全栈的智能面试训练与人才协同平台。
 项目覆盖学生求职训练、企业招聘管理、高校就业支持，以及 AI 驱动的知识与社区能力。
 
-English version: `README.md`
+English version: [README.md](./README.md)
 
 ## 核心亮点
 

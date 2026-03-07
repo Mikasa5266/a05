@@ -1,9 +1,11 @@
 # AI Interview Pro (a05)
 
+Language: **English** | [中文](./README.zh-CN.md)
+
 AI Interview Pro is a full-stack interview training and talent collaboration platform.
 It includes student interview practice, enterprise recruiting workflows, university employment support, and an AI-powered knowledge/community layer.
 
-Chinese version: `README.zh-CN.md`
+Chinese version: [README.zh-CN.md](./README.zh-CN.md)
 
 ## Highlights
 
