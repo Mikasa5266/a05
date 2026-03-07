@@ -2,7 +2,10 @@ package handler
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"your-project/service"
@@ -120,12 +123,17 @@ func SubmitAnswer(c *gin.Context) {
 
 	var req struct {
 		QuestionID uint   `json:"question_id" binding:"required"`
-		Answer     string `json:"answer" binding:"required"`
+		Answer     string `json:"answer"`
 		AudioData  string `json:"audio_data,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if strings.TrimSpace(req.Answer) == "" && strings.TrimSpace(req.AudioData) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "您似乎没有做出任何回答"})
 		return
 	}
 
@@ -182,6 +190,53 @@ func AnalyzeSpeechChunk(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"metrics": metrics,
+	})
+}
+
+func UploadInterviewRecording(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	interviewID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interview ID"})
+		return
+	}
+
+	file, err := c.FormFile("recording")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Recording file is required"})
+		return
+	}
+
+	dirPath := filepath.Join("uploads", "interviews", strconv.FormatUint(interviewID, 10))
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create upload directory"})
+		return
+	}
+
+	filename := strconv.FormatInt(time.Now().Unix(), 10) + "_" + filepath.Base(file.Filename)
+	targetPath := filepath.Join(dirPath, filename)
+	if err := c.SaveUploadedFile(file, targetPath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save recording file"})
+		return
+	}
+
+	relativeURL := "/" + filepath.ToSlash(targetPath)
+	scheme := "http"
+	if c.Request.TLS != nil {
+		scheme = "https"
+	}
+	publicURL := scheme + "://" + c.Request.Host + relativeURL
+	interview, err := service.SaveInterviewRecording(userID, uint(interviewID), publicURL)
+	if err != nil {
+		_ = os.Remove(targetPath)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":          "Recording uploaded successfully",
+		"recording_url":    interview.RecordingURL,
+		"recording_status": interview.RecordingStatus,
 	})
 }
 

@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -40,6 +41,10 @@ func IsInvalidAnswer(answer string) bool {
 		return true
 	}
 
+	if hasStrongGiveUpIntent(ans) {
+		return true
+	}
+
 	// 常见放弃与敷衍词汇全集
 	giveUpWords := []string{
 		"不会", "不知道", "不清楚", "没学过", "不懂", "忘了", "忘记了",
@@ -47,7 +52,7 @@ func IsInvalidAnswer(answer string) bool {
 	}
 
 	// 清除常见标点后比对
-	cleanAns := strings.ReplaceAll(strings.ReplaceAll(ans, "，", ""), "。", "")
+	cleanAns := normalizeAnswerText(ans)
 	for _, w := range giveUpWords {
 		if cleanAns == w {
 			return true
@@ -60,6 +65,59 @@ func IsInvalidAnswer(answer string) bool {
 		return true
 	}
 
+	if isPureNoise(ans) {
+		return true
+	}
+
+	return false
+}
+
+func normalizeAnswerText(s string) string {
+	replacer := strings.NewReplacer(
+		"，", "", "。", "", "！", "", "？", "", "、", "", ",", "", ".", "", "!", "", "?", "", " ", "", "\t", "", "\n", "", "\r", "",
+	)
+	return strings.ToLower(replacer.Replace(strings.TrimSpace(s)))
+}
+
+func hasStrongGiveUpIntent(ans string) bool {
+	normalized := normalizeAnswerText(ans)
+	if normalized == "" {
+		return true
+	}
+
+	giveUpPhrases := []string{
+		"我不会", "真的不会", "完全不会", "我不知道", "真不知道", "不清楚", "不太清楚", "我不懂", "答不上来", "回答不出来", "我回答不出来", "没法回答", "想不起来",
+		"idontknow", "donotknow", "dontknow", "noidea", "cannotanswer", "cantanswer",
+	}
+	for _, phrase := range giveUpPhrases {
+		if strings.Contains(normalized, phrase) {
+			return true
+		}
+	}
+
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile(`我.{0,4}(不会|不懂|不知道|不清楚|答不出来|回答不出来|没法回答|想不起来)`),
+		regexp.MustCompile(`(不会|不知道|答不出来|回答不出来).{0,6}(这题|这个题|这个问题|这个)`),
+		regexp.MustCompile(`(i\s*don'?t\s*know|no\s*idea|can'?t\s*answer)`),
+	}
+	for _, p := range patterns {
+		if p.MatchString(strings.ToLower(ans)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isPureNoise(ans string) bool {
+	trimmed := strings.TrimSpace(ans)
+	if trimmed == "" {
+		return true
+	}
+	noiseRe := regexp.MustCompile(`^[0-9a-zA-Z\p{P}\p{S}\s]+$`)
+	if noiseRe.MatchString(trimmed) && len([]rune(trimmed)) <= 12 {
+		return true
+	}
 	return false
 }
 
@@ -97,6 +155,14 @@ func BuildStrictEvalPrompt(question, answer string) string {
 - 51-70分：基本答出主干但深度不足，缺少原理或实践延伸
 - 71-85分：回答准确完整，逻辑清晰，有一定深度
 - 86-100分：深入底层原理，结合实践案例，展现极强技术功底
+
+【强制红线（必须执行）】
+出现以下任一情况，score 必须是 0：
+1. 明确放弃作答（例如“我不会”“我回答不出来啊老铁”“不知道怎么答”）。
+2. 无意义内容、灌水、口头禅堆砌、明显敷衍（例如“123”“asd”“随便说说”）。
+3. 与题目无关且没有技术信息。
+4. 仅表达情绪/态度，不给出任何有效技术点。
+注意：以上情况严禁给同情分、保底分或鼓励分。
 
 【输出要求】
 返回纯 JSON 对象（不要 markdown 代码块），格式严格如下：
@@ -156,6 +222,11 @@ func EvaluateCandidateAnswer(question, answer string, llmCallFunc func(prompt st
 	if result.Score > 30 && len([]rune(strings.TrimSpace(answer))) < 10 {
 		result.Score = 0
 		result.Comment = "系统检测到异常评分。修正为 0 分：回答内容极度匮乏，不足以构成有效的技术解答。"
+	}
+
+	if hasStrongGiveUpIntent(answer) {
+		result.Score = 0
+		result.Comment = "候选人明确表达无法作答，按严格评分规则判定该题 0 分。"
 	}
 
 	return &result, nil

@@ -22,3 +22,11 @@ export function generateReport(data) {
     data
   })
 }
+
+export function downloadReport(id) {
+  return request({
+    url: `/reports/${id}/download`,
+    method: 'get',
+    responseType: 'blob'
+  })
+}

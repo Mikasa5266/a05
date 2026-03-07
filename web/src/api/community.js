@@ -51,3 +51,7 @@ export function getTopAlumni() {
 export function getHotCompanies() {
   return request({ url: '/community/hot-companies', method: 'get' })
 }
+
+export function deletePost(id) {
+  return request({ url: `/community/posts/${id}`, method: 'delete' })
+}

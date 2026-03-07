@@ -38,6 +38,17 @@ export function endInterview(id) {
   })
 }
 
+export function uploadInterviewRecording(id, formData) {
+  return request({
+    url: `/interview/${id}/recording`,
+    method: 'post',
+    data: formData,
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    }
+  })
+}
+
 export function getQuestions(params) {
   return request({
     url: '/questions',

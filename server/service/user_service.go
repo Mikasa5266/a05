@@ -152,6 +152,8 @@ func CreateQuestion(title, content, position, difficulty, category string, tags 
 		Position:       position,
 		Difficulty:     difficulty,
 		Category:       category,
+		Source:         "standard",
+		RAGEligible:    true,
 		Tags:           strings.Join(tags, ","),
 		ExpectedAnswer: expectedAnswer,
 	}

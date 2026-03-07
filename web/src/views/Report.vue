@@ -10,7 +10,7 @@
         <button @click="showFeedbackModal = true" class="px-4 py-2.5 border border-zinc-200 text-zinc-600 rounded-xl text-sm font-medium hover:bg-zinc-50 transition-colors">
           提交反馈优化算法
         </button>
-        <button class="px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200">
+        <button @click="handleDownloadReport" class="px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200">
           下载报告
         </button>
       </div>
@@ -117,10 +117,11 @@
       <div class="bg-white rounded-3xl p-8 border border-zinc-100 shadow-sm">
         <h2 class="text-lg font-bold text-zinc-900 mb-4">面试回放</h2>
         <p class="text-sm text-zinc-500 mb-6">查看完整面试过程回放，包含 AI 实时评估标注</p>
-        <div class="aspect-video bg-zinc-900 rounded-2xl flex items-center justify-center text-zinc-500">
+        <video v-if="report.replay_url" :src="report.replay_url" controls class="aspect-video w-full bg-zinc-900 rounded-2xl object-contain"></video>
+        <div v-else class="aspect-video bg-zinc-900 rounded-2xl flex items-center justify-center text-zinc-500">
           <div class="text-center">
             <div class="text-4xl mb-2">▶</div>
-            <p class="text-sm">面试视频回放</p>
+            <p class="text-sm">暂无可回放视频</p>
           </div>
         </div>
       </div>
@@ -173,7 +174,7 @@
 <script setup>
 import { ref, onMounted, computed, reactive } from 'vue'
 import { useRoute } from 'vue-router'
-import { getReport, generateReport } from '../api/report'
+import { getReport, getReports, generateReport, downloadReport } from '../api/report'
 import RadarChart from '../components/RadarChart.vue'
 import GrowthCurve from '../components/GrowthCurve.vue'
 
@@ -228,6 +229,47 @@ const submitFeedback = () => {
   alert('感谢您的反馈！您的意见将帮助我们持续优化AI面试评估算法。')
 }
 
+const handleDownloadReport = async () => {
+  const id = report.value?.id || route.params.id
+  if (!id) {
+    alert('报告尚未生成，暂时无法下载')
+    return
+  }
+  try {
+    const blob = await downloadReport(id)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `report_${id}.md`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  } catch (error) {
+    console.error('下载报告失败', error)
+    alert('下载报告失败，请稍后重试')
+  }
+}
+
+const buildHistoryData = (reports = []) => {
+  const items = reports
+    .map((item) => {
+      const rawDate = item.created_at || item.end_time || ''
+      const date = rawDate ? rawDate.toString().slice(0, 10) : ''
+      const score = Number(item.average_score)
+      return {
+        date,
+        score: Number.isFinite(score) ? score : 0,
+        time: rawDate ? new Date(rawDate).getTime() : 0
+      }
+    })
+    .filter((item) => item.date)
+    .sort((a, b) => a.time - b.time)
+    .slice(-12)
+    .map(({ date, score }) => ({ date, score }))
+  return items
+}
+
 onMounted(async () => {
   const id = route.params.id
   if (id) {
@@ -242,8 +284,15 @@ onMounted(async () => {
         }
       }
       report.value = res?.report || {}
-      const reportDate = (report.value.created_at || report.value.end_time || '').toString().slice(0, 10) || '当前'
-      historyData.value = [{ date: reportDate, score: report.value.average_score || 0 }]
+      const listRes = await getReports({ page: 1, page_size: 50 })
+      const reportList = listRes?.reports || []
+      const trend = buildHistoryData(reportList)
+      if (trend.length > 0) {
+        historyData.value = trend
+      } else {
+        const reportDate = (report.value.created_at || report.value.end_time || '').toString().slice(0, 10) || '当前'
+        historyData.value = [{ date: reportDate, score: Number(report.value.average_score) || 0 }]
+      }
     } catch (error) {
       console.error('获取报告失败', error)
     }

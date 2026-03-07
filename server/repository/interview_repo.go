@@ -24,7 +24,9 @@ func (r *InterviewRepository) Create(interview *model.Interview) error {
 
 func (r *InterviewRepository) GetByID(id uint) (*model.Interview, error) {
 	var interview model.Interview
-	err := r.db.Preload("InterviewQuestions.Question").
+	err := r.db.Preload("InterviewQuestions", func(db *gorm.DB) *gorm.DB {
+		return db.Order("order_index ASC")
+	}).Preload("InterviewQuestions.Question").
 		Preload("AnswerResults.Question").
 		Preload("User").
 		First(&interview, id).Error
@@ -46,6 +48,9 @@ func (r *InterviewRepository) GetByUserID(userID uint, page, pageSize int) ([]*m
 	}
 
 	err = r.db.Preload("InterviewQuestions.Question").
+		Preload("InterviewQuestions", func(db *gorm.DB) *gorm.DB {
+			return db.Order("order_index ASC")
+		}).
 		Preload("Report").
 		Where("user_id = ?", userID).
 		Order("created_at DESC").
@@ -202,4 +207,22 @@ func (r *InterviewRepository) GetBookingsByUserID(userID uint) ([]model.Intervie
 
 func (r *InterviewRepository) UpdateBooking(booking *model.InterviewBooking) error {
 	return r.db.Save(booking).Error
+}
+
+// InsertQuestionAt inserts a question at a specific index and shifts subsequent questions
+func (r *InterviewRepository) InsertQuestionAt(interviewID uint, iq *model.InterviewQuestion, index int) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		// 1. Shift existing questions down
+		if err := tx.Model(&model.InterviewQuestion{}).
+			Where("interview_id = ? AND order_index >= ?", interviewID, index).
+			Update("order_index", gorm.Expr("order_index + 1")).Error; err != nil {
+			return err
+		}
+
+		// 2. Insert new question
+		if err := tx.Create(iq).Error; err != nil {
+			return err
+		}
+		return nil
+	})
 }

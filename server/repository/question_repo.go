@@ -32,7 +32,8 @@ func (r *QuestionRepository) GetByID(id uint) (*model.Question, error) {
 }
 
 func (r *QuestionRepository) GetQuestions(position, difficulty, category string) ([]*model.Question, error) {
-	query := r.db.Model(&model.Question{})
+	query := r.db.Model(&model.Question{}).
+		Where("(source IS NULL OR source <> ?) AND (rag_eligible IS NULL OR rag_eligible = ?)", "follow_up", true)
 
 	if position != "" {
 		query = query.Where("position = ?", position)
@@ -55,7 +56,8 @@ func (r *QuestionRepository) GetQuestions(position, difficulty, category string)
 
 func (r *QuestionRepository) GetQuestionsByPositionAndDifficulty(position, difficulty string) ([]*model.Question, error) {
 	var questions []*model.Question
-	query := r.db.Model(&model.Question{})
+	query := r.db.Model(&model.Question{}).
+		Where("(source IS NULL OR source <> ?) AND (rag_eligible IS NULL OR rag_eligible = ?)", "follow_up", true)
 
 	if position != "" {
 		query = query.Where("position = ?", position)

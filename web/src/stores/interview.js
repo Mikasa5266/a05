@@ -32,19 +32,17 @@ export const useInterviewStore = defineStore('interview', {
         } else {
           this.currentQuestion = null
         }
+      } else {
+        this.currentQuestion = null
       }
     },
     async submit(id, data) {
       const res = await submitAnswer(id, data)
       this.answers.push(res.result)
-      
-      this.interview.current_index++
-      
-      if (this.interview.questions && this.interview.current_index < this.interview.questions.length) {
-        this.currentQuestion = this.interview.questions[this.interview.current_index].question
-      } else {
-        this.currentQuestion = null
-      }
+
+      // Always sync from backend because interview flow can change dynamically
+      // (follow-up insertion, early completion, index updates, etc.).
+      await this.get(id)
     },
     async end(id) {
       const res = await endInterview(id)

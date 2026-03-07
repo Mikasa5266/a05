@@ -1,81 +1,43 @@
 {
   "position_scoring": {
-    "description": "按岗位方向定义的关键能力维度与权重",
+    "description": "按岗位方向定义的关键能力维度与权重（4个岗位方向）",
     "positions": {
-      "java": {
-        "name": "Java 后端开发",
+      "backend": {
+        "name": "后端工程师",
         "weight_distribution": {
-          "technical_depth": 0.40,
-          "expression": 0.15,
-          "logic": 0.20,
-          "completeness": 0.25
+          "technical_score": 0.50,
+          "behavioral_score": 0.50
         },
         "key_competencies": [
-          {"name": "JVM 原理", "weight": 0.20, "topics": ["内存模型", "GC算法", "类加载", "JVM调优"]},
-          {"name": "并发编程", "weight": 0.20, "topics": ["线程池", "锁机制", "JMM", "CAS/AQS"]},
-          {"name": "Spring 生态", "weight": 0.20, "topics": ["IoC/AOP", "Boot自动装配", "事务管理", "Cloud微服务"]},
-          {"name": "数据库", "weight": 0.20, "topics": ["MySQL索引", "SQL优化", "事务隔离", "分库分表"]},
-          {"name": "缓存中间件", "weight": 0.20, "topics": ["Redis数据结构", "缓存策略", "分布式锁", "持久化"]}
+          {"name": "编程基础", "weight": 0.20, "topics": ["数据结构", "算法", "设计模式", "网络协议", "操作系统"]},
+          {"name": "数据库", "weight": 0.25, "topics": ["MySQL索引", "SQL优化", "事务隔离", "Redis", "分布式锁"]},
+          {"name": "框架与中间件", "weight": 0.25, "topics": ["Spring/Gin/FastAPI", "消息队列", "微服务", "容器化"]},
+          {"name": "系统设计", "weight": 0.20, "topics": ["高并发", "高可用", "缓存策略", "限流降级"]},
+          {"name": "工程实践", "weight": 0.10, "topics": ["Git", "CI/CD", "日志监控", "性能调优"]}
         ],
         "level_expectations": {
           "Junior": {
             "score_range": [40, 65],
-            "expectation": "掌握基本API使用，理解核心概念，能在指导下完成开发任务"
+            "expectation": "掌握基本语法和框架使用，理解核心概念，能在指导下完成开发"
           },
           "Intermediate": {
             "score_range": [55, 80],
             "expectation": "理解底层原理，具备独立排查问题能力，有实际项目经验"
-          },
-          "Senior": {
-            "score_range": [70, 100],
-            "expectation": "精通底层原理与源码，能做技术选型和架构设计，有成功优化案例"
-          }
-        }
-      },
-      "python": {
-        "name": "Python 后端开发",
-        "weight_distribution": {
-          "technical_depth": 0.35,
-          "expression": 0.15,
-          "logic": 0.25,
-          "completeness": 0.25
-        },
-        "key_competencies": [
-          {"name": "Python 核心", "weight": 0.25, "topics": ["GIL", "装饰器/元类", "生成器/协程", "内存管理"]},
-          {"name": "Web 框架", "weight": 0.25, "topics": ["Django/Flask/FastAPI", "ORM", "中间件", "异步处理"]},
-          {"name": "数据处理", "weight": 0.20, "topics": ["Pandas/NumPy", "数据清洗", "ETL流程", "可视化"]},
-          {"name": "系统设计", "weight": 0.15, "topics": ["Celery", "消息队列", "部署架构", "容器化"]},
-          {"name": "数据库", "weight": 0.15, "topics": ["SQLAlchemy", "Redis", "MongoDB", "查询优化"]}
-        ],
-        "level_expectations": {
-          "Junior": {
-            "score_range": [40, 65],
-            "expectation": "熟练使用 Python 基础语法和常用框架，了解 GIL 等核心特性"
-          },
-          "Intermediate": {
-            "score_range": [55, 80],
-            "expectation": "理解 Python 运行机制，能设计合理的后端架构，具备异步编程能力"
-          },
-          "Senior": {
-            "score_range": [70, 100],
-            "expectation": "精通 Python 底层实现，有大规模数据处理和系统优化经验"
           }
         }
       },
       "frontend": {
-        "name": "前端开发",
+        "name": "前端工程师",
         "weight_distribution": {
-          "technical_depth": 0.30,
-          "expression": 0.20,
-          "logic": 0.20,
-          "completeness": 0.30
+          "technical_score": 0.50,
+          "behavioral_score": 0.50
         },
         "key_competencies": [
           {"name": "框架深度", "weight": 0.30, "topics": ["Vue3响应式", "React Hooks/Fiber", "状态管理", "组件设计"]},
-          {"name": "浏览器原理", "weight": 0.20, "topics": ["渲染流水线", "事件循环", "性能优化", "内存管理"]},
-          {"name": "CSS 布局", "weight": 0.15, "topics": ["Flex/Grid", "BFC", "响应式设计", "CSS工程化"]},
-          {"name": "工程化", "weight": 0.20, "topics": ["Webpack/Vite", "TypeScript", "CI/CD", "包管理"]},
-          {"name": "网络与安全", "weight": 0.15, "topics": ["HTTP缓存", "跨域", "XSS/CSRF", "性能指标"]}
+          {"name": "浏览器原理", "weight": 0.20, "topics": ["渲染流水线", "事件循环", "性能优化", "HTTP缓存"]},
+          {"name": "CSS 布局", "weight": 0.15, "topics": ["Flex/Grid", "BFC", "响应式设计"]},
+          {"name": "工程化", "weight": 0.20, "topics": ["Webpack/Vite", "TypeScript", "代码分割", "Tree Shaking"]},
+          {"name": "网络与安全", "weight": 0.15, "topics": ["跨域", "XSS/CSRF", "HTTPS", "性能指标"]}
         ],
         "level_expectations": {
           "Junior": {
@@ -84,71 +46,54 @@
           },
           "Intermediate": {
             "score_range": [55, 80],
-            "expectation": "理解框架底层原理，能做性能优化，有复杂组件库开发经验"
-          },
-          "Senior": {
-            "score_range": [70, 100],
-            "expectation": "精通框架源码，有工程化方案设计能力，能主导前端架构升级"
+            "expectation": "理解框架底层原理，能做性能优化，有复杂组件开发经验"
           }
         }
       },
-      "go": {
-        "name": "Go 后端开发",
+      "algorithm": {
+        "name": "算法工程师",
         "weight_distribution": {
-          "technical_depth": 0.40,
-          "expression": 0.15,
-          "logic": 0.25,
-          "completeness": 0.20
+          "technical_score": 0.55,
+          "behavioral_score": 0.45
         },
         "key_competencies": [
-          {"name": "Go 核心", "weight": 0.30, "topics": ["GMP调度", "Channel并发", "GC三色标记", "接口机制"]},
-          {"name": "微服务", "weight": 0.25, "topics": ["gRPC/Protobuf", "服务发现", "链路追踪", "限流熔断"]},
-          {"name": "云原生", "weight": 0.20, "topics": ["Docker", "Kubernetes", "Helm", "Operator"]},
-          {"name": "Web框架", "weight": 0.15, "topics": ["Gin", "GORM", "中间件", "路由设计"]},
-          {"name": "分布式", "weight": 0.10, "topics": ["Raft共识", "etcd", "分布式事务", "消息队列"]}
+          {"name": "数据结构与算法", "weight": 0.35, "topics": ["动态规划", "图算法", "二分查找", "字符串算法", "复杂度分析"]},
+          {"name": "机器学习", "weight": 0.30, "topics": ["分类算法", "模型评估", "特征工程", "正则化", "集成学习"]},
+          {"name": "数学基础", "weight": 0.20, "topics": ["概率统计", "线性代数", "信息论", "优化理论"]},
+          {"name": "编程能力", "weight": 0.15, "topics": ["Python/C++", "代码实现", "调试能力", "工程化"]}
         ],
         "level_expectations": {
           "Junior": {
             "score_range": [40, 65],
-            "expectation": "掌握 Go 语法和并发编程基础，能用 Gin 框架开发 API"
+            "expectation": "掌握常见数据结构和算法，理解基本 ML 算法原理，能实现和调用模型"
           },
           "Intermediate": {
             "score_range": [55, 80],
-            "expectation": "理解 GMP 调度模型和 GC 机制，有微服务开发经验"
-          },
-          "Senior": {
-            "score_range": [70, 100],
-            "expectation": "深入 Go runtime 源码，有大规模微服务架构设计和性能调优经验"
+            "expectation": "精通算法设计与优化，有模型训练和评估经验，有竞赛或论文经历"
           }
         }
       },
-      "qa": {
-        "name": "测试工程师",
+      "ai_engineer": {
+        "name": "AI 工程师",
         "weight_distribution": {
-          "technical_depth": 0.25,
-          "expression": 0.25,
-          "logic": 0.30,
-          "completeness": 0.20
+          "technical_score": 0.50,
+          "behavioral_score": 0.50
         },
         "key_competencies": [
-          {"name": "测试方法论", "weight": 0.25, "topics": ["测试金字塔", "等价类/边界值", "测试策略", "质量度量"]},
-          {"name": "自动化测试", "weight": 0.30, "topics": ["Selenium/Playwright", "API测试", "CI集成", "测试框架"]},
-          {"name": "性能测试", "weight": 0.20, "topics": ["JMeter", "压测方案", "瓶颈分析", "监控告警"]},
-          {"name": "质量管理", "weight": 0.15, "topics": ["缺陷管理", "测试报告", "风险评估", "准入准出"]},
-          {"name": "编程能力", "weight": 0.10, "topics": ["Python/Java", "SQL", "Linux", "脚本编写"]}
+          {"name": "大模型与LLM", "weight": 0.30, "topics": ["Transformer", "预训练微调", "Prompt Engineering", "RAG"]},
+          {"name": "深度学习", "weight": 0.25, "topics": ["优化算法", "CNN/RNN", "注意力机制", "正则化"]},
+          {"name": "AI Agent", "weight": 0.20, "topics": ["Agent架构", "工具调用", "Function Calling", "Multi-Agent"]},
+          {"name": "多模态与部署", "weight": 0.15, "topics": ["多模态模型", "模型量化", "推理优化", "vLLM"]},
+          {"name": "工程实践", "weight": 0.10, "topics": ["LangChain", "向量数据库", "评估体系", "安全防护"]}
         ],
         "level_expectations": {
           "Junior": {
             "score_range": [40, 65],
-            "expectation": "掌握基本测试方法论，能编写测试用例和简单自动化脚本"
+            "expectation": "理解 Transformer 原理，能使用 LLM API 和 RAG 框架开发应用"
           },
           "Intermediate": {
             "score_range": [55, 80],
-            "expectation": "能设计测试框架，有性能测试经验，具备质量管理意识"
-          },
-          "Senior": {
-            "score_range": [70, 100],
-            "expectation": "能制定质量战略，有大型项目测试架构经验，推动工程效能提升"
+            "expectation": "有模型微调和 Agent 开发经验，了解多模态和部署优化"
           }
         }
       }

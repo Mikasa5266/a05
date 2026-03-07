@@ -13,6 +13,7 @@ import History from '../views/History.vue'
 import Report from '../views/Report.vue'
 import Settings from '../views/Settings.vue'
 import Community from '../views/Community.vue'
+import CommunityPostDetail from '../views/CommunityPostDetail.vue'
 
 // Enterprise Views
 import EnterpriseDashboard from '../views/enterprise/EnterpriseDashboard.vue'
@@ -98,6 +99,11 @@ const routes = [
         path: 'community',
         name: 'Community',
         component: Community
+      },
+      {
+        path: 'community/posts/:id',
+        name: 'CommunityPostDetail',
+        component: CommunityPostDetail
       },
       {
         path: 'settings',

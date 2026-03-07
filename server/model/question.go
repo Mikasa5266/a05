@@ -14,6 +14,8 @@ type Question struct {
 	Position       string         `gorm:"index;not null" json:"position"`
 	Difficulty     string         `gorm:"index;not null" json:"difficulty"`
 	Category       string         `gorm:"index" json:"category"`
+	Source         string         `gorm:"size:32;index;default:'standard'" json:"source"`
+	RAGEligible    bool           `gorm:"index;default:true" json:"rag_eligible"`
 	Tags           string         `gorm:"type:text" json:"-"`
 	ExpectedAnswer string         `gorm:"type:text" json:"expected_answer,omitempty"`
 	CreatedAt      time.Time      `json:"created_at"`

@@ -1,5 +1,16 @@
 <template>
   <div class="interview-chat-container">
+    <div class="header-bar" v-if="interviewStore.interview">
+      <div class="topic-info">
+        <span class="topic-label">当前话题:</span>
+        <span class="topic-value">{{ currentTopic || '基础面试' }}</span>
+      </div>
+      <div class="progress-info">
+        <!-- Hide exact count to keep it dynamic -->
+        <span>面试进行中</span>
+      </div>
+    </div>
+
     <div class="chat-window" ref="chatWindowRef">
       <div v-for="(msg, index) in messages" :key="index" class="message" :class="msg.role">
         <div class="avatar">
@@ -9,8 +20,8 @@
           <div class="bubble">
             <p v-if="msg.type === 'text'">{{ msg.content }}</p>
             <div v-else-if="msg.type === 'question'">
-              <h3>{{ msg.content.title }}</h3>
-              <p>{{ msg.content.content }}</p>
+              <h3 class="font-bold text-lg mb-2">{{ msg.content.title }}</h3>
+              <p class="whitespace-pre-wrap">{{ msg.content.content }}</p>
             </div>
           </div>
         </div>
@@ -19,6 +30,7 @@
         <div class="avatar"><el-avatar icon="Service" class="ai" /></div>
         <div class="content">
           <div class="bubble">
+            <p class="loading-text">{{ loadingText || '面试官正在思考中...' }}</p>
             <span class="typing-indicator"><span>.</span><span>.</span><span>.</span></span>
           </div>
         </div>
@@ -26,6 +38,9 @@
     </div>
 
     <div class="input-area" v-if="!isCompleted">
+      <div v-if="loading" class="loading-hint">
+        {{ loadingText || '面试官正在评估你的回答，请稍等...' }}
+      </div>
       <el-input
         v-model="inputMessage"
         type="textarea"
@@ -35,7 +50,7 @@
       />
       <div class="action-bar">
         <AudioRecorder @record-complete="handleAudioRecord" />
-        <el-button type="primary" @click="sendMessage" :loading="loading" :disabled="!inputMessage.trim()">
+        <el-button type="primary" @click="sendMessage" :loading="loading" :disabled="loading || !inputMessage.trim()">
           发送 (Ctrl+Enter)
         </el-button>
         <el-button @click="handleSkip" :disabled="loading">跳过</el-button>
@@ -53,7 +68,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, watch } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import { useInterviewStore } from '../stores/interview'
 import { useRouter, useRoute } from 'vue-router'
 import AudioRecorder from '../components/AudioRecorder.vue'
@@ -66,8 +81,10 @@ const route = useRoute()
 const messages = ref([])
 const inputMessage = ref('')
 const loading = ref(false)
+const loadingText = ref('')
 const chatWindowRef = ref(null)
 const isCompleted = ref(false)
+const currentTopic = ref('')
 
 const scrollToBottom = () => {
   nextTick(() => {
@@ -94,6 +111,7 @@ const initInterview = async () => {
       
       // 添加第一题
       if (interviewStore.currentQuestion) {
+        currentTopic.value = interviewStore.interview.current_topic || '基础面试'
         setTimeout(() => {
           addMessage('ai', interviewStore.currentQuestion, 'question')
         }, 1000)
@@ -127,15 +145,21 @@ const submitAnswer = async (answerText, audioData = '') => {
   if (!interviewStore.currentQuestion) return
 
   loading.value = true
+  loadingText.value = '面试官正在评估你的回答...'
   try {
     await interviewStore.submit(interviewStore.interview.id, {
       question_id: interviewStore.currentQuestion.id,
       answer: answerText,
       audio_data: audioData
     })
+    loadingText.value = '面试官正在组织下一轮问题...'
     
     // 获取下一题或结束
     if (interviewStore.currentQuestion) {
+      // Update topic
+      if (interviewStore.interview.current_topic) {
+        currentTopic.value = interviewStore.interview.current_topic
+      }
       setTimeout(() => {
         addMessage('ai', interviewStore.currentQuestion, 'question')
       }, 1000)
@@ -151,6 +175,7 @@ const submitAnswer = async (answerText, audioData = '') => {
     ElMessage.error(error.response?.data?.error || '提交失败')
   } finally {
     loading.value = false
+    loadingText.value = ''
   }
 }
 
@@ -178,6 +203,41 @@ onMounted(() => {
   background-color: #fff;
   box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
   border-radius: 8px;
+}
+
+.header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 20px;
+  border-bottom: 1px solid #eee;
+  background-color: #fff;
+  border-radius: 8px 8px 0 0;
+}
+
+.topic-info {
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.topic-label {
+  color: #909399;
+  font-weight: bold;
+}
+
+.topic-value {
+  color: #409eff;
+  font-weight: 600;
+  background: #ecf5ff;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.progress-info {
+  font-size: 12px;
+  color: #909399;
 }
 
 .chat-window {
@@ -232,6 +292,21 @@ onMounted(() => {
   justify-content: flex-end;
   margin-top: 10px;
   gap: 10px;
+}
+
+.loading-hint {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #ecf5ff;
+  color: #409eff;
+  font-size: 13px;
+}
+
+.loading-text {
+  margin-bottom: 8px;
+  color: #606266;
+  font-size: 13px;
 }
 
 .typing-indicator span {

@@ -1,4 +1,4 @@
-﻿package service
+package service
 
 import (
 	"bytes"
@@ -18,6 +18,7 @@ import (
 
 	"your-project/config"
 	"your-project/model"
+	"your-project/pkg/asr"
 )
 
 type AIService struct {
@@ -744,6 +745,209 @@ func (s *AIService) GenerateQuestions(interview *model.Interview, count int) ([]
 	return questions, nil
 }
 
+// GenerateTopicQuestionFromContext builds a topic-opening question using RAG context.
+func (s *AIService) GenerateTopicQuestionFromContext(interview *model.Interview, ragContext string, category string) (*model.Question, error) {
+	if interview == nil {
+		return nil, fmt.Errorf("interview is nil")
+	}
+	modeInstruction := buildModePrompt(interview.Mode)
+	styleInstruction := buildStylePrompt(interview.Style, interview.Company)
+	difficultyInstruction := buildDifficultyPrompt(interview.Difficulty)
+
+	prompt := fmt.Sprintf(`
+		你是一位资深技术面试官。请基于以下检索到的知识片段，生成一个“话题引入题”。
+		要求：
+		1. 必须围绕知识片段的核心内容提问，作为话题的第一题。
+		2. 题目清晰、可回答，不要过于宽泛。
+		3. 语气必须是“开场提问”，禁止任何追问口吻或上下文引用，例如“你提到/你刚才/继续/进一步/补充说明/候选人提到/基于上一题”。
+		4. 题面必须自包含，不能依赖前文，不得出现“继续、再次、补充、进一步”等承接词。
+		5. 只使用简体中文。
+		6. 返回格式：{"title": "问题标题", "content": "具体问题内容", "expected_answer": "简要的期望回答"}
+
+		职位：%s
+		难度级别：%s
+		面试模式：%s
+		面试风格：%s
+
+		%s
+		%s
+		%s
+
+		【知识片段】
+		%s
+	`, interview.Position, interview.Difficulty, interview.Mode, interview.Style,
+		modeInstruction, styleInstruction, difficultyInstruction, ragContext)
+
+	response, err := s.callLLM(prompt, "chat")
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate topic question: %w", err)
+	}
+
+	var q struct {
+		Title          string `json:"title"`
+		Content        string `json:"content"`
+		ExpectedAnswer string `json:"expected_answer"`
+	}
+
+	cleanResponse := extractJSONContent(response)
+	if err := json.Unmarshal([]byte(cleanResponse), &q); err != nil {
+		return nil, fmt.Errorf("failed to parse topic question response: %w, body: %s", err, response)
+	}
+
+	result := &model.Question{
+		Title:          q.Title,
+		Content:        q.Content,
+		ExpectedAnswer: q.ExpectedAnswer,
+		Position:       interview.Position,
+		Difficulty:     interview.Difficulty,
+		Category:       category,
+	}
+	s.EnsureQuestionChinese(result)
+	s.ensureOpeningQuestionTone(result, category)
+	return result, nil
+}
+
+func (s *AIService) ensureOpeningQuestionTone(q *model.Question, category string) {
+	if q == nil {
+		return
+	}
+	text := strings.TrimSpace(q.Title + " " + q.Content)
+	if !isFollowUpWording(text) {
+		return
+	}
+
+	topic := strings.TrimSpace(category)
+	if topic == "" {
+		topic = "该技术主题"
+	}
+
+	q.Title = fmt.Sprintf("%s核心原理与实践", topic)
+	q.Content = fmt.Sprintf("请你系统讲解%s的核心原理、关键设计取舍，以及在实际项目中的应用方式。", topic)
+	if strings.TrimSpace(q.ExpectedAnswer) == "" {
+		q.ExpectedAnswer = fmt.Sprintf("应覆盖%s的定义、核心机制、适用场景、常见问题与优化思路。", topic)
+	}
+}
+
+func isFollowUpWording(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	patterns := []string{
+		"你提到", "你刚才", "你刚刚", "继续", "进一步", "补充", "候选人提到", "基于上一题", "上一题", "再追问", "追问",
+	}
+	for _, p := range patterns {
+		if strings.Contains(t, p) {
+			return true
+		}
+	}
+	return false
+}
+
+var openingQuestionContextPatterns = []string{
+	"你刚才", "你刚刚", "你提到", "继续", "进一步", "补充", "上一题", "上一个问题", "前文", "上文", "上述", "如上", "再说",
+	"这三个类", "这三类", "这几类", "这几个", "这些类", "这些对象", "它们", "分别说下", "分别解释一下",
+}
+
+var openingQuestionQuantifierRef = regexp.MustCompile(`这[一二两三四五六七八九十\d]+(个|类|种|点|方面|模块|对象|方法|步骤)`)
+
+// IsContextDependentOpeningQuestion checks whether a supposed opening question depends on missing prior context.
+func (s *AIService) IsContextDependentOpeningQuestion(question *model.Question) bool {
+	if question == nil {
+		return true
+	}
+	text := strings.TrimSpace(question.Title + " " + question.Content)
+	if text == "" {
+		return true
+	}
+	if isFollowUpWording(text) {
+		return true
+	}
+	if openingQuestionQuantifierRef.MatchString(text) {
+		return true
+	}
+	for _, p := range openingQuestionContextPatterns {
+		if strings.Contains(text, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// NormalizeToSelfContainedOpening rewrites a problematic opening question into a self-contained one.
+func (s *AIService) NormalizeToSelfContainedOpening(question *model.Question) {
+	if question == nil {
+		return
+	}
+	topic := strings.TrimSpace(question.Category)
+	if topic == "" {
+		topic = strings.TrimSpace(question.Title)
+	}
+	if topic == "" {
+		topic = "该技术主题"
+	}
+
+	question.Title = fmt.Sprintf("%s：核心原理与实践", topic)
+	question.Content = fmt.Sprintf("请你围绕%s，完整说明核心概念、关键实现机制、线程安全性与性能特点，并给出典型使用场景。请不要省略被比较对象的名称。", topic)
+	if strings.TrimSpace(question.ExpectedAnswer) == "" {
+		question.ExpectedAnswer = fmt.Sprintf("应覆盖%s的定义、实现原理、线程安全边界、性能取舍与项目实践。", topic)
+	}
+	question.Title = strings.TrimSpace(question.Title)
+	question.Content = strings.TrimSpace(question.Content)
+	question.ExpectedAnswer = strings.TrimSpace(question.ExpectedAnswer)
+}
+
+// GenerateClarifyingFollowUpQuestion forces a follow-up based on the answer content (no hallucination).
+func (s *AIService) GenerateClarifyingFollowUpQuestion(currentQ *model.Question, answer string, followUpIndex int) (*model.Question, error) {
+	if currentQ == nil {
+		return nil, fmt.Errorf("current question is nil")
+	}
+	prompt := fmt.Sprintf(`
+		你是一位资深技术面试官。候选人的回答信息不足，但仍需要继续追问。
+		要求：
+		1. 追问必须基于候选人回答的内容或其“信息不足”这一事实，禁止编造候选人未提到的信息。
+		2. 可以要求补充理由、细节、边界条件或实现步骤。
+		3. 只使用简体中文。
+		4. 返回格式：{"title": "追问标题", "content": "追问具体内容", "expected_answer": "期望回答要点"}
+
+		【当前问题】
+		标题：%s
+		内容：%s
+
+		【候选人回答】
+		%s
+
+		【当前追问次数】%d
+	`, currentQ.Title, currentQ.Content, answer, followUpIndex)
+
+	response, err := s.callLLM(prompt, "chat")
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate clarifying follow-up: %w", err)
+	}
+
+	var q struct {
+		Title          string `json:"title"`
+		Content        string `json:"content"`
+		ExpectedAnswer string `json:"expected_answer"`
+	}
+
+	cleanResponse := extractJSONContent(response)
+	if err := json.Unmarshal([]byte(cleanResponse), &q); err != nil {
+		return nil, fmt.Errorf("failed to parse clarifying follow-up: %w, body: %s", err, response)
+	}
+
+	result := &model.Question{
+		Title:          q.Title,
+		Content:        q.Content,
+		ExpectedAnswer: q.ExpectedAnswer,
+		Position:       currentQ.Position,
+		Difficulty:     currentQ.Difficulty,
+		Category:       currentQ.Category,
+	}
+	s.EnsureQuestionChinese(result)
+	return result, nil
+}
+
 // GenerateNextQuestionWithWeights generates next question considering capability weights
 func (s *AIService) GenerateNextQuestionWithWeights(interview *model.Interview, previousAnswers []model.AnswerResult, capabilityGraph *model.JobCapabilityDimension) (*model.Question, error) {
 	// If no capability graph provided, fallback to standard generation
@@ -868,6 +1072,116 @@ func (s *AIService) GenerateNextQuestion(interview *model.Interview, previousAns
 	}
 	s.EnsureQuestionChinese(result)
 	return result, nil
+}
+
+func (s *AIService) GenerateFollowUpQuestion(interview *model.Interview, currentQ *model.Question, answer string, ragContext string, followUpIndex int) (*model.Question, string, error) {
+	// Decide if follow-up is needed based on answer quality and depth
+	// This is a simplified prompt. In production, we might want a two-step process: Analyze -> Generate
+	mode := "technical"
+	style := "gentle"
+	difficulty := "campus_intern"
+	company := ""
+	modeInstruction := buildModePrompt(mode)
+	styleInstruction := buildStylePrompt(style, company)
+	difficultyInstruction := buildDifficultyPrompt(difficulty)
+	if interview != nil {
+		mode = interview.Mode
+		style = interview.Style
+		difficulty = interview.Difficulty
+		company = interview.Company
+		modeInstruction = buildModePrompt(mode)
+		styleInstruction = buildStylePrompt(style, company)
+		difficultyInstruction = buildDifficultyPrompt(difficulty)
+	}
+
+	prompt := fmt.Sprintf(`
+		你是一位资深技术面试官。候选人刚刚回答了你的问题。
+
+		【面试上下文】
+		面试类型：%s
+		面试风格：%s
+		难度等级：%s
+
+		%s
+		%s
+		%s
+		
+		【当前问题】
+		标题：%s
+		内容：%s
+		
+		【候选人回答】
+		%s
+		
+		【相关知识库上下文】
+		%s
+		
+		【当前追问次数】
+		%d
+		
+		请分析候选人的回答：
+		1. 如果回答非常完美、全面，且没有明显的漏洞或值得深挖的点，则不需要追问，返回 "NO_FOLLOWUP"。
+		2. 如果回答存在模糊不清、逻辑漏洞、或者提到了值得深入的技术点（特别是项目经验或底层原理），请生成一个追问问题。
+		3. 追问必须与候选人的回答强关联，循序渐进地深入同一话题，禁止突然切换到无关主题。
+		4. 追问只能基于候选人已回答的内容，不得假设或编造其未提到的信息。
+		5. 追问措辞避免使用“你提到了X”这类句式，除非 X 在回答中明确出现。
+		6. 如果这是第3次追问，除非非常必要，否则尽量结束该话题，返回 "NO_FOLLOWUP"。
+		
+		如果需要追问，请返回 JSON 格式：
+		{
+			"follow_up_needed": true,
+			"reason": "追问理由（简短中文）",
+			"question": {
+				"title": "追问标题",
+				"content": "追问具体内容",
+				"expected_answer": "期望回答要点"
+			}
+		}
+		
+		如果不需要追问，请返回 JSON 格式：
+		{
+			"follow_up_needed": false,
+			"reason": "回答已足够完整/话题已结束"
+		}
+	`, mode, style, difficulty, modeInstruction, styleInstruction, difficultyInstruction, currentQ.Title, currentQ.Content, answer, ragContext, followUpIndex)
+
+	response, err := s.callLLM(prompt, "chat")
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to generate follow-up: %w", err)
+	}
+
+	var result struct {
+		FollowUpNeeded bool   `json:"follow_up_needed"`
+		Reason         string `json:"reason"`
+		Question       struct {
+			Title          string `json:"title"`
+			Content        string `json:"content"`
+			ExpectedAnswer string `json:"expected_answer"`
+		} `json:"question"`
+	}
+
+	cleanResponse := extractJSONContent(response)
+	if err := json.Unmarshal([]byte(cleanResponse), &result); err != nil {
+		// If parsing fails, assume no follow-up to be safe
+		log.Printf("Failed to parse follow-up response: %v, body: %s", err, response)
+		return nil, "", nil
+	}
+
+	if !result.FollowUpNeeded {
+		return nil, result.Reason, nil
+	}
+
+	q := &model.Question{
+		Title:          result.Question.Title,
+		Content:        result.Question.Content,
+		ExpectedAnswer: result.Question.ExpectedAnswer,
+		Position:       currentQ.Position,
+		Difficulty:     currentQ.Difficulty,
+		Category:       currentQ.Category, // Inherit category
+	}
+	s.EnsureQuestionChinese(q)
+
+	return q, result.Reason, nil
 }
 
 func (s *AIService) TranscribeAudio(audioData string) (string, error) {
@@ -1110,7 +1424,20 @@ func clampScore(value int) int {
 }
 
 func (s *AIService) transcribeWithWhisper(audioData []byte) (string, error) {
-	return "音频转录功能待实现", nil
+	asrConfig := config.GetConfig().ASR
+	client := asr.NewWhisperClient(asrConfig.APIKey, asrConfig.BaseURL)
+
+	text, err := client.TranscribeAudio(audioData, "zh")
+	if err != nil {
+		return "", fmt.Errorf("whisper transcription failed: %w", err)
+	}
+
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", fmt.Errorf("empty transcription result")
+	}
+
+	return text, nil
 }
 
 // ========== Interview Mode / Style / Difficulty Prompt Builders ==========

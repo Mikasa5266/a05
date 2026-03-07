@@ -25,31 +25,41 @@
       </select>
       <select v-model="filterCompany" class="px-4 py-3 bg-white border border-zinc-200 rounded-2xl text-sm shadow-sm">
         <option value="">全部公司</option>
-        <option value="baidu">百度</option>
-        <option value="alibaba">阿里巴巴</option>
-        <option value="tencent">腾讯</option>
-        <option value="huawei">华为</option>
-        <option value="bytedance">字节跳动</option>
+        <option value="百度">百度</option>
+        <option value="阿里巴巴">阿里巴巴</option>
+        <option value="腾讯">腾讯</option>
+        <option value="华为">华为</option>
+        <option value="字节跳动">字节跳动</option>
       </select>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <!-- Posts List -->
       <div class="lg:col-span-2 space-y-6">
-        <div v-for="(post, idx) in filteredPosts" :key="idx"
+        <div v-if="postsLoading" class="bg-white rounded-3xl p-8 border border-zinc-100 text-zinc-500">
+          加载中...
+        </div>
+        <div v-else-if="postsError" class="bg-rose-50 rounded-3xl p-8 border border-rose-100 text-rose-700">
+          {{ postsError }}
+        </div>
+        <div v-else-if="filteredPosts.length === 0" class="bg-white rounded-3xl p-8 border border-zinc-100 text-zinc-400">
+          暂无帖子，快来发布第一篇面经吧
+        </div>
+
+        <div v-for="post in filteredPosts" :key="post.id"
           class="bg-white rounded-3xl p-6 border border-zinc-100 shadow-sm hover:shadow-md transition-shadow"
         >
           <!-- Author Info -->
           <div class="flex items-center gap-3 mb-4">
-            <div class="h-10 w-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-sm">
-              {{ post.author.charAt(0) }}
+            <img v-if="post.avatar" :src="post.avatar" class="h-10 w-10 rounded-full object-cover" />
+            <div v-else class="h-10 w-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-sm">
+              {{ (post.author || '?').charAt(0) }}
             </div>
             <div>
               <div class="font-medium text-zinc-900 flex items-center gap-2">
-                {{ post.author }}
-                <span v-if="post.verified" class="px-1.5 py-0.5 bg-emerald-50 text-emerald-600 rounded text-[10px] font-bold">已就业认证</span>
+                {{ post.author || '匿名用户' }}
               </div>
-              <div class="text-xs text-zinc-400">{{ post.school }} · {{ post.year }}届 · {{ post.position }}</div>
+              <div class="text-xs text-zinc-400">{{ post.position || '未填写岗位' }}</div>
             </div>
           </div>
 
@@ -59,14 +69,17 @@
 
           <!-- Tags -->
           <div class="flex items-center gap-2 flex-wrap mb-4">
-            <span class="px-2 py-1 bg-indigo-50 text-indigo-600 rounded-full text-xs font-medium">{{ post.company }}</span>
-            <span v-for="tag in post.tags" :key="tag" class="px-2 py-1 bg-zinc-100 text-zinc-600 rounded-full text-xs">{{ tag }}</span>
+            <span v-if="post.is_indexed" class="px-2 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-bold border border-emerald-100 flex items-center gap-1">
+              <BrainCircuit class="h-3 w-3" /> 已入库
+            </span>
+            <span v-if="post.company" class="px-2 py-1 bg-indigo-50 text-indigo-600 rounded-full text-xs font-medium">{{ post.company }}</span>
+            <span v-for="tag in (post.tags || [])" :key="tag" class="px-2 py-1 bg-zinc-100 text-zinc-600 rounded-full text-xs">{{ tag }}</span>
           </div>
 
           <!-- Actions -->
           <div class="flex items-center justify-between pt-4 border-t border-zinc-100">
             <div class="flex items-center gap-4 text-sm text-zinc-400">
-              <button class="flex items-center gap-1 hover:text-indigo-600 transition-colors">
+              <button @click="onLike(post)" class="flex items-center gap-1 hover:text-indigo-600 transition-colors">
                 <ThumbsUp class="h-4 w-4" /> {{ post.likes }}
               </button>
               <button class="flex items-center gap-1 hover:text-indigo-600 transition-colors">
@@ -76,9 +89,18 @@
                 <Eye class="h-4 w-4" /> {{ post.views }}
               </span>
             </div>
-            <button class="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-medium hover:bg-indigo-100 transition-colors">
-              查看详情
-            </button>
+            <div class="flex items-center gap-2">
+              <button v-if="userStore.userInfo && post.user_id === userStore.userInfo.id" 
+                @click.stop="handleDelete(post.id)" 
+                class="px-3 py-1.5 text-rose-600 hover:bg-rose-50 rounded-lg text-xs font-bold transition-all flex items-center gap-1"
+              >
+                <Trash2 class="h-3.5 w-3.5" />
+                删除
+              </button>
+              <button @click="goDetail(post.id)" class="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-medium hover:bg-indigo-100 transition-colors">
+                查看详情
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -103,10 +125,11 @@
           <div class="space-y-3">
             <div v-for="(alumni, idx) in topAlumni" :key="idx" class="flex items-center justify-between">
               <div class="flex items-center gap-3">
-                <div class="h-8 w-8 rounded-full bg-zinc-100 text-zinc-600 flex items-center justify-center font-bold text-xs">{{ alumni.name.charAt(0) }}</div>
+                <img v-if="alumni.avatar" :src="alumni.avatar" class="h-8 w-8 rounded-full object-cover" />
+                <div v-else class="h-8 w-8 rounded-full bg-zinc-100 text-zinc-600 flex items-center justify-center font-bold text-xs">{{ (alumni.name || '?').charAt(0) }}</div>
                 <div>
-                  <div class="text-sm font-medium text-zinc-900">{{ alumni.name }}</div>
-                  <div class="text-xs text-zinc-400">{{ alumni.company }}</div>
+                  <div class="text-sm font-medium text-zinc-900">{{ alumni.name || '匿名' }}</div>
+                  <div class="text-xs text-zinc-400">{{ alumni.company || '未填写' }}</div>
                 </div>
               </div>
               <span class="text-xs text-zinc-400">{{ alumni.posts }}篇</span>
@@ -118,22 +141,44 @@
         <div class="bg-white rounded-3xl p-6 border border-zinc-100 shadow-sm">
           <h3 class="font-bold text-zinc-900 mb-4">热门公司面经</h3>
           <div class="flex flex-wrap gap-2">
-            <span v-for="company in hotCompanies" :key="company"
+            <span v-for="company in hotCompanies" :key="company.name"
               class="px-3 py-1.5 bg-zinc-100 text-zinc-600 rounded-full text-sm cursor-pointer hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
-              @click="filterCompany = company"
+              @click="filterCompany = company.name"
             >
-              {{ company }}
+              {{ company.name }}
+              <span class="text-xs text-zinc-400 ml-1">{{ company.posts }}</span>
             </span>
           </div>
         </div>
 
         <!-- AI Knowledge Base -->
         <div class="bg-zinc-900 text-white rounded-3xl p-6">
-          <h3 class="font-bold mb-2">AI 知识库补充</h3>
-          <p class="text-sm text-zinc-400 mb-4">校友经验自动融入 RAG 知识库，让 AI 面试反馈更具行业针对性</p>
-          <div class="flex items-center gap-2 text-xs text-zinc-500">
+          <h3 class="font-bold mb-2">AI 知识库查询</h3>
+          <p class="text-sm text-zinc-400 mb-4">校友经验已自动融入 RAG 知识库，您可以在此查询收录情况</p>
+          
+          <div class="relative mb-4">
+            <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+            <input 
+              v-model="ragSearchQuery" 
+              @keyup.enter="handleRagSearch"
+              placeholder="搜索知识库中的面经..."
+              class="w-full pl-9 pr-3 py-2 bg-white/10 border border-white/10 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all" 
+            />
+          </div>
+
+          <div v-if="ragSearching" class="text-xs text-zinc-500 animate-pulse">搜索中...</div>
+          <div v-else-if="ragResults.length > 0" class="space-y-3 mb-4 max-h-60 overflow-y-auto pr-1 custom-scrollbar">
+            <div v-for="(res, idx) in ragResults" :key="idx" class="p-3 bg-white/5 rounded-xl border border-white/5 hover:bg-white/10 transition-colors">
+              <div class="text-[10px] text-indigo-400 font-bold uppercase mb-1">{{ res.category === 'community' ? '校友贡献' : '官方知识' }}</div>
+              <div class="text-xs font-medium text-zinc-200 line-clamp-2 mb-1">{{ res.content.substring(0, 100) }}...</div>
+              <div class="text-[10px] text-zinc-500">来源: {{ formatSource(res.title) }}</div>
+            </div>
+          </div>
+          <div v-else-if="ragHasSearched" class="text-xs text-zinc-500 mb-4 text-center py-2 bg-white/5 rounded-xl">未找到相关收录内容</div>
+
+          <div class="flex items-center gap-2 text-xs text-zinc-500 border-t border-white/5 pt-4">
             <div class="w-2 h-2 bg-emerald-500 rounded-full"></div>
-            已收录 {{ totalExperiences }} 条面试经验
+            已收录 {{ totalExperiences }} 条优质面试经验
           </div>
         </div>
       </div>
@@ -146,25 +191,69 @@
         <div class="space-y-4">
           <div>
             <label class="text-xs font-bold text-zinc-400 uppercase mb-1">标题</label>
-            <input class="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm" placeholder="例如：字节跳动前端面经分享" />
+            <input v-model="shareForm.title" class="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm" placeholder="例如：字节跳动前端三面面经（含高频题+复盘）" />
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label class="text-xs font-bold text-zinc-400 uppercase mb-1">公司</label>
-              <input class="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm" placeholder="公司名称" />
+              <input v-model="shareForm.company" class="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm" placeholder="例如：字节跳动" />
             </div>
             <div>
               <label class="text-xs font-bold text-zinc-400 uppercase mb-1">岗位</label>
-              <input class="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm" placeholder="岗位名称" />
+              <input v-model="shareForm.position" class="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm" placeholder="例如：前端工程师 / Java后端" />
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="text-xs font-bold text-zinc-400 uppercase mb-1">面试难度 (1-5)</label>
+              <select v-model="shareForm.difficulty" class="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm">
+                <option :value="1">1 - 很简单</option>
+                <option :value="2">2 - 简单</option>
+                <option :value="3">3 - 一般</option>
+                <option :value="4">4 - 困难</option>
+                <option :value="5">5 - 很难</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs font-bold text-zinc-400 uppercase mb-1">面试结果</label>
+              <select v-model="shareForm.offerStatus" class="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm">
+                <option value="Pending">等待中</option>
+                <option value="Received">已拿Offer</option>
+                <option value="Rejected">未通过</option>
+              </select>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+             <div>
+              <label class="text-xs font-bold text-zinc-400 uppercase mb-1">面试轮数</label>
+              <input v-model.number="shareForm.rounds" type="number" min="1" class="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm" />
+            </div>
+            <div>
+              <label class="text-xs font-bold text-zinc-400 uppercase mb-1">面试时间</label>
+              <input v-model="shareForm.interviewDate" type="date" class="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm" />
             </div>
           </div>
           <div>
-            <label class="text-xs font-bold text-zinc-400 uppercase mb-1">面试经验内容</label>
-            <textarea class="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm h-32 resize-none" placeholder="分享你的面试过程、题目、心得..."></textarea>
+            <label class="text-xs font-bold text-zinc-400 uppercase mb-1">标签（可选）</label>
+            <input v-model="shareForm.tagsInput" class="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm" placeholder="例如：React,TypeScript,性能优化（逗号分隔）" />
+          </div>
+          <div>
+            <label class="text-xs font-bold text-zinc-400 uppercase mb-1">面试流程（可选）</label>
+            <textarea v-model="shareForm.process" class="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm h-24 resize-none" placeholder="例如：一面基础+手撕；二面项目深挖；三面系统设计/HR..." />
+          </div>
+          <div>
+            <label class="text-xs font-bold text-zinc-400 uppercase mb-1">高频问题（可选）</label>
+            <textarea v-model="shareForm.questions" class="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm h-24 resize-none" placeholder="例如：1）React diff；2）浏览器渲染；3）缓存策略..." />
+          </div>
+          <div>
+            <label class="text-xs font-bold text-zinc-400 uppercase mb-1">复盘与建议（可选）</label>
+            <textarea v-model="shareForm.review" class="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm h-24 resize-none" placeholder="例如：哪些地方回答不足、如何改进、推荐资料..." />
           </div>
           <div class="flex items-center gap-3 justify-end">
             <button @click="showShareModal = false" class="px-4 py-2 text-zinc-500 hover:bg-zinc-100 rounded-lg transition-colors">取消</button>
-            <button @click="showShareModal = false" class="px-6 py-2 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors">发布</button>
+            <button @click="submitShare" :disabled="shareSubmitting || !shareForm.title.trim()" class="px-6 py-2 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+              {{ shareSubmitting ? '发布中...' : '发布' }}
+            </button>
           </div>
         </div>
       </div>
@@ -200,9 +289,14 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import { Search, ThumbsUp, MessageCircle, Eye, Award } from 'lucide-vue-next'
+import { ref, computed, onMounted, reactive, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { Search, ThumbsUp, MessageCircle, Eye, Award, BrainCircuit, Trash2 } from 'lucide-vue-next'
+import { getPosts, createPost, likePost, getTopAlumni, getHotCompanies, queryKnowledgeBase, deletePost } from '../api/community'
+import { useUserStore } from '../stores/user'
 
+const userStore = useUserStore()
+const router = useRouter()
 const searchQuery = ref('')
 const filterType = ref('')
 const filterCompany = ref('')
@@ -210,82 +304,206 @@ const showShareModal = ref(false)
 const showBookingModal = ref(false)
 const totalExperiences = ref(1247)
 
-const posts = ref([
-  {
-    author: '张学长',
-    school: '北京大学',
-    year: '2025',
-    position: 'Java后端工程师',
-    company: '字节跳动',
-    title: '字节跳动 Java后端三面面经 - 已拿Offer',
-    content: '一面主要考察基础知识，包括 JVM 内存模型、多线程并发、Spring Boot 源码等。二面深入项目经验，问了很多分布式系统相关的问题。三面是 HR 面，主要聊职业规划和团队合作经验。整体难度中等偏上，建议重点准备分布式和微服务相关知识。',
-    tags: ['Java', '分布式', '微服务'],
-    likes: 234,
-    comments: 45,
-    views: 1890,
-    verified: true,
-  },
-  {
-    author: '李学姐',
-    school: '清华大学',
-    year: '2025',
-    position: '前端工程师',
-    company: '腾讯',
-    title: '腾讯 WXG 前端面试全记录',
-    content: '面试主要考察了 React 源码理解、性能优化方案、TypeScript 高级类型、以及现场手写了一个虚拟列表组件。注意准备好项目中的技术难点，面试官会深度追问。',
-    tags: ['React', 'TypeScript', '性能优化'],
-    likes: 189,
-    comments: 32,
-    views: 1456,
-    verified: true,
-  },
-  {
-    author: '王同学',
-    school: '浙江大学',
-    year: '2026',
-    position: 'AI工程师',
-    company: '百度',
-    title: '百度 AI Lab 实习面试经验分享',
-    content: '面试考了 Transformer 原理及变种、CNN 各种结构的优缺点、目标检测领域的经典论文。编程题是 LeetCode 中等难度。建议准备好论文阅读笔记，面试官会就某篇具体论文深入讨论。',
-    tags: ['深度学习', 'Transformer', 'CV'],
-    likes: 156,
-    comments: 28,
-    views: 1234,
-    verified: false,
-  },
-  {
-    author: '赵学长',
-    school: '上海交大',
-    year: '2024',
-    position: '产品经理',
-    company: '阿里巴巴',
-    title: '阿里产品经理校招面经 + 群面技巧',
-    content: '群面环节采用的是无领导小组讨论形式，题目是关于某个互联网产品的市场策略选择。建议在群面中找好自己的角色定位，既要有观点输出，又要善于总结和推进讨论。个面主要是产品分析和数据思维。',
-    tags: ['产品设计', '群面', '数据分析'],
-    likes: 98,
-    comments: 19,
-    views: 876,
-    verified: true,
-  },
-])
+const ragSearchQuery = ref('')
+const ragSearching = ref(false)
+const ragResults = ref([])
+const ragHasSearched = ref(false)
 
-const topAlumni = ref([
-  { name: '张学长', company: '字节跳动', posts: 8 },
-  { name: '李学姐', company: '腾讯', posts: 6 },
-  { name: '赵学长', company: '阿里巴巴', posts: 5 },
-  { name: '周学姐', company: '华为', posts: 4 },
-])
+const posts = ref([])
+const postsLoading = ref(false)
+const postsError = ref('')
 
-const hotCompanies = ['字节跳动', '腾讯', '阿里巴巴', '华为', '百度', '美团', '京东', '网易']
+const shareForm = reactive({
+  title: '',
+  company: '',
+  position: '',
+  tagsInput: '',
+  difficulty: 3,
+  offerStatus: 'Pending',
+  rounds: 1,
+  interviewDate: '',
+  process: '',
+  questions: '',
+  review: ''
+})
+const shareSubmitting = ref(false)
+
+const topAlumni = ref([])
+const hotCompanies = ref([])
+
+const normalizeTags = (val) => {
+  if (!val) return []
+  if (Array.isArray(val)) return val.map(s => String(s).trim()).filter(Boolean)
+  return String(val).split(',').map(s => s.trim()).filter(Boolean)
+}
+
+const formatSource = (title) => {
+  if (!title) return '未知来源'
+  if (title.includes('post_')) return '社区贡献'
+  return title.replace('.md', '')
+}
+
+const handleRagSearch = async () => {
+  if (!ragSearchQuery.value.trim()) return
+  ragSearching.value = true
+  ragHasSearched.value = true
+  try {
+    const res = await queryKnowledgeBase({ query: ragSearchQuery.value })
+    ragResults.value = res.sources || []
+  } catch (e) {
+    console.error('RAG Search failed:', e)
+  } finally {
+    ragSearching.value = false
+  }
+}
+
+const fetchPosts = async () => {
+  postsLoading.value = true
+  postsError.value = ''
+  try {
+    const res = await getPosts({
+      search: searchQuery.value || undefined,
+      company: filterCompany.value || undefined,
+      page: 1,
+      page_size: 20
+    })
+    const list = res.posts || []
+    posts.value = list.map((p) => ({
+      ...p,
+      tags: normalizeTags(p.tags)
+    }))
+    totalExperiences.value = typeof res.total === 'number' ? res.total : totalExperiences.value
+  } catch (e) {
+    posts.value = []
+    postsError.value = e?.response?.data?.error || e?.message || '加载失败'
+  } finally {
+    postsLoading.value = false
+  }
+}
 
 const filteredPosts = computed(() => {
-  return posts.value.filter(p => {
-    if (searchQuery.value) {
-      const q = searchQuery.value.toLowerCase()
-      if (!p.title.toLowerCase().includes(q) && !p.company.toLowerCase().includes(q) && !p.tags.join(',').toLowerCase().includes(q)) return false
-    }
-    if (filterCompany.value && p.company !== filterCompany.value) return false
-    return true
-  })
+  return posts.value
+})
+
+const buildContentFromForm = () => {
+  const lines = []
+  lines.push('【背景】')
+  if (shareForm.company.trim()) lines.push(`公司：${shareForm.company.trim()}`)
+  if (shareForm.position.trim()) lines.push(`岗位：${shareForm.position.trim()}`)
+  lines.push('')
+  if (shareForm.process.trim()) {
+    lines.push('【流程】')
+    lines.push(shareForm.process.trim())
+    lines.push('')
+  }
+  if (shareForm.questions.trim()) {
+    lines.push('【高频问题】')
+    lines.push(shareForm.questions.trim())
+    lines.push('')
+  }
+  if (shareForm.review.trim()) {
+    lines.push('【复盘与建议】')
+    lines.push(shareForm.review.trim())
+    lines.push('')
+  }
+  return lines.join('\n')
+}
+
+const submitShare = async () => {
+  if (shareSubmitting.value) return
+  const title = shareForm.title.trim()
+  if (!title) return
+  const tags = normalizeTags(shareForm.tagsInput)
+  const content = buildContentFromForm()
+  shareSubmitting.value = true
+  try {
+    await createPost({
+      title,
+      company: shareForm.company.trim(),
+      position: shareForm.position.trim(),
+      tags,
+      content,
+      process: shareForm.process.trim(),
+      questions: shareForm.questions.trim(),
+      review: shareForm.review.trim(),
+      difficulty: Number(shareForm.difficulty),
+      offer_status: shareForm.offerStatus,
+      rounds: Number(shareForm.rounds),
+      interview_date: shareForm.interviewDate ? new Date(shareForm.interviewDate).toISOString() : null
+    })
+    showShareModal.value = false
+    shareForm.title = ''
+    shareForm.company = ''
+    shareForm.position = ''
+    shareForm.tagsInput = ''
+    shareForm.difficulty = 3
+    shareForm.offerStatus = 'Pending'
+    shareForm.rounds = 1
+    shareForm.interviewDate = ''
+    shareForm.process = ''
+    shareForm.questions = ''
+    shareForm.review = ''
+    await fetchPosts()
+  } catch (e) {
+    alert('发布失败：' + (e?.response?.data?.error || e?.message || '未知错误'))
+  } finally {
+    shareSubmitting.value = false
+  }
+}
+
+const onLike = async (post) => {
+  if (!post?.id) return
+  try {
+    const res = await likePost(post.id)
+    if (typeof res.likes === 'number') post.likes = res.likes
+  } catch (_) {}
+}
+
+const goDetail = (id) => {
+  router.push(`/student/community/posts/${id}`)
+}
+
+const handleDelete = async (id) => {
+  if (!confirm('确定要删除这篇面经吗？知识库中的相关内容也将被移除。')) return
+  try {
+    await deletePost(id)
+    posts.value = posts.value.filter(p => p.id !== id)
+    fetchTopAlumni()
+    fetchHotCompanies()
+  } catch (e) {
+    alert(e?.response?.data?.error || '删除失败')
+  }
+}
+
+const fetchTopAlumni = async () => {
+  try {
+    const res = await getTopAlumni()
+    topAlumni.value = res.alumni || []
+  } catch (_) {
+    topAlumni.value = []
+  }
+}
+
+const fetchHotCompanies = async () => {
+  try {
+    const res = await getHotCompanies()
+    hotCompanies.value = res.companies || []
+  } catch (_) {
+    hotCompanies.value = []
+  }
+}
+
+let debounceTimer = null
+watch([searchQuery, filterCompany], () => {
+  if (debounceTimer) clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => {
+    fetchPosts()
+  }, 250)
+})
+
+onMounted(() => {
+  fetchPosts()
+  fetchTopAlumni()
+  fetchHotCompanies()
 })
 </script>

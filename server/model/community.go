@@ -18,7 +18,15 @@ type CommunityPost struct {
 	Position  string         `gorm:"size:200" json:"position"`
 	Title     string         `gorm:"not null;size:300" json:"title"`
 	Content   string         `gorm:"type:text;not null" json:"content"`
+	Process   string         `gorm:"type:text" json:"process"`
+	Questions string         `gorm:"type:text" json:"questions"`
+	Review    string         `gorm:"type:text" json:"review"`
+	Difficulty int           `gorm:"default:3" json:"difficulty"` // 1-5
+	OfferStatus string       `gorm:"size:50" json:"offer_status"` // Pending, Received, Rejected
+	Rounds    int            `gorm:"default:1" json:"rounds"`
+	InterviewDate *time.Time `json:"interview_date"`
 	Tags      string         `gorm:"type:text" json:"tags"`
+	IsIndexed bool           `gorm:"default:false" json:"is_indexed"`
 	Likes     int            `gorm:"default:0" json:"likes"`
 	Comments  int            `gorm:"default:0" json:"comments"`
 	Views     int            `gorm:"default:0" json:"views"`

@@ -1,0 +1,24 @@
+# Sensitive server configuration
+server/config.yaml
+server/config.local.yaml
+server/config.*.local.yaml
+
+# Local web environment files
+web/.env
+web/.env.*
+!web/.env.example
+
+# Runtime uploads and generated media
+server/uploads/
+
+# Build/cache/log artifacts
+node_modules/
+dist/
+.vite/
+*.log
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

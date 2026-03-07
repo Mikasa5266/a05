@@ -18,10 +18,12 @@ type WhisperClient struct {
 	baseURL string
 }
 
-func NewWhisperClient(apiKey string) *WhisperClient {
-	baseURL := "https://api.openai.com/v1"
-	if apiKey == "" {
-		baseURL = "http://localhost:9000/v1"
+func NewWhisperClient(apiKey, baseURL string) *WhisperClient {
+	if strings.TrimSpace(baseURL) == "" {
+		baseURL = "https://api.openai.com/v1"
+		if apiKey == "" {
+			baseURL = "http://localhost:9000/v1"
+		}
 	}
 
 	return &WhisperClient{

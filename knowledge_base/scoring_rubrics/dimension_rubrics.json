@@ -1,132 +1,149 @@
 {
   "scoring_rubrics": {
-    "description": "面试回答评分量表 - 定义每个等级的行为锚点，用于 AI 评估标准化",
-    "dimensions": {
+    "description": "面试评分量表 - 技术维度 + 行为维度的行为锚点，用于 AI 评估标准化",
+    "technical_dimensions": {
+      "description": "技术回答评分维度",
       "technical_depth": {
         "name": "技术深度",
+        "weight": 0.30,
         "levels": {
-          "1": {
-            "score_range": [0, 20],
-            "description": "仅知道名词或概念名称",
-            "behavior_anchor": "只能说出'JVM是Java虚拟机'这类定义，无法展开",
-            "example": "JVM就是运行Java程序的虚拟机"
-          },
-          "2": {
-            "score_range": [21, 40],
-            "description": "知道基本概念但理解有严重偏差",
-            "behavior_anchor": "能说出几个相关术语但关系搞错，有明显的知识性错误",
-            "example": "JVM内存分为栈和堆...堆存放的是方法（错误）"
-          },
-          "3": {
-            "score_range": [41, 60],
-            "description": "能答出主干知识，缺乏深度",
-            "behavior_anchor": "正确说出核心概念和基本分类，但无法深入底层原理",
-            "example": "JVM内存分为堆和栈，堆存对象，栈存局部变量，GC负责回收堆内存"
-          },
-          "4": {
-            "score_range": [61, 80],
-            "description": "准确完整，有一定原理层面的理解",
-            "behavior_anchor": "能描述底层机制，知道不同方案的优缺点，有一定的实践认知",
-            "example": "JVM堆分为新生代和老年代，新生代用复制算法(Eden:S0:S1=8:1:1)，老年代用标记-整理。G1打破了分代物理隔离..."
-          },
-          "5": {
-            "score_range": [81, 100],
-            "description": "深入源码级理解，结合实践，展现权衡思维",
-            "behavior_anchor": "能从源码/实现层面解释原理，结合具体场景做技术选型和调优，有量化结果",
-            "example": "G1的Mixed GC通过维护Region级别的Remembered Set跟踪跨区引用...我在项目中将GC停顿从500ms优化到50ms以内，具体参数是..."
-          }
+          "1": { "score_range": [0, 20], "description": "仅知道名词或概念名称", "behavior_anchor": "只能说出定义，无法展开任何细节" },
+          "2": { "score_range": [21, 40], "description": "知道基本概念但理解有偏差", "behavior_anchor": "能说出术语但关系搞错，有明显知识性错误" },
+          "3": { "score_range": [41, 60], "description": "能答出主干知识，缺乏深度", "behavior_anchor": "正确说出核心概念，但无法深入底层原理" },
+          "4": { "score_range": [61, 80], "description": "准确完整，有原理层面理解", "behavior_anchor": "能描述底层机制，知道不同方案的优缺点" },
+          "5": { "score_range": [81, 100], "description": "深入理解，结合实践展现权衡思维", "behavior_anchor": "能从实现层面解释原理，结合场景做技术选型" }
         }
       },
-      "expression": {
-        "name": "表达清晰度",
+      "completeness": {
+        "name": "知识完整度",
+        "weight": 0.25,
         "levels": {
-          "1": {
-            "score_range": [0, 20],
-            "description": "语无伦次或完全沉默",
-            "behavior_anchor": "回答断断续续，逻辑跳跃，面试官难以理解"
-          },
-          "2": {
-            "score_range": [21, 40],
-            "description": "能表达但缺乏组织",
-            "behavior_anchor": "想到什么说什么，没有明确的回答结构"
-          },
-          "3": {
-            "score_range": [41, 60],
-            "description": "基本有条理",
-            "behavior_anchor": "能按一定顺序回答，但偶有跑题或重复"
-          },
-          "4": {
-            "score_range": [61, 80],
-            "description": "结构清晰，层次分明",
-            "behavior_anchor": "先给结论再展开，使用'首先/其次/最后'等结构词"
-          },
-          "5": {
-            "score_range": [81, 100],
-            "description": "精炼有力，引导面试节奏",
-            "behavior_anchor": "能用类比/图示/举例辅助说明，主动引导面试官深入感兴趣的方向"
-          }
+          "1": { "score_range": [0, 20], "description": "遗漏全部核心要点", "behavior_anchor": "回答仅触及皮毛，核心得分点一个都没涉及" },
+          "2": { "score_range": [21, 40], "description": "覆盖不到 30% 得分点", "behavior_anchor": "提到了个别相关内容但遗漏大量关键点" },
+          "3": { "score_range": [41, 60], "description": "覆盖 30-60% 得分点", "behavior_anchor": "答出了主要分类或步骤，但有明显遗漏" },
+          "4": { "score_range": [61, 80], "description": "覆盖 60-85% 得分点", "behavior_anchor": "核心得分点基本覆盖，少量延伸遗漏" },
+          "5": { "score_range": [81, 100], "description": "覆盖 85%+ 得分点并有延伸", "behavior_anchor": "覆盖标准答案所有要点，还有加分项延伸" }
         }
       },
       "logic": {
         "name": "逻辑严谨性",
+        "weight": 0.20,
         "levels": {
-          "1": {
-            "score_range": [0, 20],
-            "description": "自相矛盾或逻辑混乱",
-            "behavior_anchor": "前后说法不一致，因果关系颠倒"
-          },
-          "2": {
-            "score_range": [21, 40],
-            "description": "逻辑链有跳跃",
-            "behavior_anchor": "论证过程跳过关键步骤，结论缺乏支撑"
-          },
-          "3": {
-            "score_range": [41, 60],
-            "description": "基本逻辑通顺",
-            "behavior_anchor": "推理过程基本通顺但不够严密"
-          },
-          "4": {
-            "score_range": [61, 80],
-            "description": "逻辑严密，论证充分",
-            "behavior_anchor": "因果关系清晰，每个观点都有论据支撑"
-          },
-          "5": {
-            "score_range": [81, 100],
-            "description": "思维缜密，考虑全面",
-            "behavior_anchor": "主动考虑边界情况、异常场景、权衡取舍"
-          }
+          "1": { "score_range": [0, 20], "description": "自相矛盾或逻辑混乱", "behavior_anchor": "前后说法不一致，因果关系颠倒" },
+          "2": { "score_range": [21, 40], "description": "逻辑链有跳跃", "behavior_anchor": "论证过程跳过关键步骤，结论缺乏支撑" },
+          "3": { "score_range": [41, 60], "description": "基本逻辑通顺", "behavior_anchor": "推理过程基本通顺但不够严密" },
+          "4": { "score_range": [61, 80], "description": "逻辑严密，论证充分", "behavior_anchor": "因果关系清晰，每个观点都有论据支撑" },
+          "5": { "score_range": [81, 100], "description": "思维缜密，考虑全面", "behavior_anchor": "主动考虑边界情况、异常场景、权衡取舍" }
         }
       },
-      "completeness": {
-        "name": "完整度",
+      "expression": {
+        "name": "表达清晰度",
+        "weight": 0.25,
         "levels": {
-          "1": {
-            "score_range": [0, 20],
-            "description": "遗漏全部核心要点",
-            "behavior_anchor": "回答仅触及皮毛，核心考点一个都没涉及"
-          },
-          "2": {
-            "score_range": [21, 40],
-            "description": "覆盖不到 30% 考点",
-            "behavior_anchor": "提到了个别相关内容但遗漏大量关键点"
-          },
-          "3": {
-            "score_range": [41, 60],
-            "description": "覆盖 30-60% 考点",
-            "behavior_anchor": "答出了主要分类或步骤，但有明显遗漏"
-          },
-          "4": {
-            "score_range": [61, 80],
-            "description": "覆盖 60-85% 考点",
-            "behavior_anchor": "核心知识点基本覆盖，少量延伸点位遗漏"
-          },
-          "5": {
-            "score_range": [81, 100],
-            "description": "覆盖 85%+ 考点并有延伸",
-            "behavior_anchor": "不仅覆盖标准答案的所有要点，还有额外延伸和对比"
-          }
+          "1": { "score_range": [0, 20], "description": "语无伦次或完全沉默", "behavior_anchor": "回答断断续续，面试官难以理解" },
+          "2": { "score_range": [21, 40], "description": "能表达但缺乏组织", "behavior_anchor": "想到什么说什么，没有回答结构" },
+          "3": { "score_range": [41, 60], "description": "基本有条理", "behavior_anchor": "能按顺序回答，但偶有跑题或重复" },
+          "4": { "score_range": [61, 80], "description": "结构清晰，层次分明", "behavior_anchor": "先给结论再展开，使用结构词" },
+          "5": { "score_range": [81, 100], "description": "精炼有力，引导面试节奏", "behavior_anchor": "能用类比/举例辅助说明，主动引导深入" }
         }
       }
+    },
+    "behavioral_dimensions": {
+      "description": "面试行为评分维度（重点模块：提升应届生自信度）",
+      "confidence_mindset": {
+        "name": "自信与心态",
+        "weight": 0.30,
+        "sub_dimensions": {
+          "emotional_stability": { "name": "情绪稳定性", "weight": 0.25 },
+          "difficulty_coping": { "name": "困难应对策略", "weight": 0.25 },
+          "self_awareness": { "name": "自我认知准确度", "weight": 0.20 },
+          "communication_initiative": { "name": "沟通主动性", "weight": 0.15 },
+          "resilience": { "name": "挫折恢复力", "weight": 0.15 }
+        },
+        "levels": {
+          "1": { "score_range": [0, 20], "description": "极度紧张，几乎无法正常应答" },
+          "2": { "score_range": [21, 40], "description": "全程紧张，影响回答质量" },
+          "3": { "score_range": [41, 60], "description": "有紧张但能逐渐适应" },
+          "4": { "score_range": [61, 80], "description": "整体稳定，偶有波动能快速调整" },
+          "5": { "score_range": [81, 100], "description": "自信从容，能冷静应对各种情况" }
+        }
+      },
+      "language_expression": {
+        "name": "语言表达能力",
+        "weight": 0.25,
+        "sub_dimensions": {
+          "fluency": { "name": "语言流畅度", "weight": 0.30 },
+          "structure": { "name": "回答结构性", "weight": 0.30 },
+          "terminology": { "name": "专业术语使用", "weight": 0.20 },
+          "conciseness": { "name": "回答简洁度", "weight": 0.20 }
+        },
+        "levels": {
+          "1": { "score_range": [0, 20], "description": "语无伦次，无法完成表达" },
+          "2": { "score_range": [21, 40], "description": "频繁卡顿，信息传达困难" },
+          "3": { "score_range": [41, 60], "description": "基本能表达，但结构和简洁度不足" },
+          "4": { "score_range": [61, 80], "description": "表达流畅有结构，偶有冗余" },
+          "5": { "score_range": [81, 100], "description": "精炼有力，术语准确，结构清晰" }
+        }
+      },
+      "logical_thinking": {
+        "name": "逻辑思维能力",
+        "weight": 0.20,
+        "sub_dimensions": {
+          "causal_reasoning": { "name": "因果推理", "weight": 0.30 },
+          "problem_decomposition": { "name": "问题拆解", "weight": 0.30 },
+          "boundary_thinking": { "name": "边界思维", "weight": 0.20 },
+          "tradeoff_analysis": { "name": "权衡分析", "weight": 0.20 }
+        },
+        "levels": {
+          "1": { "score_range": [0, 20], "description": "逻辑混乱，前后矛盾" },
+          "2": { "score_range": [21, 40], "description": "逻辑跳跃，推理不完整" },
+          "3": { "score_range": [41, 60], "description": "基本逻辑通顺，但不够严密" },
+          "4": { "score_range": [61, 80], "description": "论证清晰，能拆解问题" },
+          "5": { "score_range": [81, 100], "description": "思维缜密，主动考虑边界和权衡" }
+        }
+      },
+      "professional_quality": {
+        "name": "职业素养",
+        "weight": 0.15,
+        "sub_dimensions": {
+          "learning_ability": { "name": "学习能力与自驱力", "weight": 0.30 },
+          "teamwork": { "name": "团队协作意识", "weight": 0.20 },
+          "project_description": { "name": "项目描述能力", "weight": 0.25 },
+          "career_planning": { "name": "职业规划", "weight": 0.10 },
+          "stress_tolerance": { "name": "抗压能力", "weight": 0.15 }
+        },
+        "levels": {
+          "1": { "score_range": [0, 20], "description": "无学习意愿，无协作意识" },
+          "2": { "score_range": [21, 40], "description": "被动学习，协作经历贫乏" },
+          "3": { "score_range": [41, 60], "description": "有基本职业意识，但深度不够" },
+          "4": { "score_range": [61, 80], "description": "有学习习惯和项目经验，规划基本清晰" },
+          "5": { "score_range": [81, 100], "description": "自驱力强，有深度项目经验和清晰规划" }
+        }
+      },
+      "nonverbal_behavior": {
+        "name": "非语言行为",
+        "weight": 0.10,
+        "sub_dimensions": {
+          "voice": { "name": "声音特征", "weight": 0.40 },
+          "facial_expression": { "name": "表情与眼神", "weight": 0.20 },
+          "time_control": { "name": "回答时长控制", "weight": 0.25 },
+          "body_language": { "name": "肢体语言", "weight": 0.15 }
+        },
+        "levels": {
+          "1": { "score_range": [0, 20], "description": "声音无法听清，或完全无表达" },
+          "2": { "score_range": [21, 40], "description": "声音过小/过快，语调平直" },
+          "3": { "score_range": [41, 60], "description": "基本可听清，但表现力不足" },
+          "4": { "score_range": [61, 80], "description": "声音清晰，有适当语调变化" },
+          "5": { "score_range": [81, 100], "description": "声音自信有力，表达生动有感染力" }
+        }
+      }
+    },
+    "scoring_formula": {
+      "description": "综合评分计算公式",
+      "technical_score": "技术深度×0.30 + 知识完整度×0.25 + 逻辑严谨性×0.20 + 表达清晰度×0.25",
+      "behavioral_score": "自信心态×0.30 + 语言表达×0.25 + 逻辑思维×0.20 + 职业素养×0.15 + 非语言行为×0.10",
+      "total_score": "技术评分×0.50 + 行为评分×0.50",
+      "note": "行为评分占比提高至50%，体现项目核心目标：帮助应届生提升面试自信度"
     }
   }
 }

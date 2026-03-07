@@ -9,6 +9,7 @@ import (
 
 func SetupRouter() *gin.Engine {
 	router := gin.New()
+	router.MaxMultipartMemory = 512 << 20
 
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
@@ -37,6 +38,7 @@ func SetupRouter() *gin.Engine {
 			protected.GET("/interview/:id", handler.GetInterview)
 			protected.PUT("/interview/:id/answer", handler.SubmitAnswer)
 			protected.POST("/interview/:id/end", handler.EndInterview)
+			protected.POST("/interview/:id/recording", handler.UploadInterviewRecording)
 			protected.POST("/interview/:id/speech-analyze", handler.AnalyzeSpeechChunk)
 			protected.POST("/interview/:id/human-feedback", handler.SubmitHumanFeedback)
 			protected.GET("/interview/:id/reveal-style", handler.RevealRandomStyle)
@@ -55,6 +57,7 @@ func SetupRouter() *gin.Engine {
 
 			protected.GET("/reports", handler.GetReports)
 			protected.GET("/reports/:id", handler.GetReport)
+			protected.GET("/reports/:id/download", handler.DownloadReport)
 			protected.POST("/reports/generate", handler.GenerateReport)
 
 			// Resume
@@ -140,6 +143,7 @@ func SetupRouter() *gin.Engine {
 				community.GET("/posts", handler.GetPosts)
 				community.GET("/posts/:id", handler.GetPost)
 				community.POST("/posts", handler.CreatePost)
+				community.DELETE("/posts/:id", handler.DeletePost)
 				community.POST("/posts/:id/like", handler.LikePost)
 				community.POST("/posts/:id/comments", handler.CommentOnPost)
 				community.GET("/posts/:id/comments", handler.GetPostComments)
