@@ -10,9 +10,48 @@ import {
   Package, Timer, Zap, Building2, Star, Calendar, Clock, X,
   Flame, Search, Code, Briefcase, GraduationCap
 } from 'lucide-vue-next'
-import { startInterview as apiStartInterview, getInterview as apiGetInterview, submitAnswer as apiSubmitAnswer, endInterview as apiEndInterview, uploadInterviewRecording as apiUploadInterviewRecording, analyzeSpeechChunk as apiAnalyzeSpeechChunk, drawBlindBoxScenario as apiDrawBlindBox, getInterviewConfig as apiGetInterviewConfig, getHumanInterviewers as apiGetHumanInterviewers, bookHumanInterview as apiBookHumanInterview, getUserBookings as apiGetUserBookings, revealRandomStyle as apiRevealRandomStyle } from '../api/interview'
+import { startInterview as apiStartInterview, getInterview as apiGetInterview, getInterviewSession as apiGetInterviewSession, submitAnswer as apiSubmitAnswer, endInterview as apiEndInterview, uploadInterviewRecording as apiUploadInterviewRecording, analyzeSpeechChunk as apiAnalyzeSpeechChunk, drawBlindBoxScenario as apiDrawBlindBox, getInterviewConfig as apiGetInterviewConfig, getHumanInterviewers as apiGetHumanInterviewers, bookHumanInterview as apiBookHumanInterview, getUserBookings as apiGetUserBookings, revealRandomStyle as apiRevealRandomStyle, generateTTS as apiGenerateTTS } from '../api/interview'
 import { generateReport as apiGenerateReport } from '../api/report'
+import WebSocketClient from '../utils/websocket'
+import { useUserStore } from '../stores/user'
 import SpeechDashboard from '../components/SpeechDashboard.vue'
+
+const userStore = useUserStore()
+let wsClient = null
+
+const connectWebSocket = () => {
+  if (wsClient) return
+  const userId = userStore.userInfo?.id || 1
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const host = window.location.host
+  // Assuming dev server proxies /ws to backend, or direct backend URL
+  // If using Vite proxy, ws://localhost:5173/ws -> ws://localhost:8080/ws
+  const wsUrl = `${protocol}//${host}/ws?user_id=${userId}&interview_id=${interviewId.value}`
+  
+  wsClient = new WebSocketClient(wsUrl)
+  wsClient.connect((msg) => {
+    handleWebSocketMessage(msg)
+  })
+}
+
+const disconnectWebSocket = () => {
+  if (wsClient) {
+    wsClient.close()
+    wsClient = null
+  }
+}
+
+const handleWebSocketMessage = (msg) => {
+  // console.log('WS Message:', msg)
+  if (msg.type === 'interviewer.transcribing') {
+     processingHint.value = '正在识别您的语音...'
+     interviewerMotion.value = 'listening'
+  } else if (msg.type === 'interviewer.thinking') {
+     transitionSessionState('THINKING', 'interviewer.thinking')
+     interviewerMotion.value = 'thinking'
+  }
+}
+
 
 const route = useRoute()
 const router = useRouter()
@@ -48,6 +87,15 @@ const showHistory = ref(false)
 const showModelAnswer = ref(false)
 const pendingNextIndex = ref(null)
 const pendingEnd = ref(false)
+const sessionState = ref('INIT')
+const sessionEvents = ref([])
+const isOffline = ref(false)
+let sessionHeartbeatTimer = null
+let processingTimeoutTimer = null
+const interviewerSpeaking = ref(false)
+const interviewerMotion = ref('idle')
+let interviewerMotionTimer = null
+let currentAudio = null
 
 const latestAIMessage = computed(() => {
   const aiMsgs = messages.value.filter(m => m.role === 'ai' || m.type === 'system')
@@ -60,8 +108,11 @@ const settings = ref({
   mode: route.query.mode || 'technical',
   style: 'gentle',
   company: '',
-  interviewMode: 'ai'  // ai, human, random
+  interviewMode: 'ai',  // ai, human, random
+  sceneMode: route.query.scene_mode === 'classic' ? 'classic' : 'video'
 })
+
+const isVideoSceneMode = computed(() => settings.value.sceneMode === 'video')
 
 // Interview Config from server
 const interviewConfig = ref(null)
@@ -161,6 +212,14 @@ const speechMetrics = ref({
 })
 const energyLevel = ref(0)
 const speechAnalysisActive = ref(false)
+const liveTranscript = ref('')
+const latestChunkTranscript = ref('')
+const speechLastUpdatedAt = ref(0)
+
+const SPEECH_CHUNK_SECONDS = 2.0
+const SPEECH_RATE_SMOOTH_ALPHA = 0.45
+const SPEECH_RATE_IDLE_ALPHA = 0.2
+const SPEECH_TRANSCRIPT_MAX_LEN = 240
 
 // Audio chunk recording for speech analysis
 let audioContext = null
@@ -169,10 +228,22 @@ let chunkMediaRecorder = null
 let chunkRecordingStream = null
 let chunkInterval = null
 let energyAnimFrame = null
+let speechRequestSeq = 0
+let speechAppliedSeq = 0
 
 const startSpeechAnalysis = () => {
   if (speechAnalysisActive.value || !stream.value) return
   speechAnalysisActive.value = true
+  liveTranscript.value = ''
+  latestChunkTranscript.value = ''
+  speechLastUpdatedAt.value = Date.now()
+  speechRequestSeq = 0
+  speechAppliedSeq = 0
+  speechMetrics.value.speechRate = 0
+  speechMetrics.value.speechRateLevel = 'normal'
+  speechMetrics.value.fillerWordCount = 0
+  speechMetrics.value.fluencyAlert = false
+  speechMetrics.value.totalFillerWords = 0
 
   // Set up Web Audio API for real-time energy
   audioContext = new (window.AudioContext || window.webkitAudioContext)()
@@ -183,6 +254,10 @@ const startSpeechAnalysis = () => {
 
   // Animate energy level
   const dataArray = new Uint8Array(analyserNode.frequencyBinCount)
+  let silenceStartTime = null
+  const VAD_THRESHOLD = 0.04
+  const VAD_SILENCE_LIMIT = 2500 // 2.5s silence to trigger submit
+
   const updateEnergy = () => {
     if (!speechAnalysisActive.value) return
     analyserNode.getByteFrequencyData(dataArray)
@@ -190,6 +265,23 @@ const startSpeechAnalysis = () => {
     for (let i = 0; i < dataArray.length; i++) sum += dataArray[i]
     const avg = sum / dataArray.length / 255
     energyLevel.value = avg
+
+    // VAD Logic for Video Mode
+    if (isVideoSceneMode.value && answerVoiceStatus.value === 'recording' && answerVoiceSeconds.value > 2.5) {
+       if (avg < VAD_THRESHOLD) {
+          if (!silenceStartTime) silenceStartTime = Date.now()
+          else if (Date.now() - silenceStartTime > VAD_SILENCE_LIMIT) {
+             // Silence detected, auto submitting...
+             stopAnswerRecording() 
+             silenceStartTime = null
+          }
+       } else {
+          silenceStartTime = null
+       }
+    } else {
+       silenceStartTime = null
+    }
+
     energyAnimFrame = requestAnimationFrame(updateEnergy)
   }
   updateEnergy()
@@ -223,21 +315,21 @@ const startChunkRecording = () => {
       const reader = new FileReader()
       reader.onloadend = () => {
         const base64 = reader.result.split(',')[1]
-        sendSpeechChunk(base64, 4.0)
+        sendSpeechChunk(base64, SPEECH_CHUNK_SECONDS)
       }
       reader.readAsDataURL(blob)
     }
 
     chunkMediaRecorder.start()
 
-    // Stop after 4 seconds and restart
+    // Stop after a short chunk and restart for near-real-time metrics.
     chunkInterval = setTimeout(() => {
       if (chunkMediaRecorder && chunkMediaRecorder.state === 'recording') {
         chunkMediaRecorder.stop()
       }
       // Start next chunk
       if (speechAnalysisActive.value) startNewChunk()
-    }, 4000)
+    }, Math.floor(SPEECH_CHUNK_SECONDS * 1000))
   }
 
   startNewChunk()
@@ -245,22 +337,51 @@ const startChunkRecording = () => {
 
 const sendSpeechChunk = async (audioBase64, duration) => {
   if (!interviewId.value) return
+  const reqSeq = ++speechRequestSeq
   try {
     const res = await apiAnalyzeSpeechChunk(interviewId.value, {
       audio_data: audioBase64,
       duration: duration
     })
+    if (reqSeq < speechAppliedSeq) {
+      return
+    }
+    speechAppliedSeq = reqSeq
+
     if (res.metrics) {
       const m = res.metrics
-      speechMetrics.value.speechRate = m.speech_rate
-      speechMetrics.value.speechRateLevel = m.speech_rate_level
-      speechMetrics.value.fillerWordCount = m.filler_word_count
-      speechMetrics.value.fluencyAlert = m.fluency_alert
-      speechMetrics.value.totalFillerWords += m.filler_word_count
+      const rawRate = Number(m.speech_rate || 0)
+      const chunkText = String(m.transcribed_text || '').trim()
+      const alpha = chunkText ? SPEECH_RATE_SMOOTH_ALPHA : SPEECH_RATE_IDLE_ALPHA
+      const prevRate = Number(speechMetrics.value.speechRate || 0)
+      const smoothedRate = prevRate <= 0
+        ? rawRate
+        : (prevRate * (1 - alpha)) + (rawRate * alpha)
+
+      speechMetrics.value.speechRate = Number(smoothedRate.toFixed(1))
+      speechMetrics.value.speechRateLevel = classifySpeechRateLevel(speechMetrics.value.speechRate)
+      speechMetrics.value.fillerWordCount = Number(m.filler_word_count || 0)
+      speechMetrics.value.fluencyAlert = Boolean(m.fluency_alert)
+      speechMetrics.value.totalFillerWords += Number(m.filler_word_count || 0)
+      speechLastUpdatedAt.value = Date.now()
+
+      if (chunkText) {
+        latestChunkTranscript.value = chunkText
+        const merged = `${liveTranscript.value} ${chunkText}`.trim()
+        liveTranscript.value = merged.length > SPEECH_TRANSCRIPT_MAX_LEN
+          ? merged.slice(merged.length - SPEECH_TRANSCRIPT_MAX_LEN)
+          : merged
+      }
     }
   } catch (err) {
     console.warn('Speech analysis chunk failed:', err)
   }
+}
+
+const classifySpeechRateLevel = (rate) => {
+  if (rate < 120) return 'slow'
+  if (rate <= 240) return 'normal'
+  return 'fast'
 }
 
 const stopSpeechAnalysis = () => {
@@ -313,6 +434,170 @@ const stopCamera = () => {
   }
   isCameraOn.value = false
   stopSpeechAnalysis()
+}
+
+const pushSessionEvent = (type, from, to, meta = {}) => {
+  sessionEvents.value.push({
+    type,
+    from,
+    to,
+    timestamp: Date.now(),
+    ...meta
+  })
+  if (sessionEvents.value.length > 30) {
+    sessionEvents.value = sessionEvents.value.slice(sessionEvents.value.length - 30)
+  }
+}
+
+const transitionSessionState = (to, type, meta = {}) => {
+  const from = sessionState.value
+  if (!to || from === to) return
+  sessionState.value = to
+  pushSessionEvent(type || `session.${String(to).toLowerCase()}`, from, to, meta)
+}
+
+const markProcessingTimeout = () => {
+  if (processingTimeoutTimer) clearTimeout(processingTimeoutTimer)
+  processingTimeoutTimer = setTimeout(() => {
+    if (isProcessing.value) {
+      messages.value.push({
+        role: 'system',
+        content: '当前网络较慢，系统正在重试同步面试状态...',
+        type: 'system'
+      })
+      recoverSessionState()
+    }
+  }, 12000)
+}
+
+const clearProcessingTimeout = () => {
+  if (processingTimeoutTimer) {
+    clearTimeout(processingTimeoutTimer)
+    processingTimeoutTimer = null
+  }
+}
+
+const sanitizeSpeechText = (text) => {
+  return String(text || '')
+    .replace(/[*`#>_\-\[\]\(\)]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 220)
+}
+
+const setInterviewerMotion = (motion, duration = 1200) => {
+  interviewerMotion.value = motion
+  if (interviewerMotionTimer) clearTimeout(interviewerMotionTimer)
+  interviewerMotionTimer = setTimeout(() => {
+    interviewerMotion.value = 'idle'
+  }, duration)
+}
+
+const speakAsInterviewer = async (text) => {
+  if (!isVideoSceneMode.value) return
+  const spokenText = sanitizeSpeechText(text)
+  if (!spokenText) return
+
+  if (currentAudio) {
+    currentAudio.pause()
+    currentAudio = null
+  }
+  
+  interviewerSpeaking.value = true
+  setInterviewerMotion('thinking', 3000)
+
+  try {
+    let voice = 'xiaoxiao'
+    if (settings.value.style === 'stress') voice = 'yunxi'
+    else if (settings.value.style === 'deep') voice = 'yunyang'
+    else if (settings.value.style === 'algorithm') voice = 'xiaoyi'
+    else if (settings.value.style === 'practical') voice = 'panpan'
+    
+    const blob = await apiGenerateTTS({
+      text: spokenText,
+      voice: voice,
+      rate: '+10%'
+    })
+    
+    if (!blob || blob.size === 0) throw new Error('Empty audio')
+    
+    const url = URL.createObjectURL(blob)
+    const audio = new Audio(url)
+    currentAudio = audio
+    
+    audio.onplay = () => {
+      interviewerSpeaking.value = true
+      setInterviewerMotion('talking', 60000)
+    }
+    
+    audio.onended = () => {
+      interviewerSpeaking.value = false
+      setInterviewerMotion('nod', 900)
+      URL.revokeObjectURL(url)
+      if (currentAudio === audio) currentAudio = null
+      
+      if (isVideoSceneMode.value && !pendingEnd.value && phase.value === 'interview') {
+        setTimeout(() => {
+          if (answerVoiceStatus.value === 'idle' || answerVoiceStatus.value === 'error') {
+             startAnswerRecording()
+          }
+        }, 500)
+      }
+    }
+    
+    audio.onerror = (e) => {
+      console.error('Audio playback error', e)
+      interviewerSpeaking.value = false
+      setInterviewerMotion('idle', 600)
+      URL.revokeObjectURL(url)
+      if (currentAudio === audio) currentAudio = null
+    }
+    
+    await audio.play()
+    
+  } catch (err) {
+    console.error('TTS failed:', err)
+    interviewerSpeaking.value = false
+    setInterviewerMotion('idle', 600)
+  }
+}
+
+const recoverSessionState = async () => {
+  if (!interviewId.value) return
+  try {
+    const stateRes = await apiGetInterviewSession(interviewId.value)
+    const serverState = stateRes.session_state || 'READY'
+    transitionSessionState(serverState, stateRes.recovery_event?.type || 'session.synced', { source: 'server' })
+    const interviewRes = await apiGetInterview(interviewId.value)
+    if (interviewRes?.interview?.status === 'completed') {
+      pendingEnd.value = true
+      transitionSessionState('END', 'session.ended', { source: 'recover' })
+    }
+  } catch (error) {
+    console.warn('recoverSessionState failed:', error)
+  }
+}
+
+const startSessionHeartbeat = () => {
+  if (sessionHeartbeatTimer) clearInterval(sessionHeartbeatTimer)
+  sessionHeartbeatTimer = setInterval(async () => {
+    if (!interviewId.value || phase.value !== 'interview' || isOffline.value) return
+    try {
+      const stateRes = await apiGetInterviewSession(interviewId.value)
+      const serverState = stateRes.session_state || ''
+      if (serverState && serverState !== sessionState.value) {
+        transitionSessionState(serverState, stateRes.recovery_event?.type || 'session.synced', { source: 'heartbeat' })
+      }
+    } catch (_) {
+    }
+  }, 7000)
+}
+
+const stopSessionHeartbeat = () => {
+  if (sessionHeartbeatTimer) {
+    clearInterval(sessionHeartbeatTimer)
+    sessionHeartbeatTimer = null
+  }
 }
 
 const startInterviewRecording = () => {
@@ -371,25 +656,36 @@ const stopAndUploadInterviewRecording = async () => {
 
 // Interview Logic
 const startInterview = async () => {
+  transitionSessionState('INIT', 'session.init')
   isProcessing.value = true
+  markProcessingTimeout()
   processingHint.value = '正在初始化面试场景...'
   answerVoiceStatus.value = 'idle'
   answerVoiceError.value = ''
   answerVoiceSeconds.value = 0
   try {
+    if (isVideoSceneMode.value && (!isCameraOn.value || !isMicOn.value)) {
+      await startCamera()
+      if (!isCameraOn.value || !isMicOn.value) {
+        throw new Error('视频面试模式要求开启摄像头和麦克风')
+      }
+    }
+
     const res = await apiStartInterview({
       position: settings.value.position,
       difficulty: settings.value.difficulty,
       mode: settings.value.mode,
       style: settings.value.style,
       company: settings.value.company,
-      interview_mode: settings.value.interviewMode
+      interview_mode: settings.value.interviewMode,
+      session_state: sessionState.value
     })
     
     // Backend returns { message: "...", interview: { ... } }
     // The interview object contains questions array if loaded correctly
     const interview = res.interview
     interviewId.value = interview.id
+    transitionSessionState(res.session_state || 'READY', res.event?.type || 'session.ready')
     pendingNextIndex.value = null
     pendingEnd.value = false
 
@@ -445,10 +741,12 @@ const startInterview = async () => {
         type: isBlindBox ? 'scenario' : undefined
       }
     ]
+    speakAsInterviewer(scenarioGreeting)
     
     // Push first question after a short delay
     processingHint.value = '面试官正在组织首个话题...'
     setTimeout(() => {
+      transitionSessionState('ASKING', 'interviewer.asking')
       pushAIQuestion(questions.value[0])
       // Start question timer if scenario has time limit
       if (blindBoxScenario.value?.time_limit) {
@@ -466,13 +764,15 @@ const startInterview = async () => {
         // Start real-time speech analysis
         startSpeechAnalysis()
         startInterviewRecording()
+        startSessionHeartbeat()
+        connectWebSocket()
       }, 500)
     }
-
   } catch (error) {
     console.error('Failed to start interview:', error)
     alert('启动面试失败: ' + (error.response?.data?.error || error.message))
   } finally {
+    clearProcessingTimeout()
     isProcessing.value = false
     processingHint.value = ''
   }
@@ -486,6 +786,7 @@ const pushAIQuestion = (question) => {
     content: text,
     type: 'question'
   })
+  speakAsInterviewer(text)
 }
 
 const mapInterviewQuestions = (rawQuestions) => {
@@ -681,11 +982,26 @@ const getVoiceStatusLabel = () => {
 const normalizeAnswerSubmitError = (msg = '') => {
   const text = String(msg || '')
   if (!text) return '未知错误'
+  if (/audio\s+data\s+is\s+empty/i.test(text) || /empty\s+transcription\s+result/i.test(text)) {
+    return '未识别到有效语音，请靠近麦克风并清晰作答后重试'
+  }
+  if (/status:\s*401|authentication_error|authorization|unauthorized/i.test(text)) {
+    return '语音转写鉴权失败（ASR Key 无效或无权限），请联系管理员检查 server/config.yaml 的 asr.api_key'
+  }
+  if (/maximum\s+content\s+size\s+limit|status:\s*413|payload\s+too\s+large/i.test(text)) {
+    return '语音文件过大，请缩短单次语音回答时长后重试'
+  }
+  if (/invalid\s+file\s+format|unsupported\s+audio|invalid\s+audio|decode\s+audio/i.test(text)) {
+    return '语音格式暂不受支持，请使用 Chrome/Edge 重试并确保允许麦克风权限'
+  }
+  if (/model\s+field|model\s+is\s+required|unknown\s+model|invalid\s+model/i.test(text)) {
+    return '语音转写服务配置异常（模型参数无效），请联系管理员检查 ASR 配置'
+  }
   if (/field\s+validation.*answer.*required/i.test(text) || /key:\s*'answer'/i.test(text)) {
     return '您似乎没有做出任何回答'
   }
-  if (/failed\s+to\s+transcribe\s+audio/i.test(text) || /empty\s+transcription\s+result/i.test(text)) {
-    return '未识别到有效语音，请靠近麦克风并清晰作答后重试'
+  if (/failed\s+to\s+transcribe\s+audio/i.test(text)) {
+    return '语音转写失败，请稍后重试；若持续失败，请检查后端 ASR 配置与日志'
   }
   return text
 }
@@ -699,8 +1015,12 @@ const submitCurrentAnswer = async (answerText = '', audioData = '') => {
   const res = await apiSubmitAnswer(interviewId.value, {
     question_id: currentQ.questionId,
     answer: answerText,
-    audio_data: audioData
+    audio_data: audioData,
+    session_state: sessionState.value
   })
+  if (res?.session_state) {
+    transitionSessionState(res.session_state, res.event?.type || 'session.synced', { source: 'submit' })
+  }
 
   const result = res.result
   const formatted = formatFeedback(result.feedback)
@@ -739,24 +1059,33 @@ const submitCurrentAnswer = async (answerText = '', audioData = '') => {
       pendingEnd.value = true
     }
   }
+
+  return result
 }
 
 const submitAudioAnswer = async (audioData) => {
   if (!audioData) return
   if (isProcessing.value) return
 
-  messages.value.push({
+  const userMessageIndex = messages.value.push({
     role: 'user',
     content: '【语音回答】'
-  })
+  }) - 1
 
   isProcessing.value = true
+  transitionSessionState('THINKING', 'candidate.submitted_audio')
+  markProcessingTimeout()
   processingHint.value = '面试官正在转写并评估你的语音回答...'
   answerVoiceStatus.value = 'submitting'
   answerVoiceError.value = ''
 
   try {
-    await submitCurrentAnswer('', audioData)
+    const result = await submitCurrentAnswer('', audioData)
+    const transcribedAnswer = String(result?.answer || '').trim()
+    if (transcribedAnswer && messages.value[userMessageIndex]) {
+      messages.value[userMessageIndex].content = `【语音转写】${transcribedAnswer}`
+    }
+
     answerVoiceStatus.value = 'success'
     setTimeout(() => {
       if (answerVoiceStatus.value === 'success') {
@@ -784,6 +1113,7 @@ const submitAudioAnswer = async (audioData) => {
       })
     }
   } finally {
+    clearProcessingTimeout()
     isProcessing.value = false
     processingHint.value = ''
     scrollToBottom()
@@ -847,6 +1177,7 @@ const startAnswerRecording = async () => {
     }
 
     answerMediaRecorder.start()
+    transitionSessionState('LISTENING', 'candidate.listening')
     answerVoiceStatus.value = 'recording'
     answerVoiceTimer = setInterval(() => {
       answerVoiceSeconds.value += 1
@@ -860,6 +1191,7 @@ const startAnswerRecording = async () => {
 
 const stopAnswerRecording = () => {
   if (!answerMediaRecorder || answerVoiceStatus.value !== 'recording') return
+  transitionSessionState('THINKING', 'candidate.stop_recording')
   answerMediaRecorder.stop()
   if (answerRecorderStream) {
     answerRecorderStream.getTracks().forEach(track => track.stop())
@@ -893,6 +1225,8 @@ const sendMessage = async () => {
   })
   
   isProcessing.value = true
+  transitionSessionState('THINKING', 'candidate.submitted_text')
+  markProcessingTimeout()
   processingHint.value = '面试官正在评估你的回答...'
   
   try {
@@ -921,6 +1255,7 @@ const sendMessage = async () => {
       })
     }
   } finally {
+    clearProcessingTimeout()
     isProcessing.value = false
     processingHint.value = ''
     scrollToBottom()
@@ -950,6 +1285,7 @@ const advanceToNextQuestion = () => {
     : currentQuestionIndex.value + 1
   if (nextIndex < questions.value.length) {
     currentQuestionIndex.value = nextIndex
+    transitionSessionState('ASKING', 'interviewer.asking')
     pushAIQuestion(questions.value[currentQuestionIndex.value])
     if (blindBoxScenario.value?.time_limit) {
       startQuestionTimer(blindBoxScenario.value.time_limit)
@@ -963,6 +1299,7 @@ const advanceToNextQuestion = () => {
 const completeInterview = async () => {
   if (isGeneratingReport.value || !interviewId.value) return
   isGeneratingReport.value = true
+  transitionSessionState('END', 'session.ending')
   try {
     await stopAndUploadInterviewRecording()
     await apiEndInterview(interviewId.value)
@@ -1034,6 +1371,7 @@ const scrollToBottom = () => {
 
 const endInterviewEarly = async () => {
   if (confirm('确定要结束面试吗？进度将不会保存。')) {
+    transitionSessionState('END', 'session.cancelled')
     answerVoiceStatus.value = 'idle'
     answerVoiceError.value = ''
     answerVoiceSeconds.value = 0
@@ -1049,6 +1387,8 @@ const endInterviewEarly = async () => {
     blindBoxRevealed.value = false
     randomStyleRevealed.value = false
     revealedStyleInfo.value = null
+    stopSessionHeartbeat()
+    sessionEvents.value = []
     if (interviewId.value) {
         try { await apiEndInterview(interviewId.value) } catch(e){}
     }
@@ -1125,9 +1465,23 @@ const revealStyle = async () => {
   }
 }
 
+const handleNetworkOnline = () => {
+  isOffline.value = false
+  recoverSessionState()
+}
+
+const handleNetworkOffline = () => {
+  isOffline.value = true
+  pushSessionEvent('session.connection_lost', sessionState.value, sessionState.value, { source: 'browser' })
+}
+
 onMounted(() => {
+  transitionSessionState('INIT', 'session.boot')
+  isOffline.value = !navigator.onLine
   startCamera()
   loadInterviewConfig()
+  window.addEventListener('online', handleNetworkOnline)
+  window.addEventListener('offline', handleNetworkOffline)
 })
 
 onUnmounted(() => {
@@ -1147,6 +1501,19 @@ onUnmounted(() => {
   }
   stopCamera()
   stopSpeechAnalysis()
+  stopSessionHeartbeat()
+  clearProcessingTimeout()
+  if (interviewerMotionTimer) {
+    clearTimeout(interviewerMotionTimer)
+    interviewerMotionTimer = null
+  }
+  if (currentAudio) {
+    currentAudio.pause()
+    currentAudio = null
+  }
+  disconnectWebSocket()
+  window.removeEventListener('online', handleNetworkOnline)
+  window.removeEventListener('offline', handleNetworkOffline)
 })
 </script>
 
@@ -1317,6 +1684,31 @@ onUnmounted(() => {
                 <span class="text-[10px] text-zinc-400 leading-tight">{{ im.desc }}</span>
               </button>
             </div>
+          </div>
+
+          <div class="space-y-2">
+            <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider">对话呈现模式</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                @click="settings.sceneMode = 'video'"
+                class="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium border transition-all"
+                :class="settings.sceneMode === 'video' ? 'bg-indigo-50 border-indigo-200 text-indigo-700 ring-1 ring-indigo-200' : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
+              >
+                <Video class="w-3.5 h-3.5" />
+                视频化面试
+              </button>
+              <button
+                @click="settings.sceneMode = 'classic'"
+                class="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium border transition-all"
+                :class="settings.sceneMode === 'classic' ? 'bg-zinc-100 border-zinc-300 text-zinc-800 ring-1 ring-zinc-200' : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
+              >
+                <MessageSquare class="w-3.5 h-3.5" />
+                经典对话
+              </button>
+            </div>
+            <p class="text-[11px] text-zinc-400">
+              视频化模式将启用面试官形象语音播报，且必须开启摄像头与麦克风。
+            </p>
           </div>
 
           <!-- Random Mode Notice -->
@@ -1512,12 +1904,53 @@ onUnmounted(() => {
               : 'shadow-[inset_0_0_60px_rgba(220,38,38,0.1)]'"
           ></div>
           
-          <!-- Video Element -->
-          <video ref="interviewVideo" class="w-full h-full object-cover transform scale-x-[-1]" autoplay muted v-if="isCameraOn"></video>
-          <div v-else class="w-full h-full flex flex-col items-center justify-center text-zinc-600 bg-zinc-900/50">
-             <User class="h-24 w-24 mb-6 opacity-20" />
-             <p class="font-medium tracking-wide opacity-50">摄像头已关闭</p>
+          <div class="absolute top-20 right-6 z-10 px-3 py-1.5 rounded-full text-[11px] font-semibold border backdrop-blur-md"
+            :class="isOffline ? 'bg-amber-500/70 text-white border-amber-300' : 'bg-black/40 text-white/90 border-white/10'">
+            {{ isOffline ? '网络重连中' : `状态 ${sessionState}` }}
           </div>
+
+          <template v-if="isVideoSceneMode">
+            <div class="w-full h-full bg-gradient-to-br from-indigo-900 via-violet-900 to-zinc-900 flex items-center justify-center">
+              <div class="relative w-[320px] h-[360px] rounded-[40px] bg-white/10 border border-white/20 shadow-2xl backdrop-blur-md flex flex-col items-center justify-center">
+                <div class="w-32 h-32 rounded-full bg-white/15 border border-white/20 flex items-center justify-center">
+                  <BrainCircuit class="w-16 h-16 text-white/90" />
+                </div>
+                <div class="mt-6 px-6 text-center">
+                  <p class="text-white text-lg font-bold">AI 面试官</p>
+                  <p class="text-white/70 text-xs mt-1">语音播报 + 动作反馈</p>
+                </div>
+                <div class="mt-5 w-20 h-3 rounded-full bg-white/20 overflow-hidden">
+                  <div class="h-full bg-emerald-300 transition-all duration-150"
+                    :style="{ width: interviewerSpeaking ? '100%' : '20%' }"></div>
+                </div>
+                <div class="mt-4 text-[11px] px-3 py-1 rounded-full border transition-all duration-300"
+                  :class="answerVoiceStatus === 'recording' 
+                    ? 'bg-emerald-500/20 text-emerald-100 border-emerald-500/50 animate-pulse ring-1 ring-emerald-500/30' 
+                    : 'text-white/80 border-white/15 bg-black/20'">
+                  {{ answerVoiceStatus === 'recording' 
+                      ? '🎤 正在倾听...' 
+                      : (interviewerMotion === 'talking' ? '口型同步中' : interviewerMotion === 'nod' ? '点头反馈' : interviewerMotion === 'thinking' ? '思考中...' : '待机') 
+                  }}
+                </div>
+              </div>
+            </div>
+
+            <div class="absolute bottom-6 right-6 w-56 h-36 rounded-2xl overflow-hidden border border-white/20 bg-zinc-900 shadow-2xl">
+              <video ref="interviewVideo" class="w-full h-full object-cover transform scale-x-[-1]" autoplay muted v-if="isCameraOn"></video>
+              <div v-else class="w-full h-full flex flex-col items-center justify-center text-zinc-400 bg-zinc-900/80">
+                <VideoOff class="h-8 w-8 mb-1" />
+                <span class="text-xs">候选人画面不可用</span>
+              </div>
+              <div class="absolute top-2 left-2 text-[10px] px-2 py-0.5 rounded-full bg-black/50 text-white">候选人</div>
+            </div>
+          </template>
+          <template v-else>
+            <video ref="interviewVideo" class="w-full h-full object-cover transform scale-x-[-1]" autoplay muted v-if="isCameraOn"></video>
+            <div v-else class="w-full h-full flex flex-col items-center justify-center text-zinc-600 bg-zinc-900/50">
+              <User class="h-24 w-24 mb-6 opacity-20" />
+              <p class="font-medium tracking-wide opacity-50">摄像头已关闭</p>
+            </div>
+          </template>
 
           <!-- Controls (Bottom Center - Auto hide) -->
           <div class="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-4 transition-all duration-500 translate-y-4 opacity-0 group-hover:translate-y-0 group-hover:opacity-100">
@@ -1541,12 +1974,13 @@ onUnmounted(() => {
         </div>
 
         <!-- Transcript / Input Section (Bottom) -->
-        <div class="h-1/3 min-h-[200px] bg-white rounded-3xl p-6 shadow-xl shadow-zinc-200/50 border border-white flex flex-col relative transition-all duration-300 focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:shadow-indigo-500/10 group lg:resizable-panel lg:flex-none lg:h-[32vh]">
+        <div class="bg-white rounded-3xl p-6 shadow-xl shadow-zinc-200/50 border border-white flex flex-col relative transition-all duration-300 focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:shadow-indigo-500/10 group lg:resizable-panel lg:flex-none"
+             :class="isVideoSceneMode ? 'h-auto min-h-0' : 'h-1/3 min-h-[200px] lg:h-[32vh]'">
            <div class="flex justify-between items-center mb-4">
              <h3 class="font-bold text-zinc-900 flex items-center gap-2 group-focus-within:text-indigo-600 transition-colors">
                <div class="w-1.5 h-4 bg-zinc-300 rounded-full group-focus-within:bg-indigo-600 transition-colors"></div>
                实时回答转写
-               <span v-if="userInput.length > 0" class="text-xs font-normal text-emerald-600 flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-full animate-in fade-in zoom-in duration-300">
+               <span v-if="userInput.length > 0 && !isVideoSceneMode" class="text-xs font-normal text-emerald-600 flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-full animate-in fade-in zoom-in duration-300">
                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                  正在输入...
                </span>
@@ -1571,14 +2005,30 @@ onUnmounted(() => {
              </div>
            </div>
            
+           <div class="rounded-xl border border-emerald-100 bg-emerald-50/40 px-3 py-2" :class="isVideoSceneMode ? '' : 'mb-3'">
+             <div class="flex items-center justify-between gap-2 mb-1">
+               <span class="text-[11px] font-semibold text-emerald-700">实时ASR转写（最近片段）</span>
+               <span class="text-[10px] text-emerald-600" v-if="speechLastUpdatedAt">
+                 {{ new Date(speechLastUpdatedAt).toLocaleTimeString() }}
+               </span>
+             </div>
+             <p class="text-xs text-emerald-900/90 leading-relaxed min-h-[18px]">
+               {{ latestChunkTranscript || '等待语音输入...' }}
+             </p>
+             <p class="text-[10px] text-emerald-700/80 mt-1 truncate" v-if="liveTranscript">
+               累计片段：{{ liveTranscript }}
+             </p>
+           </div>
+
            <textarea 
+              v-if="!isVideoSceneMode"
               v-model="userInput" 
               @keydown.ctrl.enter="sendMessage"
               placeholder="在此处输入您的回答..."
               class="flex-1 w-full resize-none border-none focus:ring-0 p-4 text-lg text-zinc-700 placeholder:text-zinc-300 bg-zinc-50/50 rounded-xl leading-relaxed transition-all focus:bg-white focus:shadow-inner custom-scrollbar"
            ></textarea>
 
-           <div class="absolute bottom-8 right-8 text-[10px] font-medium text-zinc-300 pointer-events-none bg-white/80 backdrop-blur px-2 py-1 rounded-md border border-zinc-100">
+           <div v-if="!isVideoSceneMode" class="absolute bottom-8 right-8 text-[10px] font-medium text-zinc-300 pointer-events-none bg-white/80 backdrop-blur px-2 py-1 rounded-md border border-zinc-100">
              Ctrl + Enter 发送
            </div>
         </div>
@@ -1823,6 +2273,7 @@ onUnmounted(() => {
         <!-- Action Button -->
         <button 
           @click="sendMessage"
+          v-if="!isVideoSceneMode || latestAIMessage?.type === 'feedback' || pendingEnd"
           :disabled="isProcessing || (!userInput.trim() && latestAIMessage?.type !== 'feedback')"
           class="w-full py-3 bg-zinc-900 text-white rounded-2xl font-bold text-base hover:bg-zinc-800 hover:shadow-xl hover:shadow-zinc-900/20 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 group relative overflow-hidden shrink-0"
         >

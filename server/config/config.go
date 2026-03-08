@@ -45,7 +45,7 @@ type LLMConfig struct {
 	Provider string            `yaml:"provider"`
 	APIKey   string            `yaml:"api_key"`
 	BaseURL  string            `yaml:"base_url"`
-	Model    string            `yaml:"model"` // Default model
+	Model    string            `yaml:"model"`  // Default model
 	Models   map[string]string `yaml:"models"` // Task-specific models: resume, chat, evaluation
 }
 
@@ -53,6 +53,7 @@ type ASRConfig struct {
 	Provider string `yaml:"provider"`
 	APIKey   string `yaml:"api_key"`
 	BaseURL  string `yaml:"base_url"`
+	Model    string `yaml:"model"`
 }
 
 var GlobalConfig *Config

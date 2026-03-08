@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -55,9 +56,14 @@ type TranscriptionResponse struct {
 	} `json:"segments"`
 }
 
-func (c *WhisperClient) TranscribeAudio(audioData []byte, language string) (string, error) {
+func (c *WhisperClient) TranscribeAudio(audioData []byte, language, model, prompt string) (string, error) {
 	if len(audioData) == 0 {
 		return "", fmt.Errorf("audio data is empty")
+	}
+
+	model = strings.TrimSpace(model)
+	if model == "" {
+		model = "whisper-1"
 	}
 
 	url := fmt.Sprintf("%s/audio/transcriptions", c.baseURL)
@@ -79,6 +85,18 @@ func (c *WhisperClient) TranscribeAudio(audioData []byte, language string) (stri
 		err = writer.WriteField("language", language)
 		if err != nil {
 			return "", fmt.Errorf("failed to write language field: %w", err)
+		}
+	}
+
+	err = writer.WriteField("model", model)
+	if err != nil {
+		return "", fmt.Errorf("failed to write model field: %w", err)
+	}
+
+	if strings.TrimSpace(prompt) != "" {
+		err = writer.WriteField("prompt", prompt)
+		if err != nil {
+			return "", fmt.Errorf("failed to write prompt field: %w", err)
 		}
 	}
 
@@ -111,29 +129,34 @@ func (c *WhisperClient) TranscribeAudio(audioData []byte, language string) (stri
 		return "", fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
+	bodyBytes, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API returned status: %d", resp.StatusCode)
+		errBody := strings.TrimSpace(string(bodyBytes))
+		if errBody == "" {
+			return "", fmt.Errorf("API returned status: %d", resp.StatusCode)
+		}
+		return "", fmt.Errorf("API returned status: %d, body: %s", resp.StatusCode, errBody)
 	}
 
 	var result TranscriptionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
 		return "", fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	return result.Text, nil
 }
 
-func (c *WhisperClient) TranscribeBase64Audio(base64Audio string, language string) (string, error) {
+func (c *WhisperClient) TranscribeBase64Audio(base64Audio string, language, model, prompt string) (string, error) {
 	audioData, err := base64.StdEncoding.DecodeString(base64Audio)
 	if err != nil {
 		return "", fmt.Errorf("failed to decode base64 audio: %w", err)
 	}
 
-	return c.TranscribeAudio(audioData, language)
+	return c.TranscribeAudio(audioData, language, model, prompt)
 }
 
-func (c *WhisperClient) TranscribeAudioFile(filePath string, language string) (string, error) {
+func (c *WhisperClient) TranscribeAudioFile(filePath string, language, model, prompt string) (string, error) {
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return "", fmt.Errorf("file not found: %s", filePath)
 	}
@@ -143,7 +166,7 @@ func (c *WhisperClient) TranscribeAudioFile(filePath string, language string) (s
 		return "", fmt.Errorf("failed to read audio file: %w", err)
 	}
 
-	return c.TranscribeAudio(audioData, language)
+	return c.TranscribeAudio(audioData, language, model, prompt)
 }
 
 func (c *WhisperClient) GetSupportedLanguages() []string {

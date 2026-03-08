@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"your-project/model"
+	"your-project/pkg/websocket"
 	"your-project/repository"
 )
 
@@ -276,7 +277,10 @@ func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, an
 	}
 
 	var finalAnswer string
+	userStr := fmt.Sprintf("%d", userID)
+
 	if audioData != "" {
+		websocket.GetHub().SendToUser(userStr, "interviewer.transcribing", nil)
 		transcribedText, err := s.aiService.TranscribeAudio(audioData)
 		if err != nil {
 			return nil, fmt.Errorf("failed to transcribe audio: %w", err)
@@ -286,6 +290,7 @@ func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, an
 		finalAnswer = answer
 	}
 
+	websocket.GetHub().SendToUser(userStr, "interviewer.thinking", nil)
 	evaluation, err := s.aiService.EvaluateAnswer(question, finalAnswer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate answer: %w", err)

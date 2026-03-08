@@ -1,10 +1,12 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { Upload, Sparkles, BrainCircuit, Search, CheckCircle2 } from 'lucide-vue-next'
 import { parseResume } from '../api/resume'
 import { useRouter } from 'vue-router'
+import { useResumeStore } from '../stores/resume'
 
 const router = useRouter()
+const resumeStore = useResumeStore()
 const fileInput = ref(null)
 const isUploading = ref(false)
 const resumeData = ref(null)
@@ -56,6 +58,14 @@ const startInterview = (match) => {
     query: { position: match.jobTitle }
   })
 }
+
+onMounted(() => {
+  const pendingFile = resumeStore.pendingFile
+  if (pendingFile) {
+    resumeStore.clearPendingFile()
+    processFile(pendingFile)
+  }
+})
 </script>
 
 <template>

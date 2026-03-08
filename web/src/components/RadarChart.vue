@@ -1,6 +1,6 @@
 <template>
   <div class="radar-chart">
-    <Radar :data="chartData" :options="chartOptions" />
+    <Radar :data="computedChartData" :options="computedChartOptions" />
   </div>
 </template>
 
@@ -18,35 +18,55 @@ const props = defineProps({
   }
 })
 
-const chartData = computed(() => ({
+const computedChartData = computed(() => ({
   labels: Object.keys(props.data),
   datasets: [
     {
       label: '能力评估',
-      backgroundColor: 'rgba(54, 162, 235, 0.2)',
-      borderColor: 'rgba(54, 162, 235, 1)',
-      pointBackgroundColor: 'rgba(54, 162, 235, 1)',
+      backgroundColor: 'rgba(99, 102, 241, 0.2)',
+      borderColor: '#6366f1',
+      borderWidth: 2,
+      pointBackgroundColor: '#6366f1',
       pointBorderColor: '#fff',
       pointHoverBackgroundColor: '#fff',
-      pointHoverBorderColor: 'rgba(54, 162, 235, 1)',
+      pointHoverBorderColor: '#6366f1',
       data: Object.values(props.data)
     }
   ]
 }))
 
-const chartOptions = {
+const computedChartOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
   scales: {
     r: {
       angleLines: {
-        display: false
+        color: '#e5e7eb'
+      },
+      grid: {
+        color: '#e5e7eb'
+      },
+      pointLabels: {
+        color: '#4b5563',
+        font: {
+          size: 12,
+          family: "'Inter', sans-serif"
+        }
+      },
+      ticks: {
+        display: false,
+        stepSize: 20
       },
       suggestedMin: 0,
       suggestedMax: 100
     }
+  },
+  plugins: {
+    legend: {
+      display: false
+    }
   }
-}
+}))
 </script>
 
 <style scoped>
