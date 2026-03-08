@@ -229,5 +229,74 @@ func EvaluateCandidateAnswer(question, answer string, llmCallFunc func(prompt st
 		result.Comment = "候选人明确表达无法作答，按严格评分规则判定该题 0 分。"
 	}
 
+	if hasVeryLowQuestionRelevance(question, answer) {
+		if result.Score > 35 {
+			result.Score = 35
+		}
+		if strings.TrimSpace(result.Comment) == "" {
+			result.Comment = "回答与题目核心关联较弱，缺少关键技术点支撑。"
+		} else {
+			result.Comment += " 系统检测到回答与题目关键词关联较弱，已下调评分上限。"
+		}
+	}
+
 	return &result, nil
+}
+
+func hasVeryLowQuestionRelevance(question, answer string) bool {
+	qTerms := extractCoreTerms(question, 10)
+	if len(qTerms) < 2 {
+		return false
+	}
+
+	a := strings.ToLower(strings.TrimSpace(answer))
+	if a == "" {
+		return true
+	}
+
+	matched := 0
+	for _, t := range qTerms {
+		if strings.Contains(a, t) {
+			matched++
+		}
+	}
+
+	runeLen := len([]rune(strings.TrimSpace(answer)))
+	if matched == 0 {
+		return true
+	}
+	if matched == 1 && runeLen < 90 {
+		return true
+	}
+	return false
+}
+
+func extractCoreTerms(text string, limit int) []string {
+	parts := regexp.MustCompile(`[\p{Han}A-Za-z0-9_#+\-.]{2,}`).FindAllString(strings.ToLower(text), -1)
+	if len(parts) == 0 {
+		return nil
+	}
+
+	stopwords := map[string]struct{}{
+		"什么": {}, "为什么": {}, "如何": {}, "怎么": {}, "请": {}, "一下": {}, "一个": {}, "以及": {}, "问题": {}, "回答": {},
+		"面试": {}, "你": {}, "我": {}, "他": {}, "她": {}, "它": {}, "如果": {}, "是否": {}, "进行": {}, "实现": {}, "描述": {}, "说明": {},
+	}
+
+	uniq := make(map[string]struct{}, len(parts))
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if _, ok := stopwords[p]; ok {
+			continue
+		}
+		if _, exists := uniq[p]; exists {
+			continue
+		}
+		uniq[p] = struct{}{}
+		out = append(out, p)
+		if len(out) >= limit {
+			break
+		}
+	}
+
+	return out
 }

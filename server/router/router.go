@@ -3,6 +3,7 @@ package router
 import (
 	"your-project/handler"
 	"your-project/middleware"
+	"your-project/pkg/websocket"
 
 	"github.com/gin-gonic/gin"
 )
@@ -15,6 +16,11 @@ func SetupRouter() *gin.Engine {
 	router.Use(gin.Recovery())
 	router.Use(middleware.CORS())
 	router.Static("/uploads", "./uploads")
+
+	// WebSocket route
+	router.GET("/ws", func(c *gin.Context) {
+		websocket.GetHub().HandleWebSocket(c.Writer, c.Request)
+	})
 
 	api := router.Group("/api/v1")
 	{
@@ -36,6 +42,7 @@ func SetupRouter() *gin.Engine {
 			protected.GET("/interview", handler.GetInterviews)
 			protected.GET("/interview/config", handler.GetInterviewConfig)
 			protected.GET("/interview/:id", handler.GetInterview)
+			protected.GET("/interview/:id/session", handler.GetInterviewSession)
 			protected.PUT("/interview/:id/answer", handler.SubmitAnswer)
 			protected.POST("/interview/:id/end", handler.EndInterview)
 			protected.POST("/interview/:id/recording", handler.UploadInterviewRecording)
@@ -71,6 +78,7 @@ func SetupRouter() *gin.Engine {
 			// AI对话接口
 			protected.POST("/ai/chat", handler.AIChat)
 			protected.POST("/interview/:id/ai-chat", handler.AIChatWithInterviewContext)
+			protected.POST("/tts", handler.GenerateTTS)
 
 			// 系统诊断
 			protected.GET("/system/ocr/status", handler.OCRStatus)

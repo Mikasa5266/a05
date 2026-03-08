@@ -15,6 +15,13 @@ export function getInterview(id) {
   })
 }
 
+export function getInterviewSession(id) {
+  return request({
+    url: `/interview/${id}/session`,
+    method: 'get'
+  })
+}
+
 export function getInterviews(params) {
   return request({
     url: '/interview',
@@ -138,5 +145,15 @@ export function revealRandomStyle(interviewId) {
   return request({
     url: `/interview/${interviewId}/reveal-style`,
     method: 'get'
+  })
+}
+
+// Generate TTS Audio
+export function generateTTS(data) {
+  return request({
+    url: '/tts',
+    method: 'post',
+    data,
+    responseType: 'blob'
   })
 }

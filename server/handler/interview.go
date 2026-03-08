@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,6 +14,44 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	SessionStateInit      = "INIT"
+	SessionStateReady     = "READY"
+	SessionStateAsking    = "ASKING"
+	SessionStateListening = "LISTENING"
+	SessionStateThinking  = "THINKING"
+	SessionStateEnd       = "END"
+)
+
+func normalizeSessionState(state string) string {
+	normalized := strings.ToUpper(strings.TrimSpace(state))
+	switch normalized {
+	case SessionStateInit, SessionStateReady, SessionStateAsking, SessionStateListening, SessionStateThinking, SessionStateEnd:
+		return normalized
+	default:
+		return ""
+	}
+}
+
+func deriveInterviewSessionState(status string, currentIndex int) string {
+	if status == "completed" {
+		return SessionStateEnd
+	}
+	if currentIndex <= 0 {
+		return SessionStateReady
+	}
+	return SessionStateAsking
+}
+
+func sessionEvent(eventType, from, to string) gin.H {
+	return gin.H{
+		"type":      eventType,
+		"from":      from,
+		"to":        to,
+		"timestamp": time.Now().UnixMilli(),
+	}
+}
+
 func StartInterview(c *gin.Context) {
 	userID := c.GetUint("user_id")
 
@@ -23,6 +62,7 @@ func StartInterview(c *gin.Context) {
 		Style         string `json:"style"`          // gentle, stress, deep, practical, algorithm
 		Company       string `json:"company"`        // ali, bytedance, tencent, meituan, baidu
 		InterviewMode string `json:"interview_mode"` // ai, human, random
+		SessionState  string `json:"session_state"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -72,8 +112,10 @@ func StartInterview(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message":   "Interview started successfully",
-		"interview": interview,
+		"message":       "Interview started successfully",
+		"interview":     interview,
+		"session_state": SessionStateReady,
+		"event":         sessionEvent("session.ready", normalizeSessionState(req.SessionState), SessionStateReady),
 	})
 }
 
@@ -91,7 +133,14 @@ func GetInterview(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"interview": interview})
+	state := deriveInterviewSessionState(interview.Status, interview.CurrentIndex)
+	c.JSON(http.StatusOK, gin.H{
+		"interview":      interview,
+		"session_state":  state,
+		"connection_ok":  true,
+		"recoverable":    true,
+		"recovery_event": sessionEvent("session.synced", "", state),
+	})
 }
 
 func GetInterviews(c *gin.Context) {
@@ -125,6 +174,7 @@ func SubmitAnswer(c *gin.Context) {
 		QuestionID uint   `json:"question_id" binding:"required"`
 		Answer     string `json:"answer"`
 		AudioData  string `json:"audio_data,omitempty"`
+		SessionState string `json:"session_state"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -139,13 +189,41 @@ func SubmitAnswer(c *gin.Context) {
 
 	result, err := service.SubmitAnswer(userID, uint(interviewID), req.QuestionID, req.Answer, req.AudioData)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		errMsg := err.Error()
+		log.Printf("SubmitAnswer failed: user=%d interview=%d question=%d hasAudio=%t err=%s", userID, interviewID, req.QuestionID, strings.TrimSpace(req.AudioData) != "", errMsg)
+
+		switch {
+		case strings.Contains(errMsg, "unauthorized access"):
+			c.JSON(http.StatusForbidden, gin.H{"error": errMsg})
+		case strings.Contains(errMsg, "question not found"):
+			c.JSON(http.StatusNotFound, gin.H{"error": errMsg})
+		case strings.Contains(errMsg, "interview is not in progress"):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "面试已结束或未开始，无法继续作答"})
+		case strings.Contains(errMsg, "failed to transcribe audio") || strings.Contains(errMsg, "whisper transcription failed"):
+			c.JSON(http.StatusBadGateway, gin.H{"error": errMsg})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": errMsg})
+		}
 		return
 	}
 
+	updatedInterview, _ := service.GetInterviewByID(userID, uint(interviewID))
+	nextState := SessionStateAsking
+	eventType := "interviewer.asking"
+	if updatedInterview != nil && updatedInterview.Status == "completed" {
+		nextState = SessionStateEnd
+		eventType = "session.ended"
+	}
+	fromState := normalizeSessionState(req.SessionState)
+	if fromState == "" {
+		fromState = SessionStateListening
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Answer submitted successfully",
-		"result":  result,
+		"message":       "Answer submitted successfully",
+		"result":        result,
+		"session_state": nextState,
+		"event":         sessionEvent(eventType, fromState, nextState),
 	})
 }
 
@@ -164,8 +242,35 @@ func EndInterview(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":   "Interview ended successfully",
-		"interview": interview,
+		"message":       "Interview ended successfully",
+		"interview":     interview,
+		"session_state": SessionStateEnd,
+		"event":         sessionEvent("session.ended", SessionStateAsking, SessionStateEnd),
+	})
+}
+
+func GetInterviewSession(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	interviewID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interview ID"})
+		return
+	}
+
+	interview, err := service.GetInterviewByID(userID, uint(interviewID))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Interview not found"})
+		return
+	}
+
+	state := deriveInterviewSessionState(interview.Status, interview.CurrentIndex)
+	c.JSON(http.StatusOK, gin.H{
+		"interview_id":   interview.ID,
+		"status":         interview.Status,
+		"session_state":  state,
+		"connection_ok":  true,
+		"recoverable":    interview.Status != "completed",
+		"recovery_event": sessionEvent("session.ping", "", state),
 	})
 }
 
@@ -184,7 +289,14 @@ func AnalyzeSpeechChunk(c *gin.Context) {
 	svc := service.NewSpeechAnalysisService()
 	metrics, err := svc.AnalyzeAudioChunk(req.AudioData, req.Duration)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("AnalyzeSpeechChunk failed: duration=%.2f err=%s", req.Duration, err.Error())
+		// Real-time chunk analysis should be best-effort. If ASR fails for a chunk,
+		// return empty metrics instead of surfacing 500 to avoid noisy frontend errors.
+		fallback := svc.AnalyzeText("", req.Duration)
+		c.JSON(http.StatusOK, gin.H{
+			"metrics": fallback,
+			"warning": err.Error(),
+		})
 		return
 	}
 

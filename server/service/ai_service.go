@@ -142,11 +142,21 @@ func estimateDimensions(totalScore int) *ReviewDimensions {
 
 func (s *AIService) evaluateAnswerLocal(question *model.Question, answer string) *EvaluationResult {
 	content := strings.TrimSpace(answer)
+	if IsInvalidAnswer(content) {
+		return s.buildRichLocalFeedback(0, question.Content,
+			"回答与题目关联性不足，或未提供有效技术信息，判定为无效作答。",
+			[]string{"请先明确题目关键词，再按结论-原理-实践例子的顺序作答", "至少覆盖2-3个核心技术点，避免口语化空话", "给出具体机制、边界条件和取舍理由"},
+			&ReviewDimensions{TechnicalDepth: 0, Expression: 10, Logic: 5, Completeness: 0},
+			nil,
+			[]string{"未形成有效技术回答"},
+		)
+	}
+
 	if content == "" {
-		return s.buildRichLocalFeedback(35, question.Content,
+		return s.buildRichLocalFeedback(0, question.Content,
 			"回答内容过短，尚未覆盖题目核心点。",
 			[]string{"先给出结论，再解释原理", "补充具体项目经历与结果", "至少给出1个边界情况或异常处理思路"},
-			&ReviewDimensions{TechnicalDepth: 15, Expression: 30, Logic: 25, Completeness: 10},
+			&ReviewDimensions{TechnicalDepth: 0, Expression: 10, Logic: 5, Completeness: 0},
 			nil,
 			[]string{"未能针对问题给出任何实质性内容"},
 		)
@@ -181,23 +191,23 @@ func (s *AIService) evaluateAnswerLocal(question *model.Question, answer string)
 	}
 
 	questionText := strings.TrimSpace(question.Content + " " + question.Title)
-	keywordBonus := 0
-	matchedKeywords := 0
-	for _, token := range strings.Fields(questionText) {
-		t := strings.TrimSpace(token)
-		if len([]rune(t)) < 2 {
-			continue
-		}
-		if strings.Contains(content, t) {
-			keywordBonus += 2
-			matchedKeywords++
-		}
-		if keywordBonus >= 12 {
-			break
-		}
+	terms := extractQuestionTerms(questionText)
+	matchedKeywords := countTermMatches(content, terms, 6)
+	keywordBonus := matchedKeywords * 3
+	if keywordBonus > 18 {
+		keywordBonus = 18
 	}
 
 	score := clampScore(lengthScore + structureBonus + keywordBonus)
+	if len(terms) >= 2 && matchedKeywords == 0 {
+		score = minInt(score, 35)
+	}
+	if matchedKeywords <= 1 && runeLen < 80 {
+		score = minInt(score, 45)
+	}
+	if runeLen > 0 && runeLen < 20 {
+		score = minInt(score, 40)
+	}
 
 	var evaluation string
 	var highlights []string
@@ -239,6 +249,75 @@ func (s *AIService) evaluateAnswerLocal(question *model.Question, answer string)
 	}
 
 	return s.buildRichLocalFeedback(score, question.Content, evaluation, suggestions, dims, highlights, gaps)
+}
+
+var localEvalStopwords = map[string]struct{}{
+	"什么": {}, "为什么": {}, "如何": {}, "怎么": {}, "请": {}, "一下": {}, "一个": {}, "以及": {}, "问题": {}, "回答": {}, "面试": {},
+	"你": {}, "我": {}, "他": {}, "她": {}, "它": {}, "如果": {}, "是否": {}, "进行": {}, "实现": {}, "描述": {}, "说明": {},
+}
+
+func extractQuestionTerms(question string) []string {
+	text := strings.TrimSpace(strings.ToLower(question))
+	if text == "" {
+		return nil
+	}
+
+	parts := regexp.MustCompile(`[\p{Han}A-Za-z0-9_#+\-.]{2,}`).FindAllString(text, -1)
+	if len(parts) == 0 {
+		return nil
+	}
+
+	uniq := make(map[string]struct{}, len(parts))
+	terms := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if _, isStopword := localEvalStopwords[p]; isStopword {
+			continue
+		}
+		if len([]rune(p)) < 2 {
+			continue
+		}
+		if _, ok := uniq[p]; ok {
+			continue
+		}
+		uniq[p] = struct{}{}
+		terms = append(terms, p)
+		if len(terms) >= 12 {
+			break
+		}
+	}
+	return terms
+}
+
+func countTermMatches(answer string, terms []string, maxCount int) int {
+	if len(terms) == 0 {
+		return 0
+	}
+	content := strings.ToLower(strings.TrimSpace(answer))
+	if content == "" {
+		return 0
+	}
+
+	count := 0
+	for _, term := range terms {
+		if strings.Contains(content, term) {
+			count++
+			if count >= maxCount {
+				return count
+			}
+		}
+	}
+	return count
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // buildRichLocalFeedback 构建本地评估的丰富 JSON 反馈
@@ -687,6 +766,11 @@ func (s *AIService) GenerateQuestions(interview *model.Interview, count int) ([]
 	prompt := fmt.Sprintf(`
 		请为以下面试场景生成 %d 个面试问题：
 		
+		【全局指令：极致拟人化】
+		1. 题目内容要像口语提问，不要像书面考试题。
+		2. 禁止使用"请简述"、"下列"、"何为"等教科书式表达。
+		3. 多用"你觉得"、"在项目中"、"如果..."等引导词。
+
 		职位：%s
 		难度级别：%s
 		面试模式：%s
@@ -697,17 +781,16 @@ func (s *AIService) GenerateQuestions(interview *model.Interview, count int) ([]
 		%s
 
 		%s
-
+		
 		要求：
 		1. 问题应循序渐进，涵盖该职位的核心技能点。
 		2. 问题应具有针对性，考察候选人的实际能力。
-		3. 所有字段必须使用简体中文。
-		4. 返回格式必须为 JSON 数组，每个对象包含 "title", "content", "expected_answer"。
+		3. 返回格式必须为 JSON 数组，每个对象包含 "title", "content", "expected_answer"。
 		
 		示例格式：
 		[
-			{"title": "问题1标题", "content": "问题1内容", "expected_answer": "期望回答1"},
-			{"title": "问题2标题", "content": "问题2内容", "expected_answer": "期望回答2"}
+			{"title": "问题1标题", "content": "问题1内容（口语化）", "expected_answer": "期望回答1"},
+			{"title": "问题2标题", "content": "问题2内容（口语化）", "expected_answer": "期望回答2"}
 		]
 	`, count, interview.Position, interview.Difficulty, interview.Mode, interview.Style,
 		modeInstruction, styleInstruction, difficultyInstruction)
@@ -756,13 +839,11 @@ func (s *AIService) GenerateTopicQuestionFromContext(interview *model.Interview,
 
 	prompt := fmt.Sprintf(`
 		你是一位资深技术面试官。请基于以下检索到的知识片段，生成一个“话题引入题”。
-		要求：
-		1. 必须围绕知识片段的核心内容提问，作为话题的第一题。
-		2. 题目清晰、可回答，不要过于宽泛。
-		3. 语气必须是“开场提问”，禁止任何追问口吻或上下文引用，例如“你提到/你刚才/继续/进一步/补充说明/候选人提到/基于上一题”。
-		4. 题面必须自包含，不能依赖前文，不得出现“继续、再次、补充、进一步”等承接词。
-		5. 只使用简体中文。
-		6. 返回格式：{"title": "问题标题", "content": "具体问题内容", "expected_answer": "简要的期望回答"}
+		
+		【全局指令：极致拟人化】
+		1. 提问要自然，像聊天一样。
+		2. 禁止使用"请简述"、"下列"、"何为"等书面语。
+		3. 不要使用"根据上文"、"知识片段显示"等字眼，要假装这些知识是你自己的经验。
 
 		职位：%s
 		难度级别：%s
@@ -772,6 +853,13 @@ func (s *AIService) GenerateTopicQuestionFromContext(interview *model.Interview,
 		%s
 		%s
 		%s
+
+		要求：
+		1. 必须围绕知识片段的核心内容提问，作为话题的第一题。
+		2. 题目清晰、可回答，不要过于宽泛。
+		3. 语气必须是“开场提问”，禁止任何追问口吻或上下文引用，例如“你提到/你刚才/继续/进一步/补充说明/候选人提到/基于上一题”。
+		4. 题面必须自包含，不能依赖前文，不得出现“继续、再次、补充、进一步”等承接词。
+		5. 返回格式：{"title": "问题标题", "content": "具体问题内容（口语化）", "expected_answer": "简要的期望回答"}
 
 		【知识片段】
 		%s
@@ -1028,8 +1116,13 @@ func (s *AIService) GenerateNextQuestion(interview *model.Interview, previousAns
 	difficultyInstruction := buildDifficultyPrompt(interview.Difficulty)
 
 	prompt := fmt.Sprintf(`
-		基于以下面试信息，生成下一个合适的面试问题：
+		你是一位资深技术面试官。请基于以下面试信息，生成下一个合适的面试问题。
 		
+		【全局指令：极致拟人化】
+		1. 提问要像聊天一样自然抛出，不要像考试卷子上的题目。
+		2. 禁止使用"请简述"、"请说明"、"下列"等书面语。
+		3. 可以带一点场景或引导。例如："在实际开发中，你有没有遇到过..."。
+
 		职位：%s
 		难度级别：%s
 		面试模式：%s
@@ -1040,9 +1133,8 @@ func (s *AIService) GenerateNextQuestion(interview *model.Interview, previousAns
 		%s
 		%s
 
-		请生成一个合适的后续问题，以深入了解候选人的技术能力。
-		只使用简体中文。
-		返回格式：{"title": "问题标题", "content": "具体问题内容", "expected_answer": "简要的期望回答"}
+		请生成一个合适的后续问题。
+		返回格式：{"title": "问题标题", "content": "具体问题内容（口语化表达）", "expected_answer": "简要的期望回答"}
 	`, interview.Position, interview.Difficulty, interview.Mode, interview.Style, len(previousAnswers),
 		modeInstruction, styleInstruction, difficultyInstruction)
 
@@ -1096,6 +1188,11 @@ func (s *AIService) GenerateFollowUpQuestion(interview *model.Interview, current
 
 	prompt := fmt.Sprintf(`
 		你是一位资深技术面试官。候选人刚刚回答了你的问题。
+		
+		【全局指令：极致拟人化】
+		1. 说话要像面对面聊天一样自然。禁止使用"请问"、"能否"、"下面"等客套词。
+		2. 直接发问，不要铺垫。例如："那你觉得..."、"这里有个问题..."。
+		3. 语气要根据面试风格调整（温和或严厉）。
 
 		【面试上下文】
 		面试类型：%s
@@ -1124,7 +1221,7 @@ func (s *AIService) GenerateFollowUpQuestion(interview *model.Interview, current
 		2. 如果回答存在模糊不清、逻辑漏洞、或者提到了值得深入的技术点（特别是项目经验或底层原理），请生成一个追问问题。
 		3. 追问必须与候选人的回答强关联，循序渐进地深入同一话题，禁止突然切换到无关主题。
 		4. 追问只能基于候选人已回答的内容，不得假设或编造其未提到的信息。
-		5. 追问措辞避免使用“你提到了X”这类句式，除非 X 在回答中明确出现。
+		5. 追问措辞禁止使用“你提到了X”这类句式，除非 X 在回答中明确出现。
 		6. 如果这是第3次追问，除非非常必要，否则尽量结束该话题，返回 "NO_FOLLOWUP"。
 		
 		如果需要追问，请返回 JSON 格式：
@@ -1133,7 +1230,7 @@ func (s *AIService) GenerateFollowUpQuestion(interview *model.Interview, current
 			"reason": "追问理由（简短中文）",
 			"question": {
 				"title": "追问标题",
-				"content": "追问具体内容",
+				"content": "追问具体内容（必须口语化，像真人一样提问）",
 				"expected_answer": "期望回答要点"
 			}
 		}
@@ -1425,11 +1522,37 @@ func clampScore(value int) int {
 
 func (s *AIService) transcribeWithWhisper(audioData []byte) (string, error) {
 	asrConfig := config.GetConfig().ASR
-	client := asr.NewWhisperClient(asrConfig.APIKey, asrConfig.BaseURL)
+	asrKey := strings.TrimSpace(asrConfig.APIKey)
+	if asrKey == "" {
+		return "", fmt.Errorf("whisper transcription failed: asr.api_key is empty")
+	}
 
-	text, err := client.TranscribeAudio(audioData, "zh")
+	client := asr.NewWhisperClient(asrKey, asrConfig.BaseURL)
+	model := strings.TrimSpace(asrConfig.Model)
+	if model == "" {
+		model = "whisper-1"
+	}
+
+	text, err := client.TranscribeAudio(audioData, "zh", model, "以下是中文面试回答，请尽量准确识别口语内容")
 	if err != nil {
-		return "", fmt.Errorf("whisper transcription failed: %w", err)
+		// Some gateways require a different key scope for ASR. If ASR key is unauthorized,
+		// retry once with LLM key to improve compatibility in mixed provider setups.
+		if isASRAuthError(err) {
+			llmKey := strings.TrimSpace(config.GetConfig().LLM.APIKey)
+			if llmKey != "" && llmKey != asrKey {
+				fallbackClient := asr.NewWhisperClient(llmKey, asrConfig.BaseURL)
+				retryText, retryErr := fallbackClient.TranscribeAudio(audioData, "zh", model, "以下是中文面试回答，请尽量准确识别口语内容")
+				if retryErr == nil {
+					text = retryText
+					err = nil
+				} else {
+					return "", fmt.Errorf("whisper transcription failed (ASR key unauthorized, LLM key fallback failed): %w", retryErr)
+				}
+			}
+		}
+		if err != nil {
+			return "", fmt.Errorf("whisper transcription failed: %w", err)
+		}
 	}
 
 	text = strings.TrimSpace(text)
@@ -1438,6 +1561,17 @@ func (s *AIService) transcribeWithWhisper(audioData []byte) (string, error) {
 	}
 
 	return text, nil
+}
+
+func isASRAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "status: 401") ||
+		strings.Contains(msg, "authentication_error") ||
+		strings.Contains(msg, "authorization") ||
+		strings.Contains(msg, "unauthorized")
 }
 
 // ========== Interview Mode / Style / Difficulty Prompt Builders ==========
@@ -1513,46 +1647,49 @@ var companyStyleProfiles = map[string]string{
 func buildStylePrompt(style, company string) string {
 	var parts []string
 
+	// 全局拟人化指令（所有风格通用）
+	commonInstruction := `【全局指令：极致拟人化】
+1. 你是真实的面试官，不是AI助手。禁止使用"好的"、"收到"、"下面进行下一题"等AI味十足的回复。
+2. 说话要口语化，多用短句。可以使用语气词（如"嗯..."、"其实..."、"那..."）。
+3. 不要念经式地罗列题目，要像聊天一样自然抛出问题。
+4. 追问时要紧接上文，不要生硬转折。`
+	parts = append(parts, commonInstruction)
+
 	switch style {
 	case "gentle":
 		parts = append(parts, `【面试官风格：温和型】
-- 语气友好、有引导性，像一场技术交流。
-- 遇到候选人回答不上来时，给予适当提示而非施压。
-- 提问方式："你觉得……"、"可以聊聊你的想法吗？"
-- 关注候选人潜力和学习能力，不过分追求标准答案。`)
+- 语气像朋友聊天，轻松自然。
+- 多用鼓励性的话语，例如："没关系，按你的理解说就行"、"这个点确实有点难，试着猜猜看？"。
+- 提问示例："其实我想问的是..."、"那你觉得..."。`)
 
 	case "stress":
 		parts = append(parts, `【面试官风格：压力型】
-- 模拟高压面试环境，面试官语气严肃、节奏紧凑。
-- 不论候选人回答是否正确，都会质疑："你确定吗？"、"还有其他方案吗？"
-- 连续追问，不给喘息空间，测试抗压和临场反应。
-- 遇到回答含糊的地方立即要求澄清，不接受模棱两可。
-- 偶尔故意提出反驳意见，测试候选人是否能坚持正确观点。`)
+- 语气冷淡、直接、短促。不要说客套话。
+- 多用反问句和质疑语气。
+- 提问示例："你确定吗？"、"这逻辑通吗？"、"为什么不用X方案？"。
+- 不给候选人思考喘息的机会。`)
 
 	case "deep":
 		parts = append(parts, `【面试官风格：技术深挖型】
-- 每个问题追问到底层原理（源码级别）。
-- 追问链示例：概念 → 实现原理 → 数据结构 → 时间复杂度 → JVM/操作系统层面 → 优化空间。
-- 期望候选人能画出内存模型、讲清字节码或汇编层面的行为。
-- 不满足于"知道怎么用"，必须"知道为什么这样设计"。`)
+- 像个极客一样，对底层原理极其执着。
+- 说话直切要害，不要铺垫。
+- 提问示例："源码里这块怎么写的？"、"到操作系统层面，这线程是怎么调度的？"。`)
 
 	case "practical":
 		parts = append(parts, `【面试官风格：项目实战型】
-- 围绕候选人简历中的项目经历深入提问。
-- 考察"你在项目中具体负责什么？遇到什么技术难题？如何解决的？"
-- 追问项目的架构、技术选型、可扩展性、实际效果。
-- 关注候选人在团队中的角色和贡献。`)
+- 像技术Team Leader，关注"能不能干活"。
+- 多问实际场景中的坑。
+- 提问示例："要是流量翻十倍，你这库不仅得挂？"、"上线出过这问题吗？"。`)
 
 	case "algorithm":
 		parts = append(parts, `【面试官风格：算法考察型】
-- 每题都要求候选人写出思路或手撕代码。
-- 追问时间/空间复杂度，以及是否有更优解法。
-- 考察数据结构选择、边界条件处理、代码鲁棒性。`)
+- 逻辑严密，关注边界条件。
+- 提问示例："时间复杂度还能优化吗？"、"如果内存不够怎么办？"。`)
 
 	default:
 		parts = append(parts, `【面试官风格：标准型】
-- 按照标准面试流程进行，节奏适中。
-- 考察全面，深度适中。`)
+- 专业、干练，但不失礼貌。
+- 保持职业素养，节奏适中。`)
 	}
 
 	// Add company-specific instructions if available
