@@ -191,9 +191,11 @@ import {
   FileText
 } from 'lucide-vue-next'
 import { getInterviews } from '../api/interview'
+import { useResumeStore } from '../stores/resume'
 import dayjs from 'dayjs'
 
 const router = useRouter()
+const resumeStore = useResumeStore()
 const activeSlide = ref(0)
 let slideInterval = null
 
@@ -223,6 +225,14 @@ const nextSlide = () => { activeSlide.value = (activeSlide.value + 1) % 3 }
 
 const goToResume = () => router.push('/student/resume')
 const startMode = (mode) => router.push({ path: '/student/interview', query: { mode } })
+
+const handleDrop = (event) => {
+  const file = event.dataTransfer?.files?.[0]
+  if (file) {
+    resumeStore.setPendingFile(file)
+    router.push('/student/resume')
+  }
+}
 
 const fetchRecentActivity = async () => {
   try {
