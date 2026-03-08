@@ -13,6 +13,7 @@ type Config struct {
 	JWT      JWTConfig      `yaml:"jwt"`
 	LLM      LLMConfig      `yaml:"llm"`
 	ASR      ASRConfig      `yaml:"asr"`
+	TTS      TTSConfig      `yaml:"tts"`
 	OCR      OCRConfig      `yaml:"ocr"`
 }
 
@@ -45,14 +46,29 @@ type LLMConfig struct {
 	Provider string            `yaml:"provider"`
 	APIKey   string            `yaml:"api_key"`
 	BaseURL  string            `yaml:"base_url"`
-	Model    string            `yaml:"model"` // Default model
+	Model    string            `yaml:"model"`  // Default model
 	Models   map[string]string `yaml:"models"` // Task-specific models: resume, chat, evaluation
 }
 
 type ASRConfig struct {
-	Provider string `yaml:"provider"`
-	APIKey   string `yaml:"api_key"`
-	BaseURL  string `yaml:"base_url"`
+	Provider                string `yaml:"provider"`
+	APIKey                  string `yaml:"api_key"`
+	BaseURL                 string `yaml:"base_url"`
+	Model                   string `yaml:"model"`
+	MaxAudioBytes           int    `yaml:"max_audio_bytes"`
+	ChunkMinIntervalSeconds int    `yaml:"chunk_min_interval_seconds"`
+	MaxCallsPerInterview    int    `yaml:"max_calls_per_interview"`
+}
+
+type TTSConfig struct {
+	Provider             string `yaml:"provider"`
+	APIKey               string `yaml:"api_key"`
+	BaseURL              string `yaml:"base_url"`
+	Model                string `yaml:"model"`
+	Voice                string `yaml:"voice"`
+	Enabled              bool   `yaml:"enabled"`
+	MaxCharsPerRequest   int    `yaml:"max_chars_per_request"`
+	MaxCharsPerInterview int    `yaml:"max_chars_per_interview"`
 }
 
 var GlobalConfig *Config

@@ -101,7 +101,7 @@ import dayjs from 'dayjs'
 const router = useRouter()
 const records = ref([])
 const loading = ref(true)
-const activeFilter = ref('all')
+const activeFilter = ref('completed')
 
 const filterOptions = [
   { key: 'all', label: '全部' },

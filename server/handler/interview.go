@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/base64"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -122,9 +123,11 @@ func SubmitAnswer(c *gin.Context) {
 	}
 
 	var req struct {
-		QuestionID uint   `json:"question_id" binding:"required"`
-		Answer     string `json:"answer"`
-		AudioData  string `json:"audio_data,omitempty"`
+		QuestionID      uint   `json:"question_id" binding:"required"`
+		QuestionTitle   string `json:"question_title,omitempty"`
+		QuestionContent string `json:"question_content,omitempty"`
+		Answer          string `json:"answer"`
+		AudioData       string `json:"audio_data,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -137,7 +140,7 @@ func SubmitAnswer(c *gin.Context) {
 		return
 	}
 
-	result, err := service.SubmitAnswer(userID, uint(interviewID), req.QuestionID, req.Answer, req.AudioData)
+	result, err := service.SubmitAnswer(userID, uint(interviewID), req.QuestionID, req.Answer, req.AudioData, req.QuestionTitle, req.QuestionContent)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -146,6 +149,58 @@ func SubmitAnswer(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Answer submitted successfully",
 		"result":  result,
+	})
+}
+
+func SynthesizeInterviewSpeech(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	interviewID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interview ID"})
+		return
+	}
+
+	var req struct {
+		Text string `json:"text" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	interview, err := service.GetInterviewByID(userID, uint(interviewID))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Interview not found"})
+		return
+	}
+
+	text := strings.TrimSpace(req.Text)
+	if text == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "text is required"})
+		return
+	}
+
+	ttsCfg := service.GetTTSConfig()
+	if ttsCfg.MaxCharsPerInterview > 0 && interview.TTSCharCount+len([]rune(text)) > ttsCfg.MaxCharsPerInterview {
+		c.JSON(http.StatusPaymentRequired, gin.H{"error": "语音播报预算已达上限，请切换文字模式"})
+		return
+	}
+
+	aiService := service.NewAIService()
+	audioBytes, err := aiService.SynthesizeSpeech(text)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	interview.TTSCharCount += len([]rune(text))
+	if _, updateErr := service.SaveInterviewBudgetUsage(interview); updateErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": updateErr.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"audio_base64": base64.StdEncoding.EncodeToString(audioBytes),
 	})
 }
 
@@ -191,6 +246,50 @@ func AnalyzeSpeechChunk(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"metrics": metrics,
 	})
+}
+
+func GetShadowCoachHint(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	interviewID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interview ID"})
+		return
+	}
+
+	var req struct {
+		Question       string `json:"question" binding:"required"`
+		Transcript     string `json:"transcript"`
+		ExpectedAnswer string `json:"expected_answer"`
+		SilenceSeconds int    `json:"silence_seconds"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if req.SilenceSeconds < 0 {
+		req.SilenceSeconds = 0
+	}
+
+	hints, err := service.GenerateShadowHintPack(userID, uint(interviewID), req.Question, req.Transcript, req.ExpectedAnswer)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	hint := ""
+	if len(hints) > 0 {
+		if req.SilenceSeconds >= 60 && len(hints) >= 3 {
+			hint = hints[2]
+		} else if req.SilenceSeconds >= 40 && len(hints) >= 2 {
+			hint = hints[1]
+		} else {
+			hint = hints[0]
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"hint": hint, "hints": hints})
 }
 
 func UploadInterviewRecording(c *gin.Context) {

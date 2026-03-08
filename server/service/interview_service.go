@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"your-project/config"
 	"your-project/model"
 	"your-project/repository"
 )
@@ -227,14 +228,24 @@ func GetInterviewByID(userID, interviewID uint) (*model.Interview, error) {
 	return svc.GetInterviewByID(userID, interviewID)
 }
 
-func SubmitAnswer(userID, interviewID, questionID uint, answer, audioData string) (*model.AnswerResult, error) {
+func SubmitAnswer(userID, interviewID, questionID uint, answer, audioData, questionTitle, questionContent string) (*model.AnswerResult, error) {
 	svc := NewInterviewService()
-	return svc.SubmitAnswer(userID, interviewID, questionID, answer, audioData)
+	return svc.SubmitAnswer(userID, interviewID, questionID, answer, audioData, questionTitle, questionContent)
 }
 
 func EndInterview(userID, interviewID uint) (*model.Interview, error) {
 	svc := NewInterviewService()
 	return svc.EndInterview(userID, interviewID)
+}
+
+func GenerateShadowHint(userID, interviewID uint, question, transcript string, silenceSeconds int) (string, error) {
+	svc := NewInterviewService()
+	return svc.GenerateShadowHint(userID, interviewID, question, transcript, silenceSeconds)
+}
+
+func GenerateShadowHintPack(userID, interviewID uint, question, transcript, expectedAnswer string) ([]string, error) {
+	svc := NewInterviewService()
+	return svc.GenerateShadowHintPack(userID, interviewID, question, transcript, expectedAnswer)
 }
 
 func SaveInterviewRecording(userID, interviewID uint, recordingURL string) (*model.Interview, error) {
@@ -260,7 +271,7 @@ func (s *InterviewService) GetInterviewByID(userID, interviewID uint) (*model.In
 	return interview, nil
 }
 
-func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, answer, audioData string) (*model.AnswerResult, error) {
+func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, answer, audioData, questionTitle, questionContent string) (*model.AnswerResult, error) {
 	interview, err := s.GetInterviewByID(userID, interviewID)
 	if err != nil {
 		return nil, err
@@ -270,30 +281,44 @@ func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, an
 		return nil, fmt.Errorf("interview is not in progress")
 	}
 
-	question, err := s.questionRepo.GetByID(questionID)
+	baseQuestion, err := s.questionRepo.GetByID(questionID)
 	if err != nil {
 		return nil, fmt.Errorf("question not found")
 	}
 
+	evalQuestion := baseQuestion
+	if strings.TrimSpace(questionContent) != "" {
+		tempQ := *baseQuestion
+		tempQ.Content = strings.TrimSpace(questionContent)
+		if strings.TrimSpace(questionTitle) != "" {
+			tempQ.Title = strings.TrimSpace(questionTitle)
+		}
+		evalQuestion = &tempQ
+	}
+
 	var finalAnswer string
 	if audioData != "" {
+		if cfgMax := config.GetConfig().ASR.MaxCallsPerInterview; cfgMax > 0 && interview.ASRCallCount >= cfgMax {
+			return nil, fmt.Errorf("语音转写预算已达上限，请切换文字作答")
+		}
 		transcribedText, err := s.aiService.TranscribeAudio(audioData)
 		if err != nil {
 			return nil, fmt.Errorf("failed to transcribe audio: %w", err)
 		}
 		finalAnswer = transcribedText
+		interview.ASRCallCount++
 	} else {
 		finalAnswer = answer
 	}
 
-	evaluation, err := s.aiService.EvaluateAnswer(question, finalAnswer)
+	evaluation, err := s.aiService.EvaluateAnswer(evalQuestion, finalAnswer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate answer: %w", err)
 	}
 
 	result := &model.AnswerResult{
 		InterviewID: interviewID,
-		QuestionID:  questionID,
+		QuestionID:  baseQuestion.ID,
 		Answer:      finalAnswer,
 		Score:       evaluation.Score,
 		Feedback:    evaluation.Feedback,
@@ -310,6 +335,7 @@ func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, an
 		now := time.Now()
 		interview.EndTime = &now
 		interview.CurrentIndex = len(answers)
+		result.InterviewCompleted = true
 		if err := s.interviewRepo.Update(interview); err != nil {
 			return nil, fmt.Errorf("failed to update interview: %w", err)
 		}
@@ -317,79 +343,48 @@ func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, an
 	}
 
 	// ==== Dynamic Follow-Up Logic ====
-	// Instead of just incrementing index, we check if we should ask a follow-up
-	shouldFollowUp, nextQuestion, err := s.decideNextQuestion(interview, question, finalAnswer, evaluation.Score)
+	// Follow-up questions are generated in real time and kept ephemeral (no DB write).
+	shouldFollowUp, nextQuestion, err := s.decideNextQuestion(interview, evalQuestion, finalAnswer, evaluation.Score)
 	if err != nil {
-		// Log error but continue with standard flow if dynamic fails
 		fmt.Printf("Dynamic question generation failed: %v\n", err)
 	}
 
 	if shouldFollowUp && nextQuestion != nil {
 		nextQuestion.Source = "follow_up"
 		nextQuestion.RAGEligible = false
-
-		// Insert follow-up question
-		// 1. Save question to DB
-		if err := s.questionRepo.Create(nextQuestion); err != nil {
-			return nil, fmt.Errorf("failed to create follow-up question: %w", err)
-		}
-
-		// 2. Insert into interview_questions at current_index + 1
-		// We need to shift existing questions if any (though usually we generate on the fly)
-		// For simplicity in this architecture, we append it as the next question
-		// and ensure the frontend fetches the updated list or next question.
-
-		iq := &model.InterviewQuestion{
-			InterviewID: interviewID,
-			QuestionID:  nextQuestion.ID,
-			OrderIndex:  interview.CurrentIndex + 1, // Next one
-			IsAnswered:  false,
-		}
-
-		// We need to shift subsequent questions down?
-		// Actually, if we are in a dynamic flow, we might not have pre-generated all questions.
-		// If we did, we insert.
-		if err := s.interviewRepo.InsertQuestionAt(interviewID, iq, interview.CurrentIndex+1); err != nil {
-			return nil, fmt.Errorf("failed to insert follow-up: %w", err)
-		}
-
+		nextQuestion.ID = baseQuestion.ID
+		nextQuestion.Position = baseQuestion.Position
+		nextQuestion.Difficulty = baseQuestion.Difficulty
+		nextQuestion.Category = baseQuestion.Category
+		result.NextQuestion = nextQuestion
 		interview.FollowUpCount++
-		interview.CurrentIndex++
 	} else {
-		// No follow-up, move to next topic or question
 		interview.CurrentIndex++
-		interview.FollowUpCount = 0 // Reset for next topic
+		interview.FollowUpCount = 0
 		interview.TopicIndex++
-	}
 
-	allQuestions, _ := s.interviewRepo.GetInterviewQuestions(interviewID)
-
-	// Update CurrentTopic based on the next question if available
-	if interview.CurrentIndex < len(allQuestions) {
-		nextQ, _ := s.questionRepo.GetByID(allQuestions[interview.CurrentIndex].QuestionID)
-		if nextQ != nil {
-			// If it's a new topic (not a follow-up), update topic
-			// For simplicity, we assume standard questions start new topics
-			// Follow-ups inherit topic or have specific prefix
-			if interview.FollowUpCount == 0 {
-				interview.CurrentTopic = nextQ.Category // Or derive from title
+		allQuestions, _ := s.interviewRepo.GetInterviewQuestions(interviewID)
+		if interview.CurrentIndex < len(allQuestions) {
+			nextQ, _ := s.questionRepo.GetByID(allQuestions[interview.CurrentIndex].QuestionID)
+			if nextQ != nil {
+				s.normalizeOpeningQuestion(nextQ)
+				interview.CurrentTopic = nextQ.Category
+				result.NextQuestion = nextQ
 			}
 		}
 	}
 
-	// Debug logging
-	fmt.Printf("Interview %d: CurrentIndex %d, TotalQuestions %d\n", interviewID, interview.CurrentIndex, len(allQuestions))
-
-	if interview.TotalQuestionTarget > 0 {
-		if interview.CurrentIndex >= interview.TotalQuestionTarget {
-			interview.Status = "completed"
-			t := time.Now()
-			interview.EndTime = &t
-		}
-	} else if interview.CurrentIndex >= len(allQuestions) {
+	allQuestions, _ := s.interviewRepo.GetInterviewQuestions(interviewID)
+	if interview.TotalQuestionTarget > 0 && len(answers) >= interview.TotalQuestionTarget {
 		interview.Status = "completed"
 		t := time.Now()
 		interview.EndTime = &t
+		result.InterviewCompleted = true
+	} else if interview.CurrentIndex >= len(allQuestions) && result.NextQuestion == nil {
+		interview.Status = "completed"
+		t := time.Now()
+		interview.EndTime = &t
+		result.InterviewCompleted = true
 	}
 
 	if err := s.interviewRepo.Update(interview); err != nil {
@@ -606,6 +601,94 @@ func (s *InterviewService) EndInterview(userID, interviewID uint) (*model.Interv
 	return interview, nil
 }
 
+func (s *InterviewService) GenerateShadowHint(userID, interviewID uint, question, transcript string, silenceSeconds int) (string, error) {
+	interview, err := s.GetInterviewByID(userID, interviewID)
+	if err != nil {
+		return "", err
+	}
+	if interview.Status != "in_progress" {
+		return "", fmt.Errorf("interview is not in progress")
+	}
+
+	hint, err := s.aiService.GenerateShadowCoachHint(
+		interview.Position,
+		question,
+		transcript,
+		interview.Style,
+		silenceSeconds,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	return hint, nil
+}
+
+func (s *InterviewService) GenerateShadowHintPack(userID, interviewID uint, question, transcript, expectedAnswer string) ([]string, error) {
+	interview, err := s.GetInterviewByID(userID, interviewID)
+	if err != nil {
+		return nil, err
+	}
+	if interview.Status != "in_progress" {
+		return nil, fmt.Errorf("interview is not in progress")
+	}
+
+	knowledgeContext := ""
+	if s.ragService != nil {
+		queryParts := make([]string, 0, 3)
+		if q := strings.TrimSpace(question); q != "" {
+			queryParts = append(queryParts, q)
+		}
+		if ea := strings.TrimSpace(expectedAnswer); ea != "" {
+			runes := []rune(ea)
+			if len(runes) > 120 {
+				ea = string(runes[:120])
+			}
+			queryParts = append(queryParts, ea)
+		}
+		if tr := strings.TrimSpace(transcript); tr != "" {
+			runes := []rune(tr)
+			if len(runes) > 80 {
+				tr = string(runes[:80])
+			}
+			queryParts = append(queryParts, tr)
+		}
+		query := strings.TrimSpace(strings.Join(queryParts, "\n"))
+		if query != "" {
+			chunks, ragErr := s.ragService.SearchKnowledgeChunksWithLimit(query, 5)
+			if ragErr == nil && len(chunks) > 0 {
+				parts := make([]string, 0, len(chunks))
+				for _, chunk := range chunks {
+					text := strings.TrimSpace(chunk.Content)
+					if text == "" {
+						continue
+					}
+					runes := []rune(text)
+					if len(runes) > 260 {
+						text = string(runes[:260])
+					}
+					parts = append(parts, text)
+				}
+				knowledgeContext = strings.Join(parts, "\n---\n")
+			}
+		}
+	}
+
+	hints, err := s.aiService.GenerateShadowCoachHintLevels(
+		interview.Position,
+		question,
+		transcript,
+		interview.Style,
+		expectedAnswer,
+		knowledgeContext,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return hints, nil
+}
+
 // loadJobCapabilityGraph simulates loading job capability graph
 // In production, this would fetch from DB or RAG
 func (s *InterviewService) loadJobCapabilityGraph(position string) *model.JobCapabilityDimension {
@@ -744,4 +827,19 @@ func RevealRandomStyle(userID, interviewID uint) (string, string, error) {
 		return "", "", fmt.Errorf("面试尚未结束，无法揭晓风格")
 	}
 	return interview.RevealedStyle, interview.Company, nil
+}
+
+func GetTTSConfig() config.TTSConfig {
+	return config.GetConfig().TTS
+}
+
+func SaveInterviewBudgetUsage(interview *model.Interview) (*model.Interview, error) {
+	if interview == nil {
+		return nil, fmt.Errorf("interview is nil")
+	}
+	svc := NewInterviewService()
+	if err := svc.interviewRepo.Update(interview); err != nil {
+		return nil, fmt.Errorf("failed to update interview budget usage: %w", err)
+	}
+	return interview, nil
 }

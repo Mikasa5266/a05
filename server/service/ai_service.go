@@ -59,6 +59,248 @@ func (s *AIService) ChatWithTask(ctx context.Context, prompt string, taskType st
 	return s.callLLM(prompt, taskType)
 }
 
+func normalizeShadowHintText(text string, fallback string) string {
+	clean := strings.TrimSpace(strings.ReplaceAll(text, "\n", " "))
+	clean = strings.Join(strings.Fields(clean), " ")
+	if clean == "" {
+		clean = fallback
+	}
+	runes := []rune(clean)
+	if len(runes) > 72 {
+		clean = strings.TrimSpace(string(runes[:72]))
+	}
+	return clean
+}
+
+func extractShadowHintFocus(question string) string {
+	trimmed := strings.TrimSpace(question)
+	if trimmed == "" {
+		return "这道题"
+	}
+	replacer := strings.NewReplacer(
+		"请问", "",
+		"你觉得", "",
+		"你如何", "",
+		"你怎么", "",
+		"是什么", "",
+		"为什么", "",
+		"如何", "",
+		"怎么", "",
+		"？", "",
+		"?", "",
+	)
+	focus := strings.TrimSpace(replacer.Replace(trimmed))
+	if focus == "" {
+		focus = trimmed
+	}
+	runes := []rune(focus)
+	if len(runes) > 18 {
+		focus = string(runes[:18])
+	}
+	if strings.TrimSpace(focus) == "" {
+		return "这道题"
+	}
+	return focus
+}
+
+func buildShadowHintFallbacks(question string) []string {
+	focus := extractShadowHintFocus(question)
+	return []string{
+		fmt.Sprintf("先别求完整，围绕“%s”先抛一个判断。", focus),
+		fmt.Sprintf("把“%s”拆成两段讲：先原理，再落一个业务场景。", focus),
+		fmt.Sprintf("直接开口：观点 -> 机制 -> 结果，围绕“%s”连成30秒回答。", focus),
+	}
+}
+
+func looksTemplateLikeHint(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return true
+	}
+	templateMarkers := []string{
+		"结论-依据",
+		"结论 - 依据",
+		"三步回答",
+		"四步",
+		"讲完整",
+		"按“",
+		"按\"",
+		"套模板",
+	}
+	for _, marker := range templateMarkers {
+		if strings.Contains(trimmed, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func extractShadowHintAnchors(referenceAnswer, knowledgeContext string) []string {
+	merged := strings.TrimSpace(referenceAnswer + "\n" + knowledgeContext)
+	if merged == "" {
+		return nil
+	}
+	segments := strings.FieldsFunc(merged, func(r rune) bool {
+		switch r {
+		case '\n', '。', '；', ';', '，', ',', '、', '：', ':', '（', '）', '(', ')':
+			return true
+		default:
+			return false
+		}
+	})
+
+	anchors := make([]string, 0, 6)
+	seen := map[string]bool{}
+	for _, seg := range segments {
+		item := strings.TrimSpace(seg)
+		if item == "" {
+			continue
+		}
+		runes := []rune(item)
+		if len(runes) < 4 {
+			continue
+		}
+		if len(runes) > 20 {
+			item = string(runes[:20])
+		}
+		if seen[item] {
+			continue
+		}
+		seen[item] = true
+		anchors = append(anchors, item)
+		if len(anchors) >= 6 {
+			break
+		}
+	}
+	return anchors
+}
+
+func containsAnyShadowAnchor(hint string, anchors []string) bool {
+	if strings.TrimSpace(hint) == "" || len(anchors) == 0 {
+		return false
+	}
+	for _, anchor := range anchors {
+		if strings.TrimSpace(anchor) == "" {
+			continue
+		}
+		if strings.Contains(hint, anchor) {
+			return true
+		}
+	}
+	return false
+}
+
+// GenerateShadowCoachHintLevels generates three escalating hints in one LLM call.
+func (s *AIService) GenerateShadowCoachHintLevels(position, question, transcript, style, referenceAnswer, knowledgeContext string) ([]string, error) {
+	trimmedQuestion := strings.TrimSpace(question)
+	fallbacks := buildShadowHintFallbacks(trimmedQuestion)
+	anchors := extractShadowHintAnchors(referenceAnswer, knowledgeContext)
+	anchorText := "无"
+	if len(anchors) > 0 {
+		anchorText = strings.Join(anchors, "、")
+	}
+	if trimmedQuestion == "" {
+		return fallbacks, nil
+	}
+
+	prompt := fmt.Sprintf(`你是“影子教练”，要给面试者三层递进提示。
+请严格输出 JSON：
+{
+  "level_1": "...",
+  "level_2": "...",
+  "level_3": "..."
+}
+
+要求：
+1) 全部简体中文，每层1-2句，单层不超过45字。
+2) 三层强度递进：L1轻提醒，L2更明确结构，L3接近作答框架。
+3) 可以参考“题目参考答案/知识库片段”提炼逻辑提示，但禁止逐句复述原答案。
+4) L3 要足够强，能让“学过这题的人”立刻想起答题路径。
+5) 禁止直接给出最终完整答案段落。
+6) 每层句式要明显不同，禁止反复使用“按xxx三步/四步”这类模板句。
+7) 每层尽量带上题目关键词，语气像耳返提醒，不是讲义。
+8) 若“可用锚点关键词”不为“无”，L2 和 L3 至少提到一个锚点关键词。
+9) 不要输出除 JSON 外的任何内容。
+
+岗位：%s
+面试官风格：%s
+当前问题：%s
+候选人已转写内容（可能为空）：%s
+题目参考答案（可能为空）：%s
+知识库相关片段（可能为空）：%s
+可用锚点关键词：%s
+`, position, style, trimmedQuestion, strings.TrimSpace(transcript), strings.TrimSpace(referenceAnswer), strings.TrimSpace(knowledgeContext), anchorText)
+
+	raw, err := s.callLLM(prompt, "shadow_hint")
+	if err != nil {
+		return fallbacks, nil
+	}
+
+	var parsed struct {
+		Level1 string `json:"level_1"`
+		Level2 string `json:"level_2"`
+		Level3 string `json:"level_3"`
+	}
+	if unmarshalErr := json.Unmarshal([]byte(extractJSONContent(raw)), &parsed); unmarshalErr != nil {
+		return fallbacks, nil
+	}
+
+	hints := []string{
+		normalizeShadowHintText(parsed.Level1, fallbacks[0]),
+		normalizeShadowHintText(parsed.Level2, fallbacks[1]),
+		normalizeShadowHintText(parsed.Level3, fallbacks[2]),
+	}
+
+	for idx := range hints {
+		if looksTemplateLikeHint(hints[idx]) {
+			hints[idx] = fallbacks[idx]
+		}
+	}
+
+	if hints[1] == hints[0] {
+		hints[1] = fallbacks[1]
+	}
+	if hints[2] == hints[1] || hints[2] == hints[0] {
+		hints[2] = fallbacks[2]
+	}
+
+	if len(anchors) > 0 {
+		if !containsAnyShadowAnchor(hints[1], anchors) {
+			hints[1] = normalizeShadowHintText(
+				fmt.Sprintf("围绕“%s”补一句关键机制，再落一个业务动作。", anchors[0]),
+				fallbacks[1],
+			)
+		}
+		if !containsAnyShadowAnchor(hints[2], anchors) {
+			hints[2] = normalizeShadowHintText(
+				fmt.Sprintf("直接按“观点 -> 机制 -> 结果”开口，并点到“%s”。", anchors[0]),
+				fallbacks[2],
+			)
+		}
+	}
+
+	return hints, nil
+}
+
+// GenerateShadowCoachHint returns a short nudge when the candidate is stuck.
+// It must avoid giving direct answers and keep hints actionable.
+func (s *AIService) GenerateShadowCoachHint(position, question, transcript, style string, silenceSeconds int) (string, error) {
+	hints, err := s.GenerateShadowCoachHintLevels(position, question, transcript, style, "", "")
+	if err != nil {
+		return buildShadowHintFallbacks(question)[0], nil
+	}
+	if len(hints) == 0 {
+		return buildShadowHintFallbacks(question)[0], nil
+	}
+	if silenceSeconds >= 60 && len(hints) >= 3 {
+		return hints[2], nil
+	}
+	if silenceSeconds >= 40 && len(hints) >= 2 {
+		return hints[1], nil
+	}
+	return hints[0], nil
+}
+
 func (s *AIService) EvaluateAnswer(question *model.Question, answer string) (*EvaluationResult, error) {
 	// 【已替换】接入 AIReview 强校验流程
 	// 调用底层 LLM 的闭包函数
@@ -1191,12 +1433,79 @@ func (s *AIService) TranscribeAudio(audioData string) (string, error) {
 	}
 
 	asrConfig := config.GetConfig().ASR
+	if asrConfig.MaxAudioBytes > 0 && len(decodedAudio) > asrConfig.MaxAudioBytes {
+		return "", fmt.Errorf("audio too large: %d bytes (max %d)", len(decodedAudio), asrConfig.MaxAudioBytes)
+	}
 
-	if asrConfig.Provider == "whisper" {
+	if asrConfig.Provider == "whisper" || asrConfig.Provider == "openai" || asrConfig.Provider == "" {
 		return s.transcribeWithWhisper(decodedAudio)
 	}
 
 	return "", fmt.Errorf("unsupported ASR provider: %s", asrConfig.Provider)
+}
+
+func (s *AIService) SynthesizeSpeech(text string) ([]byte, error) {
+	ttsConfig := config.GetConfig().TTS
+	if !ttsConfig.Enabled {
+		return nil, fmt.Errorf("tts is disabled")
+	}
+
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return nil, fmt.Errorf("text is empty")
+	}
+	if ttsConfig.MaxCharsPerRequest > 0 && len([]rune(trimmed)) > ttsConfig.MaxCharsPerRequest {
+		trimmed = string([]rune(trimmed)[:ttsConfig.MaxCharsPerRequest])
+	}
+
+	baseURL := strings.TrimSpace(ttsConfig.BaseURL)
+	if baseURL == "" {
+		baseURL = "https://api.openai.com/v1"
+	}
+	url := strings.TrimSuffix(baseURL, "/") + "/audio/speech"
+
+	model := strings.TrimSpace(ttsConfig.Model)
+	if model == "" {
+		model = "tts-1-1106"
+	}
+	voice := strings.TrimSpace(ttsConfig.Voice)
+	if voice == "" {
+		voice = "alloy"
+	}
+
+	bodyMap := map[string]interface{}{
+		"model":           model,
+		"input":           trimmed,
+		"voice":           voice,
+		"response_format": "mp3",
+	}
+	body, err := json.Marshal(bodyMap)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal tts request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create tts request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(ttsConfig.APIKey) != "" {
+		req.Header.Set("Authorization", "Bearer "+ttsConfig.APIKey)
+	}
+
+	client := &http.Client{Timeout: 45 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call tts api: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("tts api returned status: %d, body: %s", resp.StatusCode, string(respBytes))
+	}
+
+	return respBytes, nil
 }
 
 func (s *AIService) callLLM(prompt string, taskType string) (string, error) {
@@ -1425,7 +1734,7 @@ func clampScore(value int) int {
 
 func (s *AIService) transcribeWithWhisper(audioData []byte) (string, error) {
 	asrConfig := config.GetConfig().ASR
-	client := asr.NewWhisperClient(asrConfig.APIKey, asrConfig.BaseURL)
+	client := asr.NewWhisperClient(asrConfig.APIKey, asrConfig.BaseURL, asrConfig.Model)
 
 	text, err := client.TranscribeAudio(audioData, "zh")
 	if err != nil {

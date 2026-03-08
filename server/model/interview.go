@@ -22,6 +22,8 @@ type Interview struct {
 	HumanScore          *int           `json:"human_score,omitempty"`                       // Human interviewer score
 	RecordingURL        string         `gorm:"size:500" json:"recording_url,omitempty"`
 	RecordingStatus     string         `gorm:"default:'none';size:20" json:"recording_status,omitempty"`
+	ASRCallCount        int            `gorm:"default:0" json:"asr_call_count,omitempty"`
+	TTSCharCount        int            `gorm:"default:0" json:"tts_char_count,omitempty"`
 	Status              string         `gorm:"default:in_progress" json:"status"`
 	StartTime           time.Time      `json:"start_time"`
 	EndTime             *time.Time     `json:"end_time,omitempty"`
@@ -104,4 +106,7 @@ type AnswerResult struct {
 
 	Interview Interview `gorm:"foreignKey:InterviewID" json:"-"`
 	Question  Question  `gorm:"foreignKey:QuestionID" json:"question,omitempty"`
+
+	NextQuestion       *Question `gorm:"-" json:"next_question,omitempty"`
+	InterviewCompleted bool      `gorm:"-" json:"interview_completed,omitempty"`
 }

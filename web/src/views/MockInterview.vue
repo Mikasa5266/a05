@@ -10,12 +10,13 @@ import {
   Package, Timer, Zap, Building2, Star, Calendar, Clock, X,
   Flame, Search, Code, Briefcase, GraduationCap
 } from 'lucide-vue-next'
-import { startInterview as apiStartInterview, getInterview as apiGetInterview, submitAnswer as apiSubmitAnswer, endInterview as apiEndInterview, uploadInterviewRecording as apiUploadInterviewRecording, analyzeSpeechChunk as apiAnalyzeSpeechChunk, drawBlindBoxScenario as apiDrawBlindBox, getInterviewConfig as apiGetInterviewConfig, getHumanInterviewers as apiGetHumanInterviewers, bookHumanInterview as apiBookHumanInterview, getUserBookings as apiGetUserBookings, revealRandomStyle as apiRevealRandomStyle } from '../api/interview'
+import { startInterview as apiStartInterview, submitAnswer as apiSubmitAnswer, endInterview as apiEndInterview, uploadInterviewRecording as apiUploadInterviewRecording, analyzeSpeechChunk as apiAnalyzeSpeechChunk, getShadowCoachHint as apiGetShadowCoachHint, drawBlindBoxScenario as apiDrawBlindBox, getInterviewConfig as apiGetInterviewConfig, getHumanInterviewers as apiGetHumanInterviewers, bookHumanInterview as apiBookHumanInterview, getUserBookings as apiGetUserBookings, revealRandomStyle as apiRevealRandomStyle, synthesizeInterviewSpeech as apiSynthesizeInterviewSpeech } from '../api/interview'
 import { generateReport as apiGenerateReport } from '../api/report'
 import SpeechDashboard from '../components/SpeechDashboard.vue'
 
 const route = useRoute()
 const router = useRouter()
+const positionDropdownRef = ref(null)
 const phase = ref('setup') // setup, interview, summary
 const isCameraOn = ref(true)
 const isMicOn = ref(true)
@@ -38,6 +39,7 @@ let answerRecorderStream = null
 const interviewId = ref(null)
 const questions = ref([])
 const currentQuestionIndex = ref(0)
+const currentQuestion = ref(null)
 const messages = ref([])
 const userInput = ref('')
 const isProcessing = ref(false)
@@ -46,13 +48,32 @@ const reportId = ref(null)
 const isGeneratingReport = ref(false)
 const showHistory = ref(false)
 const showModelAnswer = ref(false)
-const pendingNextIndex = ref(null)
+const pendingNextQuestion = ref(null)
 const pendingEnd = ref(false)
+const isAvatarSpeaking = ref(false)
+let currentSpeechAudio = null
 
 const latestAIMessage = computed(() => {
   const aiMsgs = messages.value.filter(m => m.role === 'ai' || m.type === 'system')
   return aiMsgs.length > 0 ? aiMsgs[aiMsgs.length - 1] : null
 })
+
+const canAnswerCurrentQuestion = computed(() => {
+  if (phase.value !== 'interview') return false
+  if (!currentQuestion.value?.questionId) return false
+  if (isProcessing.value) return false
+  if (isAvatarSpeaking.value) return false
+  if (latestAIMessage.value?.type === 'feedback') return false
+  // Need a visible question first; prevents answering during intro/system messages.
+  return latestAIMessage.value?.type === 'question'
+})
+
+const latestUserTranscript = computed(() => {
+  const userMsgs = messages.value.filter(m => m.role === 'user' && typeof m.rawTranscript === 'string' && m.rawTranscript.trim())
+  return userMsgs.length > 0 ? userMsgs[userMsgs.length - 1].rawTranscript : ''
+})
+
+const isVideoInterviewMode = computed(() => settings.value.presentationMode === 'video_avatar')
 
 const settings = ref({
   position: route.query.position || 'Java后端开发',
@@ -60,8 +81,37 @@ const settings = ref({
   mode: route.query.mode || 'technical',
   style: 'gentle',
   company: '',
-  interviewMode: 'ai'  // ai, human, random
+  interviewMode: 'ai',  // ai, human, random
+  presentationMode: route.query.presentationMode || 'video_avatar' // text_voice, video_avatar
 })
+
+const positionOptions = [
+  'Java后端开发',
+  'Go后端开发',
+  '前端开发工程师',
+  '算法工程师',
+  'AI工程师',
+  '测试开发工程师',
+  '产品经理'
+]
+
+const showPositionDropdown = ref(false)
+
+const togglePositionDropdown = () => {
+  showPositionDropdown.value = !showPositionDropdown.value
+}
+
+const selectPosition = (position) => {
+  settings.value.position = position
+  showPositionDropdown.value = false
+}
+
+const closePositionDropdownOnOutsideClick = (event) => {
+  if (!positionDropdownRef.value) return
+  if (!positionDropdownRef.value.contains(event.target)) {
+    showPositionDropdown.value = false
+  }
+}
 
 // Interview Config from server
 const interviewConfig = ref(null)
@@ -82,7 +132,17 @@ const revealedStyleInfo = ref(null)
 // AI Shadow Coach
 const shadowCoachEnabled = ref(true)
 const shadowCoachHints = ref([])
+const shadowCoachBubbleText = ref('')
+const shadowCoachBubbleVisible = ref(false)
+const shadowCoachHintPending = ref(false)
+const silenceStreakSeconds = ref(0)
+const thinkingStreakSeconds = ref(0)
+const quietSeconds = ref(0)
+const shadowHintPack = ref([])
+const shadowHintDelivered = ref([false, false, false])
 const emotionFeedback = ref({ sentiment: '正常', confidence: 0, heartRate: 72 })
+let shadowBubbleTimer = null
+let thinkingWatchTimer = null
 
 // ===== Blind Box Mode =====
 const blindBoxScenario = ref(null)       // The drawn scenario object
@@ -151,6 +211,194 @@ const stopQuestionTimer = () => {
   questionTimer.value = 0
 }
 
+const ensureModelViewerScript = () => {
+  if (window.customElements && window.customElements.get('model-viewer')) return
+  if (document.getElementById('model-viewer-script')) return
+  const script = document.createElement('script')
+  script.id = 'model-viewer-script'
+  script.type = 'module'
+  script.src = 'https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js'
+  document.head.appendChild(script)
+}
+
+const stopAISpeech = () => {
+  if (currentSpeechAudio) {
+    currentSpeechAudio.pause()
+    currentSpeechAudio = null
+  }
+  isAvatarSpeaking.value = false
+}
+
+const hideShadowBubble = () => {
+  shadowCoachBubbleVisible.value = false
+  if (shadowBubbleTimer) {
+    clearTimeout(shadowBubbleTimer)
+    shadowBubbleTimer = null
+  }
+}
+
+const showShadowBubble = (text) => {
+  shadowCoachBubbleText.value = text
+  shadowCoachBubbleVisible.value = true
+  if (shadowBubbleTimer) clearTimeout(shadowBubbleTimer)
+  shadowBubbleTimer = setTimeout(() => {
+    shadowCoachBubbleVisible.value = false
+  }, 9000)
+}
+
+const buildLocalHintDefaults = (questionText = '') => {
+  const cleaned = String(questionText || '').replace(/[？?]/g, '').trim()
+  const focus = cleaned ? cleaned.slice(0, 16) : '这道题'
+  return [
+    `先围绕“${focus}”抛一个判断，不用一次讲完。`,
+    `把“${focus}”拆成两段：先原理，再补一个真实场景。`,
+    `直接开口按“观点 -> 机制 -> 结果”讲，把“${focus}”串起来。`
+  ]
+}
+
+const normalizeHintPack = (rawHints = [], questionText = '') => {
+  const defaults = buildLocalHintDefaults(questionText)
+  const cleaned = Array.isArray(rawHints)
+    ? rawHints.map((item) => String(item || '').trim()).filter(Boolean)
+    : []
+
+  return [
+    cleaned[0] || defaults[0],
+    cleaned[1] || cleaned[0] || defaults[1],
+    cleaned[2] || cleaned[1] || defaults[2]
+  ]
+}
+
+const resetShadowHintProgress = () => {
+  silenceStreakSeconds.value = 0
+  thinkingStreakSeconds.value = 0
+  quietSeconds.value = 0
+  shadowHintPack.value = []
+  shadowHintDelivered.value = [false, false, false]
+}
+
+const preloadShadowHintPack = async () => {
+  if (!shadowCoachEnabled.value || !interviewId.value || !currentQuestion.value) return
+  if (shadowHintPack.value.length >= 3 || shadowCoachHintPending.value) return
+
+  shadowCoachHintPending.value = true
+  try {
+    const res = await apiGetShadowCoachHint(interviewId.value, {
+      question: currentQuestion.value.content || currentQuestion.value.title || '',
+      transcript: latestUserTranscript.value || '',
+      expected_answer: currentQuestion.value.expectedAnswer || '',
+      silence_seconds: 0
+    })
+    shadowHintPack.value = normalizeHintPack(
+      res?.hints || (res?.hint ? [res.hint] : []),
+      currentQuestion.value.content || currentQuestion.value.title || ''
+    )
+  } catch (err) {
+    console.warn('preload shadow hint pack failed:', err)
+    shadowHintPack.value = normalizeHintPack([], currentQuestion.value.content || currentQuestion.value.title || '')
+  } finally {
+    shadowCoachHintPending.value = false
+  }
+}
+
+const maybeDispatchTieredHint = async () => {
+  if (!shadowCoachEnabled.value || !interviewId.value || !currentQuestion.value) return
+  if (phase.value !== 'interview' || isProcessing.value) return
+  if (latestAIMessage.value?.type !== 'question') return
+
+  if (shadowHintPack.value.length < 3) {
+    await preloadShadowHintPack()
+  }
+  if (shadowHintPack.value.length < 3) return
+
+  const milestones = [20, 40, 60]
+  for (let i = 0; i < milestones.length; i += 1) {
+    if (quietSeconds.value >= milestones[i] && !shadowHintDelivered.value[i]) {
+      const hint = shadowHintPack.value[i]
+      showShadowBubble(hint)
+      shadowCoachHints.value.unshift({ text: hint, at: Date.now(), level: i + 1 })
+      if (shadowCoachHints.value.length > 8) {
+        shadowCoachHints.value = shadowCoachHints.value.slice(0, 8)
+      }
+      shadowHintDelivered.value = shadowHintDelivered.value.map((flag, idx) => (idx === i ? true : flag))
+      break
+    }
+  }
+}
+
+const startThinkingWatch = () => {
+  if (thinkingWatchTimer) return
+  thinkingWatchTimer = setInterval(async () => {
+    if (!shadowCoachEnabled.value || phase.value !== 'interview') {
+      thinkingStreakSeconds.value = 0
+      silenceStreakSeconds.value = 0
+      quietSeconds.value = 0
+      return
+    }
+
+    if (isProcessing.value || latestAIMessage.value?.type !== 'question' || !canAnswerCurrentQuestion.value) {
+      thinkingStreakSeconds.value = 0
+      silenceStreakSeconds.value = 0
+      quietSeconds.value = 0
+      return
+    }
+
+    if (answerVoiceStatus.value === 'recording') {
+      thinkingStreakSeconds.value = 0
+      if (energyLevel.value <= 0.035) {
+        silenceStreakSeconds.value += 1
+        quietSeconds.value += 1
+      } else {
+        silenceStreakSeconds.value = 0
+        quietSeconds.value = 0
+      }
+    } else {
+      silenceStreakSeconds.value = 0
+      thinkingStreakSeconds.value += 1
+      quietSeconds.value += 1
+    }
+
+    await maybeDispatchTieredHint()
+
+    if (quietSeconds.value >= 65 || shadowHintDelivered.value.every(Boolean)) {
+      quietSeconds.value = shadowHintDelivered.value.every(Boolean) ? quietSeconds.value : 60
+    }
+  }, 1000)
+}
+
+const stopThinkingWatch = () => {
+  if (!thinkingWatchTimer) return
+  clearInterval(thinkingWatchTimer)
+  thinkingWatchTimer = null
+  thinkingStreakSeconds.value = 0
+}
+
+const speakAIText = async (text) => {
+  if (settings.value.presentationMode !== 'video_avatar') return
+  if (!interviewId.value || !text) return
+
+  try {
+    const res = await apiSynthesizeInterviewSpeech(interviewId.value, { text })
+    if (!res?.audio_base64) return
+    stopAISpeech()
+    const audio = new Audio(`data:audio/mpeg;base64,${res.audio_base64}`)
+    currentSpeechAudio = audio
+    isAvatarSpeaking.value = true
+    audio.onended = () => {
+      isAvatarSpeaking.value = false
+      currentSpeechAudio = null
+    }
+    audio.onerror = () => {
+      isAvatarSpeaking.value = false
+      currentSpeechAudio = null
+    }
+    await audio.play()
+  } catch (err) {
+    isAvatarSpeaking.value = false
+    console.warn('TTS playback failed:', err)
+  }
+}
+
 // ===== Real-time Speech Metrics =====
 const speechMetrics = ref({
   speechRate: 0,
@@ -169,6 +417,7 @@ let chunkMediaRecorder = null
 let chunkRecordingStream = null
 let chunkInterval = null
 let energyAnimFrame = null
+const speechChunkSeconds = 4
 
 const startSpeechAnalysis = () => {
   if (speechAnalysisActive.value || !stream.value) return
@@ -223,21 +472,21 @@ const startChunkRecording = () => {
       const reader = new FileReader()
       reader.onloadend = () => {
         const base64 = reader.result.split(',')[1]
-        sendSpeechChunk(base64, 4.0)
+        sendSpeechChunk(base64, speechChunkSeconds)
       }
       reader.readAsDataURL(blob)
     }
 
     chunkMediaRecorder.start()
 
-    // Stop after 4 seconds and restart
+    // Use short chunks to make speech-rate feedback feel real-time.
     chunkInterval = setTimeout(() => {
       if (chunkMediaRecorder && chunkMediaRecorder.state === 'recording') {
         chunkMediaRecorder.stop()
       }
       // Start next chunk
       if (speechAnalysisActive.value) startNewChunk()
-    }, 4000)
+    }, speechChunkSeconds * 1000)
   }
 
   startNewChunk()
@@ -315,6 +564,16 @@ const stopCamera = () => {
   stopSpeechAnalysis()
 }
 
+const setPresentationMode = async (mode) => {
+  settings.value.presentationMode = mode
+  if (mode === 'video_avatar') {
+    await startCamera()
+    return
+  }
+  stopAISpeech()
+  stopCamera()
+}
+
 const startInterviewRecording = () => {
   if (!stream.value || !interviewId.value) return
   try {
@@ -390,7 +649,8 @@ const startInterview = async () => {
     // The interview object contains questions array if loaded correctly
     const interview = res.interview
     interviewId.value = interview.id
-    pendingNextIndex.value = null
+    pendingNextQuestion.value = null
+    currentQuestion.value = null
     pendingEnd.value = false
 
     // Parse blindbox scenario if present
@@ -418,6 +678,7 @@ const startInterview = async () => {
     // Switch to interview phase
     phase.value = 'interview'
     currentQuestionIndex.value = 0
+    currentQuestion.value = questions.value[0] || null
     
     // Initialize Chat — adapt greeting for different modes
     const isBlindBox = settings.value.mode === 'blindbox' && blindBoxScenario.value
@@ -449,7 +710,7 @@ const startInterview = async () => {
     // Push first question after a short delay
     processingHint.value = '面试官正在组织首个话题...'
     setTimeout(() => {
-      pushAIQuestion(questions.value[0])
+      pushAIQuestion(currentQuestion.value)
       // Start question timer if scenario has time limit
       if (blindBoxScenario.value?.time_limit) {
         startQuestionTimer(blindBoxScenario.value.time_limit)
@@ -458,13 +719,11 @@ const startInterview = async () => {
     }, 1000)
 
     // Handle video transition
-    if (isCameraOn.value) {
+    if (settings.value.presentationMode === 'video_avatar' && isCameraOn.value) {
       // Small delay to ensure DOM is ready
       setTimeout(async () => {
         if (!stream.value) await startCamera()
         else if (interviewVideo.value) interviewVideo.value.srcObject = stream.value
-        // Start real-time speech analysis
-        startSpeechAnalysis()
         startInterviewRecording()
       }, 500)
     }
@@ -481,11 +740,14 @@ const startInterview = async () => {
 const pushAIQuestion = (question) => {
   const text = (question?.content || question?.title || '').trim()
   if (!text) return
+  resetShadowHintProgress()
   messages.value.push({
     role: 'ai',
     content: text,
     type: 'question'
   })
+  speakAIText(text)
+  preloadShadowHintPack()
 }
 
 const mapInterviewQuestions = (rawQuestions) => {
@@ -501,18 +763,6 @@ const mapInterviewQuestions = (rawQuestions) => {
       }
     })
     .filter((q) => q.questionId && (q.content || q.title))
-}
-
-const refreshInterviewQuestions = async () => {
-  if (!interviewId.value) return null
-  const res = await apiGetInterview(interviewId.value)
-  const interview = res.interview
-  if (!interview) return null
-  questions.value = mapInterviewQuestions(interview.questions || [])
-  const nextIndex = Number.isInteger(interview.current_index)
-    ? interview.current_index
-    : currentQuestionIndex.value + 1
-  return { interview, nextIndex }
 }
 
 const formatFeedback = (feedback) => {
@@ -659,6 +909,47 @@ const splitFeedbackSections = (text) => {
   }
 }
 
+const buildFeedbackPlainText = (sections) => {
+  const lines = []
+  const evaluation = (sections?.evaluation || '').trim()
+  if (evaluation) {
+    lines.push(`评价：${evaluation}`)
+  }
+
+  const suggestions = Array.isArray(sections?.suggestions) ? sections.suggestions.filter(Boolean) : []
+  if (suggestions.length > 0) {
+    lines.push('建议：')
+    suggestions.forEach((item) => lines.push(`- ${item}`))
+  }
+
+  const followUp = (sections?.followUp || '').trim()
+  if (followUp) {
+    lines.push(`追问方向：${followUp}`)
+  }
+
+  return lines.join('\n').trim() || '回答已提交，建议补充更具体的技术细节。'
+}
+
+const getHistoryMessageContent = (msg) => {
+  if (!msg) return ''
+
+  if (msg.type === 'feedback') {
+    const sections = {
+      evaluation: msg.feedbackEvaluation,
+      suggestions: msg.feedbackSuggestions,
+      followUp: msg.feedbackFollowUp
+    }
+    const hasStructured = sections.evaluation || (sections.suggestions && sections.suggestions.length) || sections.followUp
+    if (hasStructured) {
+      return buildFeedbackPlainText(sections)
+    }
+    const fallback = splitFeedbackSections(formatFeedback(msg.content || ''))
+    return buildFeedbackPlainText(fallback)
+  }
+
+  return typeof msg.content === 'string' ? msg.content : String(msg.content || '')
+}
+
 const formatVoiceSeconds = (seconds) => {
   const mins = Math.floor(seconds / 60)
   const secs = seconds % 60
@@ -691,13 +982,15 @@ const normalizeAnswerSubmitError = (msg = '') => {
 }
 
 const submitCurrentAnswer = async (answerText = '', audioData = '') => {
-  const currentQ = questions.value[currentQuestionIndex.value]
+  const currentQ = currentQuestion.value
   if (!currentQ || !currentQ.questionId) {
     throw new Error('当前题目ID无效，请重新开始面试')
   }
 
   const res = await apiSubmitAnswer(interviewId.value, {
     question_id: currentQ.questionId,
+    question_title: currentQ.title || '',
+    question_content: currentQ.content || '',
     answer: answerText,
     audio_data: audioData
   })
@@ -719,35 +1012,36 @@ const submitCurrentAnswer = async (answerText = '', audioData = '') => {
     feedbackFollowUp: feedbackSections.followUp
   })
 
-  try {
-    const refreshed = await refreshInterviewQuestions()
-    const nextIndex = refreshed?.nextIndex ?? (currentQuestionIndex.value + 1)
-    if (nextIndex < questions.value.length) {
-      pendingNextIndex.value = nextIndex
-      pendingEnd.value = false
-    } else {
-      pendingNextIndex.value = null
-      pendingEnd.value = true
+  if (result.next_question) {
+    pendingNextQuestion.value = {
+      mapId: null,
+      questionId: result.next_question.id || currentQ.questionId,
+      title: result.next_question.title || '',
+      content: result.next_question.content || '',
+      expectedAnswer: result.next_question.expected_answer || '',
+      source: result.next_question.source || 'standard'
     }
-  } catch (e) {
-    const fallbackIndex = currentQuestionIndex.value + 1
-    if (fallbackIndex < questions.value.length) {
-      pendingNextIndex.value = fallbackIndex
-      pendingEnd.value = false
-    } else {
-      pendingNextIndex.value = null
-      pendingEnd.value = true
-    }
+    pendingEnd.value = false
+  } else {
+    pendingNextQuestion.value = null
+    pendingEnd.value = !!result.interview_completed
   }
+
+  return result
 }
 
 const submitAudioAnswer = async (audioData) => {
   if (!audioData) return
   if (isProcessing.value) return
 
-  messages.value.push({
+  const userMsg = {
     role: 'user',
-    content: '【语音回答】'
+    content: '【语音回答转写中...】',
+    rawTranscript: ''
+  }
+  const userMsgIndex = messages.value.length
+  messages.value.push({
+    ...userMsg
   })
 
   isProcessing.value = true
@@ -756,7 +1050,15 @@ const submitAudioAnswer = async (audioData) => {
   answerVoiceError.value = ''
 
   try {
-    await submitCurrentAnswer('', audioData)
+    const result = await submitCurrentAnswer('', audioData)
+    const transcript = String(result?.answer || '').trim()
+    const plainText = transcript || '（未识别到有效语音文本）'
+    const rendered = `【语音回答】\n${plainText}`
+    userMsg.content = rendered
+    userMsg.rawTranscript = plainText
+    if (messages.value[userMsgIndex]) {
+      messages.value[userMsgIndex] = { ...userMsg }
+    }
     answerVoiceStatus.value = 'success'
     setTimeout(() => {
       if (answerVoiceStatus.value === 'success') {
@@ -792,6 +1094,11 @@ const submitAudioAnswer = async (audioData) => {
 
 const startAnswerRecording = async () => {
   if (isProcessing.value || !interviewId.value) return
+  if (!canAnswerCurrentQuestion.value) {
+    answerVoiceError.value = '请等待题目描述完成后再开始语音回答'
+    answerVoiceStatus.value = 'error'
+    return
+  }
   if (!isMicOn.value) {
     answerVoiceError.value = '麦克风已关闭，请先开启麦克风'
     answerVoiceStatus.value = 'error'
@@ -801,6 +1108,7 @@ const startAnswerRecording = async () => {
   answerVoiceStatus.value = 'requesting'
   answerVoiceError.value = ''
   answerVoiceSeconds.value = 0
+  quietSeconds.value = 0
   answerAudioChunks = []
 
   try {
@@ -847,6 +1155,9 @@ const startAnswerRecording = async () => {
     }
 
     answerMediaRecorder.start()
+    if (isVideoInterviewMode.value && stream.value) {
+      startSpeechAnalysis()
+    }
     answerVoiceStatus.value = 'recording'
     answerVoiceTimer = setInterval(() => {
       answerVoiceSeconds.value += 1
@@ -860,6 +1171,8 @@ const startAnswerRecording = async () => {
 
 const stopAnswerRecording = () => {
   if (!answerMediaRecorder || answerVoiceStatus.value !== 'recording') return
+  stopSpeechAnalysis()
+  quietSeconds.value = 0
   answerMediaRecorder.stop()
   if (answerRecorderStream) {
     answerRecorderStream.getTracks().forEach(track => track.stop())
@@ -881,6 +1194,7 @@ const sendMessage = async () => {
     advanceToNextQuestion()
     return
   }
+  if (isVideoInterviewMode.value) return
   if (!userInput.value.trim()) return
   
   const answer = userInput.value
@@ -928,8 +1242,13 @@ const sendMessage = async () => {
 }
 
 const advanceToNextQuestion = () => {
+  if (answerVoiceStatus.value === 'recording') {
+    stopAnswerRecording()
+    return
+  }
   if (pendingEnd.value) {
     stopQuestionTimer()
+    stopAISpeech()
     messages.value.push({
       role: 'ai',
       content: "面试结束！辛苦了。您可以点击下方按钮查看详细报告。",
@@ -939,23 +1258,22 @@ const advanceToNextQuestion = () => {
       revealStyle()
     }
     pendingEnd.value = false
-    pendingNextIndex.value = null
+    pendingNextQuestion.value = null
     completeInterview()
     scrollToBottom()
     return
   }
 
-  const nextIndex = pendingNextIndex.value != null
-    ? pendingNextIndex.value
-    : currentQuestionIndex.value + 1
-  if (nextIndex < questions.value.length) {
-    currentQuestionIndex.value = nextIndex
-    pushAIQuestion(questions.value[currentQuestionIndex.value])
+  if (pendingNextQuestion.value) {
+    currentQuestion.value = pendingNextQuestion.value
+    currentQuestionIndex.value += 1
+    thinkingStreakSeconds.value = 0
+    pushAIQuestion(currentQuestion.value)
     if (blindBoxScenario.value?.time_limit) {
       startQuestionTimer(blindBoxScenario.value.time_limit)
     }
   }
-  pendingNextIndex.value = null
+  pendingNextQuestion.value = null
   pendingEnd.value = false
   scrollToBottom()
 }
@@ -963,6 +1281,7 @@ const advanceToNextQuestion = () => {
 const completeInterview = async () => {
   if (isGeneratingReport.value || !interviewId.value) return
   isGeneratingReport.value = true
+  stopAISpeech()
   try {
     await stopAndUploadInterviewRecording()
     await apiEndInterview(interviewId.value)
@@ -1040,15 +1359,19 @@ const endInterviewEarly = async () => {
     await stopAndUploadInterviewRecording()
     stopCamera()
     stopQuestionTimer()
+    stopAISpeech()
     phase.value = 'setup'
     currentQuestionIndex.value = 0
+    currentQuestion.value = null
     messages.value = []
-    pendingNextIndex.value = null
+    pendingNextQuestion.value = null
     pendingEnd.value = false
     blindBoxScenario.value = null
     blindBoxRevealed.value = false
     randomStyleRevealed.value = false
     revealedStyleInfo.value = null
+    resetShadowHintProgress()
+    hideShadowBubble()
     if (interviewId.value) {
         try { await apiEndInterview(interviewId.value) } catch(e){}
     }
@@ -1126,11 +1449,17 @@ const revealStyle = async () => {
 }
 
 onMounted(() => {
-  startCamera()
+  ensureModelViewerScript()
+  document.addEventListener('click', closePositionDropdownOnOutsideClick)
+  if (settings.value.presentationMode === 'video_avatar') {
+    startCamera()
+  }
   loadInterviewConfig()
+  startThinkingWatch()
 })
 
 onUnmounted(() => {
+  document.removeEventListener('click', closePositionDropdownOnOutsideClick)
   if (interviewMediaRecorder && interviewMediaRecorder.state === 'recording') {
     interviewMediaRecorder.stop()
   }
@@ -1145,8 +1474,11 @@ onUnmounted(() => {
     clearInterval(answerVoiceTimer)
     answerVoiceTimer = null
   }
+  stopAISpeech()
   stopCamera()
   stopSpeechAnalysis()
+  stopThinkingWatch()
+  hideShadowBubble()
 })
 </script>
 
@@ -1159,32 +1491,117 @@ onUnmounted(() => {
         <p class="text-zinc-500 mt-2">配置您的面试环境与偏好，开启真实对话体验</p>
       </header>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-8 w-full">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8 w-full items-stretch">
         <!-- Preview Area -->
-        <div class="aspect-video bg-zinc-900 rounded-2xl relative overflow-hidden flex items-center justify-center group shadow-xl">
-          <video ref="previewVideo" class="w-full h-full object-cover" autoplay muted v-if="isCameraOn"></video>
-          <div v-else class="flex flex-col items-center text-zinc-500">
-            <VideoOff class="h-12 w-12 mb-2" />
-            <span>摄像头已关闭</span>
+        <div class="flex flex-col gap-4 min-h-[480px]">
+          <div class="aspect-video bg-zinc-900 rounded-2xl relative overflow-hidden flex items-center justify-center group shadow-xl">
+            <template v-if="settings.presentationMode === 'video_avatar'">
+              <model-viewer
+                src="/business_man_-_low_polygon_game_character.glb"
+                autoplay
+                auto-rotate
+                camera-controls
+                camera-target="0m 0.85m 0m"
+                camera-orbit="0deg 74deg 3.35m"
+                exposure="1.08"
+                shadow-intensity="1"
+                class="w-full h-full bg-gradient-to-b from-zinc-900 via-zinc-950 to-zinc-900"
+              ></model-viewer>
+
+              <div class="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-zinc-950/95 to-transparent pointer-events-none"></div>
+              <div class="absolute bottom-5 left-1/2 -translate-x-1/2 w-[58%] h-10 rounded-t-2xl bg-zinc-800/70 border border-zinc-600/40 backdrop-blur-sm"></div>
+
+              <div class="absolute bottom-4 left-4 w-36 h-24 rounded-2xl overflow-hidden border border-white/15 bg-zinc-950/90 shadow-lg">
+                <video ref="previewVideo" class="w-full h-full object-cover transform scale-x-[-1]" autoplay muted v-if="isCameraOn"></video>
+                <div v-else class="w-full h-full flex flex-col items-center justify-center text-zinc-500">
+                  <VideoOff class="h-6 w-6 mb-1" />
+                  <span class="text-[10px]">摄像头关闭</span>
+                </div>
+                <div class="absolute bottom-1 left-1 text-[10px] px-1.5 py-0.5 rounded-full bg-black/55 text-white border border-white/10">面试者</div>
+              </div>
+
+              <div class="absolute bottom-4 right-4 w-28 h-28 rounded-2xl overflow-hidden border border-emerald-200/30 bg-zinc-950/85 backdrop-blur-sm shadow-lg shadow-emerald-900/20">
+                <model-viewer
+                  src="/cute_ghost.glb"
+                  autoplay
+                  auto-rotate
+                  camera-controls
+                  exposure="1.1"
+                  shadow-intensity="0.85"
+                  class="w-full h-full"
+                ></model-viewer>
+                <div class="absolute bottom-1 left-1 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/80 text-white border border-emerald-300/50">影子教练</div>
+              </div>
+
+              <div class="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3">
+                <button 
+                  @click="toggleMic"
+                  class="h-10 w-10 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95"
+                  :class="isMicOn ? 'bg-white/10 text-white backdrop-blur-md hover:bg-white/20' : 'bg-rose-500 text-white'"
+                >
+                  <Mic v-if="isMicOn" class="h-4 w-4" />
+                  <MicOff v-else class="h-4 w-4" />
+                </button>
+                <button 
+                  @click="toggleCamera"
+                  class="h-10 w-10 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95"
+                  :class="isCameraOn ? 'bg-white/10 text-white backdrop-blur-md hover:bg-white/20' : 'bg-rose-500 text-white'"
+                >
+                  <Video v-if="isCameraOn" class="h-4 w-4" />
+                  <VideoOff v-else class="h-4 w-4" />
+                </button>
+              </div>
+            </template>
+            <template v-else>
+              <div class="w-full h-full p-6 flex flex-col justify-between bg-gradient-to-br from-zinc-900 via-slate-900 to-zinc-800">
+                <div>
+                  <p class="text-zinc-200 font-semibold">文字 + 语音模式</p>
+                  <p class="text-zinc-400 text-xs mt-1">专注内容质量与语言表达，默认更省预算。</p>
+                </div>
+                <div class="grid grid-cols-3 gap-2">
+                  <div class="rounded-xl border border-white/10 bg-white/5 p-2">
+                    <p class="text-[10px] text-zinc-400">环节</p>
+                    <p class="text-xs text-zinc-100 mt-1">提问</p>
+                  </div>
+                  <div class="rounded-xl border border-white/10 bg-white/5 p-2">
+                    <p class="text-[10px] text-zinc-400">环节</p>
+                    <p class="text-xs text-zinc-100 mt-1">作答</p>
+                  </div>
+                  <div class="rounded-xl border border-white/10 bg-white/5 p-2">
+                    <p class="text-[10px] text-zinc-400">环节</p>
+                    <p class="text-xs text-zinc-100 mt-1">复盘</p>
+                  </div>
+                </div>
+                <div class="rounded-2xl bg-white/5 border border-white/10 p-3">
+                  <p class="text-zinc-200 text-xs">该模式下将保持当前高效流程：AI提问 -> 语音/文字回答 -> AI评估追问。</p>
+                  <div class="mt-3 h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
+                    <div class="h-full w-2/3 bg-gradient-to-r from-cyan-400 to-emerald-400 rounded-full"></div>
+                  </div>
+                </div>
+              </div>
+            </template>
           </div>
-          
-          <div class="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3">
-            <button 
-              @click="toggleMic"
-              class="h-10 w-10 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95"
-              :class="isMicOn ? 'bg-white/10 text-white backdrop-blur-md hover:bg-white/20' : 'bg-rose-500 text-white'"
-            >
-              <Mic v-if="isMicOn" class="h-4 w-4" />
-              <MicOff v-else class="h-4 w-4" />
-            </button>
-            <button 
-              @click="toggleCamera"
-              class="h-10 w-10 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95"
-              :class="isCameraOn ? 'bg-white/10 text-white backdrop-blur-md hover:bg-white/20' : 'bg-rose-500 text-white'"
-            >
-              <Video v-if="isCameraOn" class="h-4 w-4" />
-              <VideoOff v-else class="h-4 w-4" />
-            </button>
+
+          <div class="flex-1 rounded-2xl border border-zinc-200 bg-gradient-to-br from-sky-50 via-white to-indigo-50 p-5 shadow-sm">
+            <div class="grid grid-cols-2 gap-3 h-full">
+              <div class="rounded-xl bg-white border border-sky-100 p-3">
+                <p class="text-[11px] text-zinc-500">推荐模式</p>
+                <p class="text-sm font-bold text-zinc-800 mt-1">视频模式（默认）</p>
+                <p class="text-[11px] text-zinc-500 mt-2">更接近真实压力场景，结合表情与语音节奏反馈。</p>
+              </div>
+              <div class="rounded-xl bg-white border border-emerald-100 p-3">
+                <p class="text-[11px] text-zinc-500">预算保护</p>
+                <p class="text-sm font-bold text-zinc-800 mt-1">ASR / TTS 限额已启用</p>
+                <p class="text-[11px] text-zinc-500 mt-2">到达阈值后自动提醒切换文字模式，防止超额调用。</p>
+              </div>
+              <div class="rounded-xl bg-white border border-zinc-200 p-3 col-span-2">
+                <div class="flex items-center justify-between">
+                  <p class="text-[11px] text-zinc-500">当前流程</p>
+                  <span class="text-[10px] px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-medium">实时追问</span>
+                </div>
+                <p class="text-sm text-zinc-700 mt-1">AI 提问 -> 语音回答 -> 结束语音并分析 -> 下一题。追问实时生成，不读取题库缓存。</p>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1192,11 +1609,59 @@ onUnmounted(() => {
         <div class="space-y-5 bg-white p-6 rounded-2xl border border-zinc-100 shadow-sm overflow-y-auto max-h-[480px]">
           <div class="space-y-2">
             <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider">目标岗位</label>
-            <input 
-              v-model="settings.position" 
-              class="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
-              placeholder="例如: Java 开发工程师"
-            />
+            <div ref="positionDropdownRef" class="relative" @click.stop>
+              <button
+                type="button"
+                @click="togglePositionDropdown"
+                class="interview-position-select w-full bg-gradient-to-b from-white to-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm font-medium text-zinc-700 transition-all flex items-center justify-between hover:border-indigo-300"
+                :class="showPositionDropdown ? 'ring-2 ring-indigo-500 border-indigo-300' : ''"
+              >
+                <span>{{ settings.position }}</span>
+                <ChevronDown class="w-4 h-4 text-zinc-400 transition-transform" :class="showPositionDropdown ? 'rotate-180' : ''" />
+              </button>
+
+              <transition name="dropdown-fade">
+                <div
+                  v-if="showPositionDropdown"
+                  class="absolute z-30 mt-2 w-full rounded-2xl border border-zinc-200 bg-white shadow-[0_14px_30px_rgba(15,23,42,0.12)] p-2 max-h-64 overflow-y-auto custom-scrollbar"
+                >
+                  <button
+                    v-for="position in positionOptions"
+                    :key="position"
+                    type="button"
+                    @click="selectPosition(position)"
+                    class="w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all"
+                    :class="settings.position === position ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-zinc-700 hover:bg-zinc-50'"
+                  >
+                    {{ position }}
+                  </button>
+                </div>
+              </transition>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider">对话呈现模式</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                @click="setPresentationMode('video_avatar')"
+                class="flex flex-col items-center gap-1 px-3 py-3 rounded-xl text-xs font-medium border transition-all text-center"
+                :class="settings.presentationMode === 'video_avatar' ? 'bg-sky-50 border-sky-300 text-sky-700 ring-1 ring-sky-200' : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
+              >
+                <span class="text-lg">🎥</span>
+                <span class="font-bold">视频模式</span>
+                <span class="text-[10px] text-zinc-400">3D 面试官 + 语音播报</span>
+              </button>
+              <button
+                @click="setPresentationMode('text_voice')"
+                class="flex flex-col items-center gap-1 px-3 py-3 rounded-xl text-xs font-medium border transition-all text-center"
+                :class="settings.presentationMode === 'text_voice' ? 'bg-emerald-50 border-emerald-300 text-emerald-700 ring-1 ring-emerald-200' : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
+              >
+                <span class="text-lg">🎙️</span>
+                <span class="font-bold">文字语音模式</span>
+                <span class="text-[10px] text-zinc-400">低成本高效率训练</span>
+              </button>
+            </div>
           </div>
 
           <!-- ===== 1. Interview Type (面试类型) ===== -->
@@ -1471,7 +1936,7 @@ onUnmounted(() => {
       <!-- Left Main Column (Video + Input) -->
       <div class="flex-1 flex flex-col gap-6 min-w-0 h-full">
         <!-- Video Section (Top) -->
-        <div class="flex-1 bg-black rounded-3xl relative overflow-hidden shadow-2xl group ring-1 ring-zinc-900/5">
+        <div v-if="settings.presentationMode === 'video_avatar'" class="flex-1 bg-black rounded-3xl relative overflow-hidden shadow-2xl group ring-1 ring-zinc-900/5">
           <!-- Status Badge -->
           <div class="absolute top-6 left-6 flex items-center gap-3 z-10 pointer-events-none">
             <div class="text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-2 shadow-lg"
@@ -1512,12 +1977,65 @@ onUnmounted(() => {
               : 'shadow-[inset_0_0_60px_rgba(220,38,38,0.1)]'"
           ></div>
           
-          <!-- Video Element -->
-          <video ref="interviewVideo" class="w-full h-full object-cover transform scale-x-[-1]" autoplay muted v-if="isCameraOn"></video>
-          <div v-else class="w-full h-full flex flex-col items-center justify-center text-zinc-600 bg-zinc-900/50">
-             <User class="h-24 w-24 mb-6 opacity-20" />
-             <p class="font-medium tracking-wide opacity-50">摄像头已关闭</p>
+          <!-- Main Interviewer Stage -->
+          <div class="absolute inset-0 bg-gradient-to-b from-zinc-900 via-zinc-950 to-zinc-900">
+            <model-viewer
+              src="/business_man_-_low_polygon_game_character.glb"
+              autoplay
+              auto-rotate
+              camera-controls
+              camera-target="0m 0.85m 0m"
+              camera-orbit="0deg 74deg 3.45m"
+              shadow-intensity="1"
+              exposure="1.05"
+              class="w-full h-full interviewer-stage"
+              :class="isAvatarSpeaking ? 'interviewer-speaking' : ''"
+            ></model-viewer>
+
+            <div class="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-zinc-950/95 to-transparent pointer-events-none"></div>
+            <div class="absolute bottom-8 left-1/2 -translate-x-1/2 w-[56%] h-14 rounded-t-2xl bg-zinc-800/75 border border-zinc-600/40 shadow-[0_0_30px_rgba(0,0,0,0.35)]"></div>
+            <div class="absolute top-6 right-6 text-xs px-3 py-1.5 rounded-full border backdrop-blur-sm"
+              :class="settings.style === 'stress' ? 'bg-rose-500/20 text-rose-100 border-rose-300/40' : 'bg-emerald-500/15 text-emerald-100 border-emerald-300/40'">
+              {{ settings.style === 'stress' ? '施压面试状态' : '安抚面试状态' }}
+            </div>
           </div>
+
+          <!-- Candidate PIP (left-bottom) -->
+          <div class="absolute bottom-5 left-5 w-44 h-28 rounded-2xl overflow-hidden border border-white/20 bg-zinc-950/90 shadow-lg backdrop-blur-sm">
+            <video ref="interviewVideo" class="w-full h-full object-cover transform scale-x-[-1]" autoplay muted v-if="isCameraOn"></video>
+            <div v-else class="w-full h-full flex flex-col items-center justify-center text-zinc-600 bg-zinc-900/70">
+              <User class="h-8 w-8 mb-2 opacity-30" />
+              <p class="text-[11px] tracking-wide opacity-60">面试者画面关闭</p>
+            </div>
+            <div class="absolute bottom-1 left-1 text-[10px] px-2 py-0.5 rounded-full bg-black/55 text-white border border-white/10">面试者</div>
+          </div>
+
+          <!-- Ghost Shadow Coach (right-bottom) -->
+          <div class="absolute bottom-5 right-5 w-36 h-40 rounded-2xl overflow-hidden border border-emerald-200/35 backdrop-blur-sm bg-zinc-950/90"
+            :class="shadowCoachHintPending ? 'ring-2 ring-emerald-300/80 shadow-[0_0_24px_rgba(16,185,129,0.35)]' : ''">
+            <model-viewer
+              src="/cute_ghost.glb"
+              autoplay
+              auto-rotate
+              camera-controls
+              exposure="1.05"
+              shadow-intensity="1"
+              class="w-full h-full bg-gradient-to-b from-zinc-900 to-zinc-800"
+            ></model-viewer>
+            <div class="absolute bottom-2 left-2 text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/85 text-white border border-emerald-300/60">
+              影子教练
+            </div>
+          </div>
+
+          <transition name="coach-bubble">
+            <div
+              v-if="shadowCoachBubbleVisible && shadowCoachBubbleText"
+              class="absolute right-44 bottom-28 max-w-[250px] rounded-2xl border border-emerald-200 bg-white/95 px-4 py-3 text-xs leading-relaxed text-zinc-700 shadow-lg shadow-emerald-100"
+            >
+              <p class="font-semibold text-emerald-700 mb-1">小幽灵提示</p>
+              <p class="whitespace-pre-wrap">{{ shadowCoachBubbleText }}</p>
+            </div>
+          </transition>
 
           <!-- Controls (Bottom Center - Auto hide) -->
           <div class="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-4 transition-all duration-500 translate-y-4 opacity-0 group-hover:translate-y-0 group-hover:opacity-100">
@@ -1539,19 +2057,36 @@ onUnmounted(() => {
             </button>
           </div>
         </div>
+        <div v-else class="flex-1 rounded-3xl p-6 border border-zinc-200 bg-gradient-to-br from-emerald-50 via-white to-cyan-50 shadow-xl flex flex-col justify-between">
+          <div>
+            <p class="text-sm font-bold text-emerald-700">文字 + 语音模式进行中</p>
+            <p class="text-xs text-zinc-500 mt-2">当前聚焦回答内容与逻辑质量，系统已降低实时语音分析频率以控制预算。</p>
+          </div>
+          <div class="grid grid-cols-2 gap-3 text-xs">
+            <div class="rounded-xl bg-white border border-zinc-200 p-3">
+              <p class="text-zinc-400">当前岗位</p>
+              <p class="font-bold text-zinc-800 mt-1">{{ settings.position }}</p>
+            </div>
+            <div class="rounded-xl bg-white border border-zinc-200 p-3">
+              <p class="text-zinc-400">面试进度</p>
+              <p class="font-bold text-zinc-800 mt-1">第 {{ currentQuestionIndex + 1 }} 题</p>
+            </div>
+          </div>
+        </div>
 
         <!-- Transcript / Input Section (Bottom) -->
-        <div class="h-1/3 min-h-[200px] bg-white rounded-3xl p-6 shadow-xl shadow-zinc-200/50 border border-white flex flex-col relative transition-all duration-300 focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:shadow-indigo-500/10 group lg:resizable-panel lg:flex-none lg:h-[32vh]">
-           <div class="flex justify-between items-center mb-4">
+        <div class="bg-white rounded-3xl p-6 shadow-xl shadow-zinc-200/50 border border-white flex flex-col relative transition-all duration-300 focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:shadow-indigo-500/10 group lg:resizable-panel lg:flex-none overflow-hidden"
+          :class="isVideoInterviewMode ? 'h-[32vh] min-h-[320px]' : 'h-1/3 min-h-[200px] lg:h-[32vh]'">
+           <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center items-start gap-2 mb-4 shrink-0">
              <h3 class="font-bold text-zinc-900 flex items-center gap-2 group-focus-within:text-indigo-600 transition-colors">
                <div class="w-1.5 h-4 bg-zinc-300 rounded-full group-focus-within:bg-indigo-600 transition-colors"></div>
-               实时回答转写
+               {{ isVideoInterviewMode ? '语音回答控制台' : '实时回答转写' }}
                <span v-if="userInput.length > 0" class="text-xs font-normal text-emerald-600 flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-full animate-in fade-in zoom-in duration-300">
                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                  正在输入...
                </span>
              </h3>
-             <div class="flex items-center gap-2">
+             <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
                <span class="text-[11px] font-medium px-2 py-1 rounded-full border"
                  :class="answerVoiceStatus === 'recording'
                    ? 'bg-rose-50 text-rose-600 border-rose-200'
@@ -1570,17 +2105,40 @@ onUnmounted(() => {
                </button>
              </div>
            </div>
-           
-           <textarea 
-              v-model="userInput" 
-              @keydown.ctrl.enter="sendMessage"
-              placeholder="在此处输入您的回答..."
-              class="flex-1 w-full resize-none border-none focus:ring-0 p-4 text-lg text-zinc-700 placeholder:text-zinc-300 bg-zinc-50/50 rounded-xl leading-relaxed transition-all focus:bg-white focus:shadow-inner custom-scrollbar"
-           ></textarea>
 
-           <div class="absolute bottom-8 right-8 text-[10px] font-medium text-zinc-300 pointer-events-none bg-white/80 backdrop-blur px-2 py-1 rounded-md border border-zinc-100">
-             Ctrl + Enter 发送
-           </div>
+           <template v-if="isVideoInterviewMode">
+             <div class="flex-1 min-h-0 rounded-2xl border border-zinc-100 bg-zinc-50/70 p-4 flex flex-col gap-3 overflow-hidden">
+               <p class="text-sm text-zinc-600 leading-relaxed shrink-0">
+                 视频模式已禁用文字提交。请点击下方按钮开始作答，回答完成后点击“结束语音并开始分析”。
+               </p>
+               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 shrink-0">
+                 <div class="rounded-xl bg-white border border-zinc-200 p-3">
+                   <p class="text-[11px] text-zinc-400">语速</p>
+                   <p class="text-sm font-bold text-zinc-800 mt-1">{{ speechMetrics.speechRate || 0 }} 字/分</p>
+                 </div>
+                 <div class="rounded-xl bg-white border border-zinc-200 p-3">
+                   <p class="text-[11px] text-zinc-400">本轮填充词</p>
+                   <p class="text-sm font-bold text-zinc-800 mt-1">{{ speechMetrics.fillerWordCount || 0 }}</p>
+                 </div>
+               </div>
+                <div class="rounded-xl bg-white border border-zinc-200 p-3 min-h-0 flex-1 overflow-hidden">
+                  <p class="text-[11px] text-zinc-400">最近语音转写</p>
+                  <p class="text-sm text-zinc-700 mt-1 whitespace-pre-wrap break-words max-h-full overflow-y-auto custom-scrollbar">{{ latestUserTranscript || '暂无转写内容' }}</p>
+                </div>
+             </div>
+           </template>
+           <template v-else>
+             <textarea 
+                v-model="userInput" 
+                @keydown.ctrl.enter="sendMessage"
+                placeholder="在此处输入您的回答..."
+                class="flex-1 w-full resize-none border-none focus:ring-0 p-4 text-lg text-zinc-700 placeholder:text-zinc-300 bg-zinc-50/50 rounded-xl leading-relaxed transition-all focus:bg-white focus:shadow-inner custom-scrollbar"
+             ></textarea>
+
+             <div class="absolute bottom-8 right-8 text-[10px] font-medium text-zinc-300 pointer-events-none bg-white/80 backdrop-blur px-2 py-1 rounded-md border border-zinc-100">
+               Ctrl + Enter 发送
+             </div>
+           </template>
         </div>
       </div>
 
@@ -1788,8 +2346,12 @@ onUnmounted(() => {
             <Headphones class="w-3.5 h-3.5" />
             AI 影子教练 · 实时耳返
           </h4>
-          <p class="text-sm text-zinc-600 italic leading-relaxed opacity-80">
-            "建议从 STAR 原则出发，重点描述你在项目中遇到的挑战以及你是如何克服它的。"
+          <div v-if="shadowCoachHints.length > 0" class="space-y-2">
+            <p class="text-sm text-zinc-700 leading-relaxed">{{ shadowCoachHints[0].text }}</p>
+            <p class="text-[11px] text-zinc-400">检测到你思考较久时，会自动给你一小点方向提示。</p>
+          </div>
+          <p v-else class="text-sm text-zinc-500 leading-relaxed">
+            影子教练待命中。当你长时间停顿时，小幽灵会给你一句方向提醒，不会直接给答案。
           </p>
         </div>
 
@@ -1808,7 +2370,7 @@ onUnmounted(() => {
 
         <button
           @click="toggleAnswerRecording"
-          :disabled="isProcessing || answerVoiceStatus === 'requesting' || answerVoiceStatus === 'transcribing' || answerVoiceStatus === 'submitting'"
+          :disabled="!canAnswerCurrentQuestion || answerVoiceStatus === 'requesting' || answerVoiceStatus === 'transcribing' || answerVoiceStatus === 'submitting'"
           class="w-full py-3 rounded-2xl font-bold text-base transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 border shrink-0"
           :class="answerVoiceStatus === 'recording'
             ? 'bg-rose-600 text-white border-rose-600 hover:bg-rose-700'
@@ -1816,13 +2378,14 @@ onUnmounted(() => {
         >
           <Mic v-if="answerVoiceStatus !== 'recording'" class="h-4 w-4" />
           <MicOff v-else class="h-4 w-4" />
-          <span v-if="answerVoiceStatus === 'recording'">停止录音并提交</span>
-          <span v-else>语音回答</span>
+          <span v-if="answerVoiceStatus === 'recording'">结束语音并开始分析</span>
+          <span v-else>{{ canAnswerCurrentQuestion ? (isVideoInterviewMode ? '开始语音回答' : '语音回答') : '等待题目描述完成' }}</span>
         </button>
 
         <!-- Action Button -->
         <button 
           @click="sendMessage"
+          v-if="!isVideoInterviewMode || latestAIMessage?.type === 'feedback'"
           :disabled="isProcessing || (!userInput.trim() && latestAIMessage?.type !== 'feedback')"
           class="w-full py-3 bg-zinc-900 text-white rounded-2xl font-bold text-base hover:bg-zinc-800 hover:shadow-xl hover:shadow-zinc-900/20 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 group relative overflow-hidden shrink-0"
         >
@@ -1862,7 +2425,7 @@ onUnmounted(() => {
                 <BrainCircuit v-else class="w-3 h-3" />
                 {{ msg.role === 'ai' ? 'AI 面试官' : '你' }}
               </div>
-              <div class="leading-relaxed whitespace-pre-wrap">{{ msg.content }}</div>
+              <div class="leading-relaxed whitespace-pre-wrap">{{ getHistoryMessageContent(msg) }}</div>
             </div>
           </div>
         </div>
@@ -2019,4 +2582,52 @@ onUnmounted(() => {
     border-radius: 4px;
   }
 }
+
+  .interview-position-select {
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8), 0 8px 16px rgba(15, 23, 42, 0.06);
+  }
+
+  .dropdown-fade-enter-active,
+  .dropdown-fade-leave-active {
+    transition: opacity 0.18s ease, transform 0.18s ease;
+  }
+
+  .dropdown-fade-enter-from,
+  .dropdown-fade-leave-to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+
+  .interviewer-stage {
+    animation: interviewer-idle 5.2s ease-in-out infinite;
+    transform-origin: center 78%;
+  }
+
+  .interviewer-speaking {
+    animation: interviewer-speaking 1.25s ease-in-out infinite;
+  }
+
+  .coach-bubble-enter-active,
+  .coach-bubble-leave-active {
+    transition: opacity 0.22s ease, transform 0.22s ease;
+  }
+
+  .coach-bubble-enter-from,
+  .coach-bubble-leave-to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.96);
+  }
+
+  @keyframes interviewer-idle {
+    0% { transform: translateY(0px) rotate(0deg); }
+    35% { transform: translateY(-1px) rotate(-0.2deg); }
+    70% { transform: translateY(1px) rotate(0.2deg); }
+    100% { transform: translateY(0px) rotate(0deg); }
+  }
+
+  @keyframes interviewer-speaking {
+    0% { transform: translateY(0px) rotate(0deg) scale(1); }
+    50% { transform: translateY(-1px) rotate(-0.2deg) scale(1.01); }
+    100% { transform: translateY(0px) rotate(0deg) scale(1); }
+  }
 </style>

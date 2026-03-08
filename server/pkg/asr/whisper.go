@@ -16,19 +16,24 @@ import (
 type WhisperClient struct {
 	apiKey  string
 	baseURL string
+	model   string
 }
 
-func NewWhisperClient(apiKey, baseURL string) *WhisperClient {
+func NewWhisperClient(apiKey, baseURL, model string) *WhisperClient {
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = "https://api.openai.com/v1"
 		if apiKey == "" {
 			baseURL = "http://localhost:9000/v1"
 		}
 	}
+	if strings.TrimSpace(model) == "" {
+		model = "gpt-4o-transcribe"
+	}
 
 	return &WhisperClient{
 		apiKey:  apiKey,
 		baseURL: baseURL,
+		model:   model,
 	}
 }
 
@@ -85,6 +90,11 @@ func (c *WhisperClient) TranscribeAudio(audioData []byte, language string) (stri
 	err = writer.WriteField("response_format", "json")
 	if err != nil {
 		return "", fmt.Errorf("failed to write response format field: %w", err)
+	}
+
+	err = writer.WriteField("model", c.model)
+	if err != nil {
+		return "", fmt.Errorf("failed to write model field: %w", err)
 	}
 
 	err = writer.Close()

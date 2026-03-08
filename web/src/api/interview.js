@@ -65,6 +65,22 @@ export function analyzeSpeechChunk(interviewId, data) {
   })
 }
 
+export function getShadowCoachHint(interviewId, data) {
+  return request({
+    url: `/interview/${interviewId}/shadow-hint`,
+    method: 'post',
+    data
+  })
+}
+
+export function synthesizeInterviewSpeech(interviewId, data) {
+  return request({
+    url: `/interview/${interviewId}/tts`,
+    method: 'post',
+    data
+  })
+}
+
 export function drawBlindBoxScenario(data = {}) {
   return request({
     url: '/interview/blindbox/draw',
