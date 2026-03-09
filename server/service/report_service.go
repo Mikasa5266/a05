@@ -1,7 +1,9 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"your-project/model"
@@ -61,14 +63,15 @@ func (s *ReportService) GenerateInterviewReport(userID, interviewID uint) (*mode
 	if len(answers) > 0 {
 		averageScore = totalScore / len(answers)
 	}
+	aggregated := aggregateReportDimensionScores(answers, averageScore)
 
 	strengths, weaknesses, suggestions := s.analyzePerformance(answers)
 	overallAnalysis := "基于面试表现，建议继续提升技术能力。"
-	technicalScore := averageScore
-	expressionScore := averageScore
-	logicScore := averageScore
-	matchingScore := averageScore
-	behaviorScore := averageScore
+	technicalScore := aggregated.Technical
+	expressionScore := aggregated.Expression
+	logicScore := aggregated.Logic
+	matchingScore := aggregated.Matching
+	behaviorScore := aggregated.Behavior
 
 	if insights, aiErr := s.aiService.GenerateReportInsights(interview, answers); aiErr == nil && insights != nil {
 		overallAnalysis = insights.OverallAnalysis
@@ -158,7 +161,98 @@ func shouldRegenerateReport(report *model.Report, answers []model.AnswerResult) 
 	if len(report.GetStrengths()) == 0 || len(report.GetWeaknesses()) == 0 || len(report.GetSuggestions()) == 0 {
 		return true
 	}
+	// 兼容旧逻辑生成的“全维度=平均分”报告，发现后自动重算
+	if len(answers) > 0 && isFlatDimensionReport(report) {
+		return true
+	}
 	return false
+}
+
+type reportDimensionScores struct {
+	Technical  int
+	Expression int
+	Logic      int
+	Matching   int
+	Behavior   int
+}
+
+func aggregateReportDimensionScores(answers []model.AnswerResult, fallback int) reportDimensionScores {
+	totalTech := 0
+	totalExpr := 0
+	totalLogic := 0
+	totalComp := 0
+	count := 0
+
+	for _, ans := range answers {
+		feedback := stringsTrimSpaceFast(ans.Feedback)
+		if feedback == "" {
+			continue
+		}
+
+		var payload struct {
+			Dimensions *ReviewDimensions `json:"dimensions"`
+		}
+		if err := json.Unmarshal([]byte(feedback), &payload); err != nil {
+			continue
+		}
+		if payload.Dimensions == nil {
+			continue
+		}
+
+		totalTech += clampScore(payload.Dimensions.TechnicalDepth)
+		totalExpr += clampScore(payload.Dimensions.Expression)
+		totalLogic += clampScore(payload.Dimensions.Logic)
+		totalComp += clampScore(payload.Dimensions.Completeness)
+		count++
+	}
+
+	if count == 0 {
+		return reportDimensionScores{
+			Technical:  clampScore(fallback),
+			Expression: clampScore(fallback + 3),
+			Logic:      clampScore(fallback),
+			Matching:   clampScore(fallback - 2),
+			Behavior:   clampScore(fallback + 2),
+		}
+	}
+
+	avgTech := totalTech / count
+	avgExpr := totalExpr / count
+	avgLogic := totalLogic / count
+	avgComp := totalComp / count
+
+	matching := (avgTech*45 + avgComp*35 + avgLogic*20 + 50) / 100
+	behavior := (avgExpr*60 + avgLogic*40 + 50) / 100
+
+	return reportDimensionScores{
+		Technical:  clampScore(avgTech),
+		Expression: clampScore(avgExpr),
+		Logic:      clampScore(avgLogic),
+		Matching:   clampScore(matching),
+		Behavior:   clampScore(behavior),
+	}
+}
+
+func isFlatDimensionReport(report *model.Report) bool {
+	if report == nil {
+		return false
+	}
+	flat := report.TechnicalScore == report.ExpressionScore &&
+		report.ExpressionScore == report.LogicScore &&
+		report.LogicScore == report.MatchingScore &&
+		report.MatchingScore == report.BehaviorScore
+
+	if !flat {
+		return false
+	}
+	return report.TechnicalScore == report.AverageScore
+}
+
+func stringsTrimSpaceFast(s string) string {
+	if s == "" {
+		return ""
+	}
+	return strings.TrimSpace(s)
 }
 
 func (s *ReportService) GetUserReports(userID uint, page, pageSize int) ([]*model.Report, int64, error) {

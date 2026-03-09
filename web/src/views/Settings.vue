@@ -125,6 +125,7 @@
 import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
+import { getBackendAssetUrl } from '../utils/backend'
 import { User, Settings as SettingsIcon, Shield, LogOut } from 'lucide-vue-next'
 import { updateAvatar, updatePassword } from '../api/auth'
 import { ElMessage } from 'element-plus'
@@ -137,14 +138,9 @@ const fileInput = ref(null)
 const showPasswordModal = ref(false)
 const passwordForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
 
-// Construct full avatar URL
 const avatarUrl = computed(() => {
   if (!userStore.userInfo?.avatar) return ''
-  if (userStore.userInfo.avatar.startsWith('http')) return userStore.userInfo.avatar
-  // Assuming backend runs on same host/port or configured base URL
-  // If backend is on 8080 and frontend on 5173, we need base URL
-  // For now, assume relative path works if proxied, or add base URL
-  return `http://localhost:8080${userStore.userInfo.avatar}`
+  return getBackendAssetUrl(userStore.userInfo.avatar)
 })
 
 const toggleDarkMode = () => {

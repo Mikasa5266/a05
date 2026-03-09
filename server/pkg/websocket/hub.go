@@ -20,6 +20,7 @@ type Hub struct {
 }
 
 type Client struct {
+	id          string
 	hub         *Hub
 	conn        *websocket.Conn
 	send        chan []byte
@@ -57,29 +58,37 @@ func (h *Hub) Run() {
 		select {
 		case client := <-h.register:
 			h.mu.Lock()
-			h.clients[client.userID] = client
+			h.clients[client.id] = client
 			h.mu.Unlock()
-			log.Printf("Client %s registered", client.userID)
+			log.Printf("Client %s registered in room %s", client.userID, client.interviewID)
 
 		case client := <-h.unregister:
 			h.mu.Lock()
-			if _, ok := h.clients[client.userID]; ok {
-				delete(h.clients, client.userID)
+			if _, ok := h.clients[client.id]; ok {
+				delete(h.clients, client.id)
 				close(client.send)
 				h.mu.Unlock()
-				log.Printf("Client %s unregistered", client.userID)
+				log.Printf("Client %s unregistered from room %s", client.userID, client.interviewID)
 			} else {
 				h.mu.Unlock()
 			}
 
 		case message := <-h.broadcast:
+			var msg Message
+			targetRoom := ""
+			if err := json.Unmarshal(message, &msg); err == nil {
+				targetRoom = msg.InterviewID
+			}
+
 			h.mu.RLock()
 			for _, client := range h.clients {
+				if targetRoom != "" && client.interviewID != targetRoom {
+					continue
+				}
 				select {
 				case client.send <- message:
 				default:
-					close(client.send)
-					delete(h.clients, client.userID)
+					log.Printf("Client %s send buffer full, dropping", client.userID)
 				}
 			}
 			h.mu.RUnlock()
@@ -103,6 +112,7 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := &Client{
+		id:          fmt.Sprintf("%s:%s:%d", userID, interviewID, time.Now().UnixNano()),
 		hub:         h,
 		conn:        conn,
 		send:        make(chan []byte, 256),
@@ -122,7 +132,9 @@ func (c *Client) readPump() {
 		c.conn.Close()
 	}()
 
-	c.conn.SetReadLimit(512)
+	// WebRTC SDP/ICE signaling payloads can exceed 512 bytes easily.
+	// Keep a generous cap to avoid false disconnects while still bounded.
+	c.conn.SetReadLimit(1024 * 1024)
 	c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	c.conn.SetPongHandler(func(string) error {
 		c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -146,7 +158,9 @@ func (c *Client) readPump() {
 
 		msg.Timestamp = time.Now()
 		msg.UserID = c.userID
-		msg.InterviewID = c.interviewID
+		if msg.InterviewID == "" {
+			msg.InterviewID = c.interviewID
+		}
 
 		processedMsg, err := json.Marshal(msg)
 		if err != nil {
@@ -185,12 +199,33 @@ func (c *Client) writePump() {
 	}
 }
 
+func (c *Client) GetInterviewID() string {
+	return c.interviewID
+}
+
+func (h *Hub) GetClientsByUserID(userID string) []*Client {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	var clients []*Client
+	for _, client := range h.clients {
+		if client.userID == userID {
+			clients = append(clients, client)
+		}
+	}
+	return clients
+}
+
 func (h *Hub) SendToUser(userID string, messageType string, data interface{}) error {
 	h.mu.RLock()
-	client, exists := h.clients[userID]
+	clients := make([]*Client, 0)
+	for _, client := range h.clients {
+		if client.userID == userID {
+			clients = append(clients, client)
+		}
+	}
 	h.mu.RUnlock()
 
-	if !exists {
+	if len(clients) == 0 {
 		return fmt.Errorf("user %s not connected", userID)
 	}
 
@@ -205,12 +240,15 @@ func (h *Hub) SendToUser(userID string, messageType string, data interface{}) er
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	select {
-	case client.send <- jsonMsg:
-		return nil
-	default:
-		return fmt.Errorf("client send buffer full")
+	for _, client := range clients {
+		select {
+		case client.send <- jsonMsg:
+		default:
+			return fmt.Errorf("client send buffer full")
+		}
 	}
+
+	return nil
 }
 
 func (h *Hub) BroadcastToInterview(interviewID string, messageType string, data interface{}) error {

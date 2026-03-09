@@ -67,6 +67,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../../stores/user'
+import { getBackendAssetUrl } from '../../utils/backend'
 import {
   Bell, Settings, LogOut,
   User, Building2, GraduationCap
@@ -126,8 +127,7 @@ const userInitials = computed(() => {
 
 const avatarUrl = computed(() => {
   if (!userStore.userInfo?.avatar) return ''
-  if (userStore.userInfo.avatar.startsWith('http')) return userStore.userInfo.avatar
-  return `http://localhost:8080${userStore.userInfo.avatar}`
+  return getBackendAssetUrl(userStore.userInfo.avatar)
 })
 
 const handleLogout = () => {

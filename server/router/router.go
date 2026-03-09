@@ -22,6 +22,7 @@ func SetupRouter() *gin.Engine {
 		{
 			public.POST("/register", handler.Register)
 			public.POST("/login", handler.Login)
+			public.GET("/interview/live/ws", handler.InterviewSignalWS)
 		}
 
 		protected := api.Group("/")
@@ -52,6 +53,11 @@ func SetupRouter() *gin.Engine {
 			protected.GET("/interview/human-interviewers/:id", handler.GetHumanInterviewer)
 			protected.POST("/interview/booking", handler.BookHumanInterview)
 			protected.GET("/interview/bookings", handler.GetUserBookings)
+			protected.GET("/interview/invite-candidates", handler.ListInviteCandidates)
+			protected.POST("/interview/invitations", handler.CreateHumanInvitation)
+			protected.GET("/interview/invitations", handler.GetHumanInvitations)
+			protected.GET("/interview/invitations/received", handler.GetReceivedHumanInvitations)
+			protected.POST("/interview/invitations/:id/respond", handler.RespondHumanInvitation)
 
 			protected.GET("/questions", handler.GetQuestions)
 			protected.GET("/questions/:id", handler.GetQuestion)

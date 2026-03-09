@@ -25,11 +25,38 @@ const duration = ref(0)
 const timer = ref(null)
 let mediaRecorder = null
 let audioChunks = []
+let recorderMimeType = ''
+
+const pickSupportedAudioMime = () => {
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4',
+    'audio/ogg;codecs=opus',
+    'audio/ogg'
+  ]
+  if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
+    return ''
+  }
+  for (const mime of candidates) {
+    if (MediaRecorder.isTypeSupported(mime)) return mime
+  }
+  return ''
+}
+
+const normalizeAudioMime = (mime) => {
+  const raw = String(mime || '').trim().toLowerCase()
+  if (!raw) return ''
+  const semi = raw.indexOf(';')
+  return semi > 0 ? raw.slice(0, semi) : raw
+}
 
 const startRecording = async () => {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    mediaRecorder = new MediaRecorder(stream)
+    const preferredMime = pickSupportedAudioMime()
+    mediaRecorder = preferredMime ? new MediaRecorder(stream, { mimeType: preferredMime }) : new MediaRecorder(stream)
+    recorderMimeType = normalizeAudioMime(mediaRecorder.mimeType || preferredMime)
     audioChunks = []
 
     mediaRecorder.ondataavailable = (event) => {
@@ -37,12 +64,19 @@ const startRecording = async () => {
     }
 
     mediaRecorder.onstop = () => {
-      const audioBlob = new Blob(audioChunks, { type: 'audio/webm' })
+      const audioBlob = new Blob(audioChunks, { type: recorderMimeType || 'audio/webm' })
       const reader = new FileReader()
       reader.readAsDataURL(audioBlob)
       reader.onloadend = () => {
-        const base64Audio = reader.result.split(',')[1]
-        emit('record-complete', base64Audio)
+        const raw = String(reader.result || '')
+        const matched = raw.match(/^data:([^;]+);base64,(.+)$/)
+        if (matched && matched[2]) {
+          emit('record-complete', { base64: matched[2], mime: normalizeAudioMime(matched[1]) })
+          return
+        }
+        const parts = raw.split(',')
+        if (parts.length < 2) return
+        emit('record-complete', { base64: parts[1], mime: recorderMimeType || '' })
       }
     }
 

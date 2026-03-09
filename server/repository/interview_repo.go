@@ -209,6 +209,52 @@ func (r *InterviewRepository) UpdateBooking(booking *model.InterviewBooking) err
 	return r.db.Save(booking).Error
 }
 
+func (r *InterviewRepository) CreateInvitation(invitation *model.HumanInterviewInvitation) error {
+	return r.db.Create(invitation).Error
+}
+
+func (r *InterviewRepository) GetInvitationsByStudentID(studentID uint) ([]model.HumanInterviewInvitation, error) {
+	var invitations []model.HumanInterviewInvitation
+	err := r.db.Preload("Invitee").
+		Where("student_id = ?", studentID).
+		Order("created_at DESC").
+		Find(&invitations).Error
+	return invitations, err
+}
+
+func (r *InterviewRepository) GetInvitationsByInviteeID(inviteeUserID uint) ([]model.HumanInterviewInvitation, error) {
+	var invitations []model.HumanInterviewInvitation
+	err := r.db.Preload("Student").
+		Where("invitee_user_id = ?", inviteeUserID).
+		Order("created_at DESC").
+		Find(&invitations).Error
+	return invitations, err
+}
+
+func (r *InterviewRepository) GetInvitationByID(id uint) (*model.HumanInterviewInvitation, error) {
+	var invitation model.HumanInterviewInvitation
+	err := r.db.Preload("Invitee").First(&invitation, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &invitation, nil
+}
+
+func (r *InterviewRepository) GetInvitationByIDForInvitee(id, inviteeUserID uint) (*model.HumanInterviewInvitation, error) {
+	var invitation model.HumanInterviewInvitation
+	err := r.db.Preload("Student").
+		Where("id = ? AND invitee_user_id = ?", id, inviteeUserID).
+		First(&invitation).Error
+	if err != nil {
+		return nil, err
+	}
+	return &invitation, nil
+}
+
+func (r *InterviewRepository) UpdateInvitation(invitation *model.HumanInterviewInvitation) error {
+	return r.db.Save(invitation).Error
+}
+
 // InsertQuestionAt inserts a question at a specific index and shifts subsequent questions
 func (r *InterviewRepository) InsertQuestionAt(interviewID uint, iq *model.InterviewQuestion, index int) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {

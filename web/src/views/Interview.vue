@@ -136,22 +136,39 @@ const sendMessage = async () => {
   await submitAnswer(answer)
 }
 
-const handleAudioRecord = (base64Audio) => {
+const handleAudioRecord = async (audioPayload) => {
+  const base64Audio = typeof audioPayload === 'string'
+    ? audioPayload
+    : String(audioPayload?.base64 || '')
+  const audioMime = typeof audioPayload === 'string'
+    ? ''
+    : String(audioPayload?.mime || '').trim()
+
+  if (!base64Audio.trim()) {
+    ElMessage.error('语音数据为空')
+    return
+  }
+
   addMessage('user', '【语音回答已发送】')
-  submitAnswer('', base64Audio)
+  await submitAnswer('', base64Audio, audioMime)
 }
 
-const submitAnswer = async (answerText, audioData = '') => {
+const submitAnswer = async (answerText, audioData = '', audioMime = '') => {
   if (!interviewStore.currentQuestion) return
 
   loading.value = true
   loadingText.value = '面试官正在评估你的回答...'
   try {
-    await interviewStore.submit(interviewStore.interview.id, {
+    const payload = {
       question_id: interviewStore.currentQuestion.id,
       answer: answerText,
       audio_data: audioData
-    })
+    }
+    if (audioMime) {
+      payload.audio_mime = audioMime
+    }
+
+    await interviewStore.submit(interviewStore.interview.id, payload)
     loadingText.value = '面试官正在组织下一轮问题...'
     
     // 获取下一题或结束

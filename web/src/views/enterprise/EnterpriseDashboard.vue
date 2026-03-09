@@ -66,6 +66,78 @@
 
       <!-- Right Sidebar -->
       <div class="space-y-6">
+        <div class="bg-white rounded-3xl p-6 border border-zinc-100 shadow-sm">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-bold text-zinc-900 flex items-center gap-2">
+              <Inbox class="h-4 w-4 text-indigo-600" />
+              邀请收件箱
+            </h3>
+            <button
+              class="text-xs px-2.5 py-1 rounded-lg border border-zinc-200 text-zinc-600 hover:bg-zinc-50 transition-colors"
+              @click="loadInviteInbox"
+              :disabled="inviteInboxLoading"
+            >
+              刷新
+            </button>
+          </div>
+
+          <div v-if="inviteInboxLoading" class="text-sm text-zinc-400 py-6 text-center">正在加载邀请...</div>
+          <div v-else-if="inviteInbox.length === 0" class="text-sm text-zinc-400 py-6 text-center">暂无面试邀请</div>
+          <div v-else class="space-y-3">
+            <div
+              v-for="inv in inviteInbox"
+              :key="inv.id"
+              class="rounded-2xl border border-zinc-100 p-4"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <p class="text-sm font-semibold text-zinc-900">
+                    {{ inv.student?.username || `学生#${inv.student_id}` }}
+                    <span class="text-zinc-400 font-normal">邀请你进行真人面试</span>
+                  </p>
+                  <p class="text-xs text-zinc-500 mt-1">
+                    {{ inv.position }} · {{ difficultyLabel(inv.difficulty) }} · {{ modeLabel(inv.mode) }}
+                  </p>
+                  <p class="text-xs text-zinc-400 mt-1">拟定时间：{{ formatInviteTime(inv.scheduled_at) }}</p>
+                  <p v-if="inv.notes" class="text-xs text-zinc-500 mt-2 line-clamp-2">备注：{{ inv.notes }}</p>
+                </div>
+                <span class="px-2 py-1 rounded-full text-xs font-semibold" :class="statusClass(inv.status)">
+                  {{ statusLabel(inv.status) }}
+                </span>
+              </div>
+
+              <div v-if="inv.status === 'pending'" class="mt-3 flex items-center gap-2">
+                <button
+                  class="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 transition-colors disabled:opacity-60"
+                  :disabled="inviteActionLoadingId === inv.id"
+                  @click="handleInvitation(inv, 'accept')"
+                >
+                  接受
+                </button>
+                <button
+                  class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 text-xs font-semibold hover:bg-rose-100 transition-colors disabled:opacity-60"
+                  :disabled="inviteActionLoadingId === inv.id"
+                  @click="handleInvitation(inv, 'reject')"
+                >
+                  拒绝
+                </button>
+              </div>
+
+              <div v-else-if="inv.status === 'accepted' || inv.status === 'in_progress'" class="mt-3 flex items-center justify-between gap-3">
+                <p class="text-[11px] text-zinc-500">
+                  已可进入真人视频面试房间，双方任意一端进入后即可开始连线。
+                </p>
+                <button
+                  class="shrink-0 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 transition-colors"
+                  @click="goToInterviewZone(inv)"
+                >
+                  去面试区
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Quick Actions -->
         <div class="bg-gradient-to-br from-indigo-600 to-violet-600 rounded-3xl p-6 text-white">
           <h3 class="font-bold mb-4">快捷操作</h3>
@@ -121,9 +193,12 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { getReceivedInterviewInvitations, respondInterviewInvitation } from '../../api/enterprise'
 import {
-  Award, UserCheck, Video, Database, Send, RefreshCw,
+  Award, UserCheck, Video, Database, Send, RefreshCw, Inbox,
   Users, Briefcase, BarChart3, TrendingUp
 } from 'lucide-vue-next'
 
@@ -142,4 +217,93 @@ const certifiedCandidates = ref([
 ])
 
 const referralCount = ref(23)
+const router = useRouter()
+
+const inviteInboxLoading = ref(false)
+const inviteActionLoadingId = ref(null)
+const inviteInbox = ref([])
+
+const modeLabel = (mode) => {
+  const map = {
+    technical: '技术面',
+    hr: 'HR 面',
+    comprehensive: '综合面',
+    blindbox: '盲盒面'
+  }
+  return map[mode] || mode || '未设置'
+}
+
+const difficultyLabel = (difficulty) => {
+  const map = {
+    campus_intern: '校招实习',
+    campus_graduate: '校招全职',
+    social_junior: '社招初级'
+  }
+  return map[difficulty] || difficulty || '未设置'
+}
+
+const statusLabel = (status) => {
+  const map = {
+    pending: '待处理',
+    accepted: '已接受',
+    rejected: '已拒绝',
+    in_progress: '进行中',
+    completed: '已完成',
+    cancelled: '已取消'
+  }
+  return map[status] || status || '未知'
+}
+
+const statusClass = (status) => {
+  if (status === 'pending') return 'bg-amber-50 text-amber-700'
+  if (status === 'accepted') return 'bg-emerald-50 text-emerald-700'
+  if (status === 'rejected') return 'bg-rose-50 text-rose-700'
+  if (status === 'in_progress') return 'bg-indigo-50 text-indigo-700'
+  if (status === 'completed') return 'bg-zinc-100 text-zinc-700'
+  return 'bg-zinc-100 text-zinc-600'
+}
+
+const formatInviteTime = (time) => {
+  if (!time) return '待双方确认'
+  const date = new Date(time)
+  if (Number.isNaN(date.getTime())) return '时间待确认'
+  return date.toLocaleString('zh-CN', { hour12: false })
+}
+
+const loadInviteInbox = async () => {
+  inviteInboxLoading.value = true
+  try {
+    const res = await getReceivedInterviewInvitations()
+    inviteInbox.value = Array.isArray(res?.invitations) ? res.invitations : []
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '邀请收件箱加载失败')
+  } finally {
+    inviteInboxLoading.value = false
+  }
+}
+
+const handleInvitation = async (invitation, action) => {
+  inviteActionLoadingId.value = invitation.id
+  try {
+    const res = await respondInterviewInvitation(invitation.id, action)
+    const updated = res?.invitation
+    invitation.status = updated?.status || (action === 'accept' ? 'accepted' : 'rejected')
+    ElMessage.success(action === 'accept' ? '已接受邀请' : '已拒绝邀请')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '处理邀请失败')
+  } finally {
+    inviteActionLoadingId.value = null
+  }
+}
+
+const goToInterviewZone = (invitation) => {
+  router.push({
+    path: '/enterprise/live-interview',
+    query: { invitation_id: String(invitation.id) }
+  })
+}
+
+onMounted(() => {
+  loadInviteInbox()
+})
 </script>

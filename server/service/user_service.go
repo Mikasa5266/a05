@@ -146,6 +146,16 @@ func GetQuestionByID(questionID uint) (*model.Question, error) {
 
 func CreateQuestion(title, content, position, difficulty, category string, tags []string, expectedAnswer string) (*model.Question, error) {
 	ensureRepos()
+	validator := NewAIService()
+	candidate := &model.Question{
+		Title:    strings.TrimSpace(title),
+		Content:  strings.TrimSpace(content),
+		Category: strings.TrimSpace(category),
+	}
+	if validator.IsContextDependentOpeningQuestion(candidate) {
+		return nil, fmt.Errorf("question looks like follow-up/context-dependent and cannot be added to official bank")
+	}
+
 	question := &model.Question{
 		Title:          title,
 		Content:        content,

@@ -16,9 +16,13 @@ node_modules/
 dist/
 .vite/
 *.log
+.gocache/
 
 # OS/editor noise
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+
+# Local tunnel config
+web/ngrok.yml

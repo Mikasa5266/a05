@@ -7,43 +7,68 @@ import (
 )
 
 type Interview struct {
-	ID                  uint           `gorm:"primaryKey" json:"id"`
-	UserID              uint           `gorm:"index;not null" json:"user_id"`
-	Position            string         `gorm:"not null" json:"position"`
-	Difficulty          string         `gorm:"not null" json:"difficulty"`
-	Mode                string         `gorm:"default:'technical'" json:"mode"`             // technical, hr, comprehensive
-	Style               string         `gorm:"default:'gentle'" json:"style"`               // gentle, stress, deep, practical, algorithm
-	Company             string         `gorm:"default:''" json:"company"`                   // ali, bytedance, tencent, meituan, baidu, or empty
-	InterviewMode       string         `gorm:"default:'ai'" json:"interview_mode"`          // ai, human, random
-	Scenario            string         `gorm:"type:text" json:"scenario,omitempty"`         // blindbox scenario JSON
-	RevealedStyle       string         `gorm:"default:''" json:"revealed_style,omitempty"`  // For random mode: the actual style used (revealed after interview)
-	HumanInterviewerID  *uint          `gorm:"index" json:"human_interviewer_id,omitempty"` // For human interview mode
-	HumanFeedback       string         `gorm:"type:text" json:"human_feedback,omitempty"`   // Human interviewer notes
-	HumanScore          *int           `json:"human_score,omitempty"`                       // Human interviewer score
-	RecordingURL        string         `gorm:"size:500" json:"recording_url,omitempty"`
-	RecordingStatus     string         `gorm:"default:'none';size:20" json:"recording_status,omitempty"`
-	ASRCallCount        int            `gorm:"default:0" json:"asr_call_count,omitempty"`
-	TTSCharCount        int            `gorm:"default:0" json:"tts_char_count,omitempty"`
-	Status              string         `gorm:"default:in_progress" json:"status"`
-	StartTime           time.Time      `json:"start_time"`
-	EndTime             *time.Time     `json:"end_time,omitempty"`
-	CurrentIndex        int            `gorm:"default:0" json:"current_index"`
-	CurrentTopic        string         `gorm:"default:''" json:"current_topic,omitempty"` // Current interview topic (e.g. "Project Experience")
-	FollowUpCount       int            `gorm:"default:0" json:"follow_up_count"`          // Number of follow-ups asked for current topic
-	MaxFollowUps        int            `gorm:"default:3" json:"max_follow_ups"`           // Max follow-ups per topic
-	TopicIndex          int            `gorm:"default:0" json:"topic_index"`              // Current topic index (0-based)
-	TopicCountTarget    int            `gorm:"default:0" json:"topic_count_target"`       // Planned number of topics
-	TopicQuestionMin    int            `gorm:"default:2" json:"topic_question_min"`       // Min questions per topic
-	TopicQuestionMax    int            `gorm:"default:4" json:"topic_question_max"`       // Max questions per topic
-	TotalQuestionTarget int            `gorm:"default:0" json:"total_question_target"`    // Planned total questions for interview
-	CreatedAt           time.Time      `json:"created_at"`
-	UpdatedAt           time.Time      `json:"updated_at"`
-	DeletedAt           gorm.DeletedAt `gorm:"index" json:"-"`
+	ID                     uint           `gorm:"primaryKey" json:"id"`
+	UserID                 uint           `gorm:"index;not null" json:"user_id"`
+	Position               string         `gorm:"not null" json:"position"`
+	Difficulty             string         `gorm:"not null" json:"difficulty"`
+	Mode                   string         `gorm:"default:'technical'" json:"mode"`             // technical, hr, comprehensive
+	Style                  string         `gorm:"default:'gentle'" json:"style"`               // gentle, stress, deep, practical, algorithm
+	Company                string         `gorm:"default:''" json:"company"`                   // ali, bytedance, tencent, meituan, baidu, or empty
+	InterviewMode          string         `gorm:"default:'ai'" json:"interview_mode"`          // ai, human, random
+	Scenario               string         `gorm:"type:text" json:"scenario,omitempty"`         // blindbox scenario JSON
+	RevealedStyle          string         `gorm:"default:''" json:"revealed_style,omitempty"`  // For random mode: the actual style used (revealed after interview)
+	HumanInterviewerID     *uint          `gorm:"index" json:"human_interviewer_id,omitempty"` // For human interview mode
+	HumanInterviewerUserID *uint          `gorm:"index" json:"human_interviewer_user_id,omitempty"`
+	HumanInterviewerName   string         `gorm:"size:120" json:"human_interviewer_name,omitempty"`
+	HumanInterviewerRole   string         `gorm:"size:50" json:"human_interviewer_role,omitempty"`
+	HumanFeedback          string         `gorm:"type:text" json:"human_feedback,omitempty"` // Human interviewer notes
+	HumanScore             *int           `json:"human_score,omitempty"`                     // Human interviewer score
+	RecordingURL           string         `gorm:"size:500" json:"recording_url,omitempty"`
+	RecordingStatus        string         `gorm:"default:'none';size:20" json:"recording_status,omitempty"`
+	ASRCallCount           int            `gorm:"default:0" json:"asr_call_count,omitempty"`
+	TTSCharCount           int            `gorm:"default:0" json:"tts_char_count,omitempty"`
+	Status                 string         `gorm:"default:in_progress" json:"status"`
+	StartTime              time.Time      `json:"start_time"`
+	EndTime                *time.Time     `json:"end_time,omitempty"`
+	CurrentIndex           int            `gorm:"default:0" json:"current_index"`
+	CurrentTopic           string         `gorm:"default:''" json:"current_topic,omitempty"` // Current interview topic (e.g. "Project Experience")
+	FollowUpCount          int            `gorm:"default:0" json:"follow_up_count"`          // Number of follow-ups asked for current topic
+	MaxFollowUps           int            `gorm:"default:3" json:"max_follow_ups"`           // Max follow-ups per topic
+	TopicIndex             int            `gorm:"default:0" json:"topic_index"`              // Current topic index (0-based)
+	TopicCountTarget       int            `gorm:"default:0" json:"topic_count_target"`       // Planned number of topics
+	TopicQuestionMin       int            `gorm:"default:2" json:"topic_question_min"`       // Min questions per topic
+	TopicQuestionMax       int            `gorm:"default:4" json:"topic_question_max"`       // Max questions per topic
+	TotalQuestionTarget    int            `gorm:"default:0" json:"total_question_target"`    // Planned total questions for interview
+	CreatedAt              time.Time      `json:"created_at"`
+	UpdatedAt              time.Time      `json:"updated_at"`
+	DeletedAt              gorm.DeletedAt `gorm:"index" json:"-"`
 
 	User               User                `gorm:"foreignKey:UserID" json:"user,omitempty"`
 	InterviewQuestions []InterviewQuestion `gorm:"foreignKey:InterviewID" json:"questions,omitempty"`
 	AnswerResults      []AnswerResult      `gorm:"foreignKey:InterviewID" json:"answers,omitempty"`
 	Report             *Report             `gorm:"foreignKey:InterviewID" json:"report,omitempty"`
+}
+
+// HumanInterviewInvitation is a student-created invitation sent to university/enterprise users.
+type HumanInterviewInvitation struct {
+	ID            uint       `gorm:"primaryKey" json:"id"`
+	StudentID     uint       `gorm:"index;not null" json:"student_id"`
+	InviteeUserID uint       `gorm:"index;not null" json:"invitee_user_id"`
+	InviteeRole   string     `gorm:"size:50;not null" json:"invitee_role"` // university, enterprise
+	Position      string     `gorm:"size:120;not null" json:"position"`
+	Difficulty    string     `gorm:"size:50;not null" json:"difficulty"`
+	Mode          string     `gorm:"size:50;not null" json:"mode"`
+	Style         string     `gorm:"size:50;not null" json:"style"`
+	Company       string     `gorm:"size:50" json:"company,omitempty"`
+	Status        string     `gorm:"size:20;default:'pending'" json:"status"` // pending, accepted, rejected, in_progress, completed, cancelled
+	ScheduledAt   *time.Time `json:"scheduled_at,omitempty"`
+	Notes         string     `gorm:"type:text" json:"notes,omitempty"`
+	InterviewID   *uint      `gorm:"index" json:"interview_id,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+
+	Student User `gorm:"foreignKey:StudentID" json:"student,omitempty"`
+	Invitee User `gorm:"foreignKey:InviteeUserID" json:"invitee,omitempty"`
 }
 
 // HumanInterviewer represents an available human interviewer (teacher/enterprise expert)

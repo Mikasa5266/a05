@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"strings"
+
 	"your-project/model"
 
 	"gorm.io/gorm"
@@ -67,6 +69,42 @@ func (r *UserRepository) List(page, pageSize int) ([]*model.User, int64, error) 
 	}
 
 	err = r.db.Limit(pageSize).Offset(offset).Find(&users).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return users, total, nil
+}
+
+func (r *UserRepository) ListInviteCandidates(role, keyword string, page, pageSize int) ([]model.User, int64, error) {
+	var users []model.User
+	var total int64
+
+	query := r.db.Model(&model.User{}).Where("role IN ?", []string{"enterprise", "university"})
+	if role == "enterprise" || role == "university" {
+		query = query.Where("role = ?", role)
+	}
+
+	kw := strings.TrimSpace(keyword)
+	if kw != "" {
+		like := "%" + kw + "%"
+		query = query.Where("username LIKE ? OR email LIKE ?", like, like)
+	}
+
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	offset := 0
+	if page > 1 {
+		offset = (page - 1) * pageSize
+	}
+
+	err := query.
+		Order("updated_at DESC").
+		Limit(pageSize).
+		Offset(offset).
+		Find(&users).Error
 	if err != nil {
 		return nil, 0, err
 	}

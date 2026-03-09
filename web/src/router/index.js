@@ -14,6 +14,7 @@ import Report from '../views/Report.vue'
 import Settings from '../views/Settings.vue'
 import Community from '../views/Community.vue'
 import CommunityPostDetail from '../views/CommunityPostDetail.vue'
+import LiveInterviewRoom from '../views/LiveInterviewRoom.vue'
 
 // Enterprise Views
 import EnterpriseDashboard from '../views/enterprise/EnterpriseDashboard.vue'
@@ -81,6 +82,11 @@ const routes = [
         component: MockInterview
       },
       {
+        path: 'live-interview',
+        name: 'StudentLiveInterview',
+        component: LiveInterviewRoom
+      },
+      {
         path: 'growth',
         name: 'GrowthCenter',
         component: GrowthCenter
@@ -143,6 +149,11 @@ const routes = [
         component: HRPanel
       },
       {
+        path: 'live-interview',
+        name: 'EnterpriseLiveInterview',
+        component: LiveInterviewRoom
+      },
+      {
         path: 'analytics',
         name: 'Analytics',
         component: Analytics
@@ -200,6 +211,11 @@ const routes = [
         component: TalentPush
       },
       {
+        path: 'live-interview',
+        name: 'UniversityLiveInterview',
+        component: LiveInterviewRoom
+      },
+      {
         path: 'settings',
         name: 'UniversitySettings',
         component: Settings
@@ -216,7 +232,7 @@ const router = createRouter({
   routes
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach((to) => {
   const userStore = useUserStore()
 
   // If route requires auth
@@ -226,8 +242,7 @@ router.beforeEach((to, from, next) => {
       const portal = to.path.startsWith('/enterprise') ? 'enterprise'
                    : to.path.startsWith('/university') ? 'university'
                    : 'student'
-      next(`/${portal}/login`)
-      return
+      return `/${portal}/login`
     }
 
     // Check role if specified
@@ -240,15 +255,13 @@ router.beforeEach((to, from, next) => {
         : '/student/dashboard'
       
       if (to.path !== targetPath) {
-        next(targetPath)
-      } else {
-        // If we are already at the target path but role mismatch persists,
-        // it means the user's role is invalid for this route.
-        // To avoid loop, we just let it pass (or logout).
-        // Here we pass, assuming the component might handle it or show 403.
-        next()
+        return targetPath
       }
-      return
+
+      // If we are already at the target path but role mismatch persists,
+      // it means the user's role is invalid for this route.
+      // To avoid loop, we let it pass and let the page decide whether to show 403.
+      return true
     }
   }
 
@@ -257,8 +270,7 @@ router.beforeEach((to, from, next) => {
     // Safety check: ensure userInfo exists
     if (!userStore.userInfo) {
       userStore.logout()
-      next()
-      return
+      return true
     }
     const role = userStore.userInfo.role
     const targetPath = ['student', 'enterprise', 'university'].includes(role)
@@ -266,14 +278,13 @@ router.beforeEach((to, from, next) => {
       : '/student/dashboard'
       
     if (to.path !== targetPath) {
-      next(targetPath)
-    } else {
-      next()
+      return targetPath
     }
-    return
+
+    return true
   }
 
-  next()
+  return true
 })
 
 export default router

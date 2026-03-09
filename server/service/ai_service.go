@@ -309,7 +309,7 @@ func (s *AIService) EvaluateAnswer(question *model.Question, answer string) (*Ev
 	}
 
 	// 使用 EvaluateCandidateAnswer 进行严苛评估
-	reviewResult, err := EvaluateCandidateAnswer(question.Content, answer, llmFunc)
+	reviewResult, err := EvaluateCandidateAnswer(question.Content, question.ExpectedAnswer, answer, llmFunc)
 	if err != nil {
 		log.Printf("AIReview failed, using local heuristic fallback: %v", err)
 		return s.evaluateAnswerLocal(question, answer), nil
@@ -384,103 +384,114 @@ func estimateDimensions(totalScore int) *ReviewDimensions {
 
 func (s *AIService) evaluateAnswerLocal(question *model.Question, answer string) *EvaluationResult {
 	content := strings.TrimSpace(answer)
-	if content == "" {
-		return s.buildRichLocalFeedback(35, question.Content,
-			"回答内容过短，尚未覆盖题目核心点。",
-			[]string{"先给出结论，再解释原理", "补充具体项目经历与结果", "至少给出1个边界情况或异常处理思路"},
-			&ReviewDimensions{TechnicalDepth: 15, Expression: 30, Logic: 25, Completeness: 10},
+	questionContent := ""
+	questionTitle := ""
+	expectedAnswer := ""
+	if question != nil {
+		questionContent = strings.TrimSpace(question.Content)
+		questionTitle = strings.TrimSpace(question.Title)
+		expectedAnswer = strings.TrimSpace(question.ExpectedAnswer)
+	}
+	promptContext := strings.TrimSpace(questionTitle + " " + questionContent)
+
+	if IsInvalidAnswer(content) {
+		return s.buildRichLocalFeedback(0, questionContent,
+			"回答无效或明确放弃作答，按严格评分规则判定为 0 分。",
+			[]string{"请先回答核心定义，再补充原理和案例", "避免“不会/不知道/随便说说”这类无效回答"},
+			&ReviewDimensions{},
 			nil,
-			[]string{"未能针对问题给出任何实质性内容"},
+			[]string{"未提供可用于评估的有效技术内容"},
 		)
 	}
 
-	lengthScore := 35
-	runeLen := len([]rune(content))
+	signals := collectAnswerSignals(promptContext, expectedAnswer, content)
+	if hardFail, reason := isSeverelyInsufficientAnswer(promptContext, expectedAnswer, content, signals); hardFail {
+		return s.buildRichLocalFeedback(0, questionContent,
+			reason,
+			[]string{"先覆盖题目关键条件", "给出实现步骤并说明使用的数据结构/方法", "补充复杂度或边界处理"},
+			&ReviewDimensions{},
+			nil,
+			[]string{"回答未形成有效技术方案"},
+		)
+	}
+
+	score := 18
 	switch {
-	case runeLen >= 280:
-		lengthScore = 70
-	case runeLen >= 180:
-		lengthScore = 62
-	case runeLen >= 120:
-		lengthScore = 54
-	case runeLen >= 80:
-		lengthScore = 46
+	case signals.runeLen >= 220:
+		score += 22
+	case signals.runeLen >= 140:
+		score += 18
+	case signals.runeLen >= 80:
+		score += 14
+	case signals.runeLen >= 40:
+		score += 8
+	case signals.runeLen >= 20:
+		score += 4
 	}
 
-	structureBonus := 0
-	hasStructure := false
-	if strings.Contains(content, "首先") || strings.Contains(content, "第一") {
-		structureBonus += 6
-		hasStructure = true
+	if signals.hasStructure {
+		score += 8
 	}
-	if strings.Contains(content, "其次") || strings.Contains(content, "然后") {
-		structureBonus += 5
-		hasStructure = true
-	}
-	if strings.Contains(content, "最后") || strings.Contains(content, "总结") {
-		structureBonus += 5
-		hasStructure = true
-	}
+	score += int(signals.keywordCoverage*45 + 0.5)
 
-	questionText := strings.TrimSpace(question.Content + " " + question.Title)
-	keywordBonus := 0
-	matchedKeywords := 0
-	for _, token := range strings.Fields(questionText) {
-		t := strings.TrimSpace(token)
-		if len([]rune(t)) < 2 {
-			continue
-		}
-		if strings.Contains(content, t) {
-			keywordBonus += 2
-			matchedKeywords++
-		}
-		if keywordBonus >= 12 {
-			break
-		}
+	techBonus := signals.technicalHits * 3
+	if techBonus > 15 {
+		techBonus = 15
 	}
-
-	score := clampScore(lengthScore + structureBonus + keywordBonus)
+	score += techBonus
+	score = applyStrictCaps(score, signals)
+	score = clampScore(score)
 
 	var evaluation string
 	var highlights []string
 	var gaps []string
 
 	if score >= 80 {
-		evaluation = "回答结构完整，覆盖了核心要点，表达较清晰，整体表现良好。"
-		highlights = []string{"答案覆盖了主要考点", "表达有条理"}
-		gaps = []string{"可进一步补充底层原理分析"}
+		evaluation = "回答覆盖核心要点，结构与逻辑较完整，具备较好的技术表达能力。"
+		highlights = []string{"核心考点覆盖较充分", "有结构化表达和一定技术深度"}
+		gaps = []string{"可继续补充更细粒度的底层实现细节"}
 	} else if score >= 60 {
-		evaluation = "回答思路基本清晰，能够围绕题目展开，但在细节深度和案例支撑方面仍有提升空间。"
-		if hasStructure {
-			highlights = []string{"使用了结构化表达方式"}
+		evaluation = "回答基本围绕问题展开，但在关键机制解释和案例论证上仍有提升空间。"
+		if signals.hasStructure {
+			highlights = []string{"回答具备基本结构"}
 		}
-		gaps = []string{"缺少底层原理或源码层面的深入分析", "未结合实际项目案例论证"}
+		gaps = []string{"技术机制解释不够深入", "缺少实际项目中的权衡与结果"}
 	} else {
-		evaluation = "回答覆盖面偏窄，关键点阐述不够充分，建议进一步补充技术细节与实际场景。"
-		gaps = []string{"核心概念阐述不充分", "缺少实际案例支撑", "表达深度有待提升"}
+		evaluation = "回答相关性和完整度不足，暂未形成可支撑高分的技术论证。"
+		gaps = []string{"核心考点覆盖不足", "技术细节和因果链条不完整", "缺少可验证的实践信息"}
 	}
 
 	dims := &ReviewDimensions{
-		TechnicalDepth: clampScore(score - 8),
-		Expression:     clampScore(score + 5),
-		Logic:          score,
-		Completeness:   clampScore(score - 5),
+		TechnicalDepth: clampScore(score - 12 + signals.technicalHits*2),
+		Expression:     clampScore(score - 4),
+		Logic:          clampScore(score - 5),
+		Completeness:   clampScore(int(float64(score) * (0.65 + 0.5*signals.keywordCoverage))),
 	}
-	if hasStructure {
+	if signals.hasStructure {
 		dims.Expression = clampScore(dims.Expression + 5)
-		dims.Logic = clampScore(dims.Logic + 3)
+		dims.Logic = clampScore(dims.Logic + 6)
 	}
-	if matchedKeywords >= 3 {
+	if signals.keywordCoverage >= 0.25 {
 		dims.Completeness = clampScore(dims.Completeness + 8)
 	}
+	alignDimensionsWithScore(dims, score)
 
-	suggestions := []string{
-		"按结论、原理、实践案例、风险与优化的顺序组织回答",
-		"补充可量化结果（性能提升、耗时降低、错误率变化等）",
-		"增加边界条件与异常处理说明，体现工程化能力",
+	suggestions := make([]string, 0, 4)
+	if signals.keywordCoverage < 0.2 {
+		suggestions = append(suggestions, "先覆盖题目核心关键词，再展开细节")
+	}
+	if signals.technicalHits < 2 {
+		suggestions = append(suggestions, "补充底层原理、复杂度或工程权衡，避免泛泛描述")
+	}
+	if !signals.hasStructure {
+		suggestions = append(suggestions, "采用“结论-原理-案例-边界”结构回答")
+	}
+	suggestions = append(suggestions, "补充可量化结果（性能、耗时、错误率）以增强说服力")
+	if len(suggestions) > 3 {
+		suggestions = suggestions[:3]
 	}
 
-	return s.buildRichLocalFeedback(score, question.Content, evaluation, suggestions, dims, highlights, gaps)
+	return s.buildRichLocalFeedback(score, questionContent, evaluation, suggestions, dims, highlights, gaps)
 }
 
 // buildRichLocalFeedback 构建本地评估的丰富 JSON 反馈
@@ -1427,7 +1438,8 @@ func (s *AIService) GenerateFollowUpQuestion(interview *model.Interview, current
 }
 
 func (s *AIService) TranscribeAudio(audioData string) (string, error) {
-	decodedAudio, err := base64.StdEncoding.DecodeString(audioData)
+	mimeType, base64Payload := parseAudioPayload(audioData)
+	decodedAudio, err := base64.StdEncoding.DecodeString(base64Payload)
 	if err != nil {
 		return "", fmt.Errorf("failed to decode audio data: %w", err)
 	}
@@ -1438,10 +1450,28 @@ func (s *AIService) TranscribeAudio(audioData string) (string, error) {
 	}
 
 	if asrConfig.Provider == "whisper" || asrConfig.Provider == "openai" || asrConfig.Provider == "" {
-		return s.transcribeWithWhisper(decodedAudio)
+		return s.transcribeWithWhisper(decodedAudio, mimeType)
 	}
 
 	return "", fmt.Errorf("unsupported ASR provider: %s", asrConfig.Provider)
+}
+
+func parseAudioPayload(audioData string) (mimeType string, base64Payload string) {
+	trimmed := strings.TrimSpace(audioData)
+	if strings.HasPrefix(trimmed, "data:") {
+		if comma := strings.Index(trimmed, ","); comma > 0 && comma < len(trimmed)-1 {
+			header := trimmed[:comma]
+			base64Payload = strings.TrimSpace(trimmed[comma+1:])
+			meta := strings.TrimPrefix(header, "data:")
+			if semi := strings.Index(meta, ";"); semi > 0 {
+				mimeType = strings.TrimSpace(meta[:semi])
+			} else {
+				mimeType = strings.TrimSpace(meta)
+			}
+			return mimeType, base64Payload
+		}
+	}
+	return "", trimmed
 }
 
 func (s *AIService) SynthesizeSpeech(text string) ([]byte, error) {
@@ -1538,12 +1568,22 @@ func (s *AIService) callLLM(prompt string, taskType string) (string, error) {
 		// Specific adjustment if needed
 	}
 
+	temperature := 0.7
+	switch taskType {
+	case "evaluation":
+		temperature = 0.05
+	case "report", "resume":
+		temperature = 0.2
+	case "shadow_hint":
+		temperature = 0.5
+	}
+
 	requestBody := map[string]interface{}{
 		"model": model,
 		"messages": []map[string]string{
 			{"role": "user", "content": prompt},
 		},
-		"temperature": 0.7,
+		"temperature": temperature,
 		// "max_tokens":  maxTokens, // Comment out max_tokens if it causes issues with some providers
 	}
 
@@ -1732,11 +1772,12 @@ func clampScore(value int) int {
 	return value
 }
 
-func (s *AIService) transcribeWithWhisper(audioData []byte) (string, error) {
+func (s *AIService) transcribeWithWhisper(audioData []byte, mimeType string) (string, error) {
 	asrConfig := config.GetConfig().ASR
 	client := asr.NewWhisperClient(asrConfig.APIKey, asrConfig.BaseURL, asrConfig.Model)
 
-	text, err := client.TranscribeAudio(audioData, "zh")
+	prompt := "这是一次中文技术面试语音转写。请逐字转写，不要意译，不要补充不存在内容；保留英文技术术语、数字与代码标识。"
+	text, err := client.TranscribeAudioWithOptions(audioData, "zh", mimeType, prompt)
 	if err != nil {
 		return "", fmt.Errorf("whisper transcription failed: %w", err)
 	}
@@ -1746,7 +1787,40 @@ func (s *AIService) transcribeWithWhisper(audioData []byte) (string, error) {
 		return "", fmt.Errorf("empty transcription result")
 	}
 
+	// If long audio produces extremely short/low-signal text, retry once without forced language.
+	if shouldRetryASR(text, len(audioData)) {
+		retried, retryErr := client.TranscribeAudioWithOptions(audioData, "", mimeType, prompt)
+		if retryErr == nil {
+			retried = strings.TrimSpace(retried)
+			if retried != "" && !shouldRetryASR(retried, len(audioData)) {
+				text = retried
+			}
+		}
+	}
+
 	return text, nil
+}
+
+func shouldRetryASR(text string, audioBytes int) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return true
+	}
+	runes := []rune(trimmed)
+	// Roughly >8~10s opus audio; if transcript is still too short, it's suspicious.
+	if audioBytes >= 120000 && len(runes) <= 8 {
+		return true
+	}
+	// Common "hallucinated short sentence" pattern on long audio.
+	if audioBytes >= 120000 {
+		badShort := []string{"她是学生", "他是学生", "不知道", "听不清", "嗯", "啊"}
+		for _, b := range badShort {
+			if strings.Contains(trimmed, b) && len(runes) <= 10 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ========== Interview Mode / Style / Difficulty Prompt Builders ==========

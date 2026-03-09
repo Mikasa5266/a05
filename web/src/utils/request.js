@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { useUserStore } from '../stores/user'
+import { API_BASE_URL } from './backend'
 
 const normalizeBackendErrorMessage = (msg = '') => {
   const text = String(msg || '')
@@ -14,7 +15,7 @@ const normalizeBackendErrorMessage = (msg = '') => {
 }
 
 const service = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1',
+  baseURL: API_BASE_URL,
   timeout: 60000
 })
 

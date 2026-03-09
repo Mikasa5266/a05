@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { 
   Video, VideoOff, Mic, MicOff, ChevronRight, ChevronDown,
   BrainCircuit, User, LogOut, Send, Loader2,
@@ -10,7 +11,7 @@ import {
   Package, Timer, Zap, Building2, Star, Calendar, Clock, X,
   Flame, Search, Code, Briefcase, GraduationCap
 } from 'lucide-vue-next'
-import { startInterview as apiStartInterview, submitAnswer as apiSubmitAnswer, endInterview as apiEndInterview, uploadInterviewRecording as apiUploadInterviewRecording, analyzeSpeechChunk as apiAnalyzeSpeechChunk, getShadowCoachHint as apiGetShadowCoachHint, drawBlindBoxScenario as apiDrawBlindBox, getInterviewConfig as apiGetInterviewConfig, getHumanInterviewers as apiGetHumanInterviewers, bookHumanInterview as apiBookHumanInterview, getUserBookings as apiGetUserBookings, revealRandomStyle as apiRevealRandomStyle, synthesizeInterviewSpeech as apiSynthesizeInterviewSpeech } from '../api/interview'
+import { startInterview as apiStartInterview, submitAnswer as apiSubmitAnswer, endInterview as apiEndInterview, uploadInterviewRecording as apiUploadInterviewRecording, analyzeSpeechChunk as apiAnalyzeSpeechChunk, getShadowCoachHint as apiGetShadowCoachHint, drawBlindBoxScenario as apiDrawBlindBox, getInterviewConfig as apiGetInterviewConfig, revealRandomStyle as apiRevealRandomStyle, synthesizeInterviewSpeech as apiSynthesizeInterviewSpeech, getInviteCandidates as apiGetInviteCandidates, createHumanInvitation as apiCreateHumanInvitation, getHumanInvitations as apiGetHumanInvitations } from '../api/interview'
 import { generateReport as apiGenerateReport } from '../api/report'
 import SpeechDashboard from '../components/SpeechDashboard.vue'
 
@@ -34,6 +35,7 @@ let answerMediaRecorder = null
 let answerAudioChunks = []
 let answerVoiceTimer = null
 let answerRecorderStream = null
+let answerRecorderMimeType = ''
 
 // Interview State
 const interviewId = ref(null)
@@ -116,14 +118,16 @@ const closePositionDropdownOnOutsideClick = (event) => {
 // Interview Config from server
 const interviewConfig = ref(null)
 
-// Human Interviewer state
-const humanInterviewers = ref([])
-const humanInterviewersLoading = ref(false)
-const selectedInterviewer = ref(null)
+// Human Interview Invitation state
+const inviteCandidates = ref([])
+const inviteCandidatesLoading = ref(false)
+const selectedInvitee = ref(null)
 const showBookingDialog = ref(false)
 const bookingForm = ref({ scheduledAt: '', notes: '' })
-const userBookings = ref([])
+const userInvitations = ref([])
 const showBookingsPanel = ref(false)
+const activeInvitationId = ref(null)
+const activeInvitation = ref(null)
 
 // Random mode reveal state
 const randomStyleRevealed = ref(false)
@@ -374,6 +378,7 @@ const stopThinkingWatch = () => {
 }
 
 const speakAIText = async (text) => {
+  if (settings.value.interviewMode === 'human') return
   if (settings.value.presentationMode !== 'video_avatar') return
   if (!interviewId.value || !text) return
 
@@ -418,6 +423,31 @@ let chunkRecordingStream = null
 let chunkInterval = null
 let energyAnimFrame = null
 const speechChunkSeconds = 4
+let chunkRecorderMimeType = ''
+
+const pickSupportedAudioMime = () => {
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4',
+    'audio/ogg;codecs=opus',
+    'audio/ogg'
+  ]
+  if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
+    return ''
+  }
+  for (const mime of candidates) {
+    if (MediaRecorder.isTypeSupported(mime)) return mime
+  }
+  return ''
+}
+
+const normalizeAudioMime = (mime) => {
+  const raw = String(mime || '').trim().toLowerCase()
+  if (!raw) return ''
+  const semi = raw.indexOf(';')
+  return semi > 0 ? raw.slice(0, semi) : raw
+}
 
 const startSpeechAnalysis = () => {
   if (speechAnalysisActive.value || !stream.value) return
@@ -457,22 +487,33 @@ const startChunkRecording = () => {
     const audioTracks = stream.value.getAudioTracks()
     if (audioTracks.length === 0) return
     chunkRecordingStream = new MediaStream(audioTracks)
+    const preferredMime = pickSupportedAudioMime()
 
     try {
-      chunkMediaRecorder = new MediaRecorder(chunkRecordingStream, { mimeType: 'audio/webm' })
+      chunkMediaRecorder = preferredMime
+        ? new MediaRecorder(chunkRecordingStream, { mimeType: preferredMime })
+        : new MediaRecorder(chunkRecordingStream)
     } catch {
       chunkMediaRecorder = new MediaRecorder(chunkRecordingStream)
     }
+    chunkRecorderMimeType = normalizeAudioMime(chunkMediaRecorder.mimeType || preferredMime)
 
     const chunks = []
     chunkMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }
     chunkMediaRecorder.onstop = () => {
       if (chunks.length === 0 || !interviewId.value) return
-      const blob = new Blob(chunks, { type: 'audio/webm' })
+      const blob = new Blob(chunks, { type: chunkRecorderMimeType || 'audio/webm' })
       const reader = new FileReader()
       reader.onloadend = () => {
-        const base64 = reader.result.split(',')[1]
-        sendSpeechChunk(base64, speechChunkSeconds)
+        const raw = String(reader.result || '')
+        const matched = raw.match(/^data:([^;]+);base64,(.+)$/)
+        if (matched && matched[2]) {
+          sendSpeechChunk(matched[2], speechChunkSeconds, normalizeAudioMime(matched[1]))
+          return
+        }
+        const parts = raw.split(',')
+        if (parts.length < 2) return
+        sendSpeechChunk(parts[1], speechChunkSeconds, chunkRecorderMimeType || '')
       }
       reader.readAsDataURL(blob)
     }
@@ -492,11 +533,12 @@ const startChunkRecording = () => {
   startNewChunk()
 }
 
-const sendSpeechChunk = async (audioBase64, duration) => {
+const sendSpeechChunk = async (audioBase64, duration, audioMime = '') => {
   if (!interviewId.value) return
   try {
     const res = await apiAnalyzeSpeechChunk(interviewId.value, {
       audio_data: audioBase64,
+      audio_mime: audioMime || undefined,
       duration: duration
     })
     if (res.metrics) {
@@ -636,19 +678,39 @@ const startInterview = async () => {
   answerVoiceError.value = ''
   answerVoiceSeconds.value = 0
   try {
-    const res = await apiStartInterview({
+    const startPayload = {
       position: settings.value.position,
       difficulty: settings.value.difficulty,
       mode: settings.value.mode,
       style: settings.value.style,
       company: settings.value.company,
       interview_mode: settings.value.interviewMode
+    }
+    if (settings.value.interviewMode === 'human') {
+      if (!activeInvitationId.value) {
+        throw new Error('请先选择一个已邀请对象')
+      }
+      startPayload.invitation_id = activeInvitationId.value
+    }
+
+    const res = await apiStartInterview({
+      ...startPayload
     })
     
     // Backend returns { message: "...", interview: { ... } }
     // The interview object contains questions array if loaded correctly
     const interview = res.interview
     interviewId.value = interview.id
+    if (settings.value.interviewMode === 'human') {
+      activeInvitation.value = {
+        ...activeInvitation.value,
+        invitee: {
+          ...(activeInvitation.value?.invitee || {}),
+          username: interview.human_interviewer_name || activeInvitation.value?.invitee?.username
+        },
+        invitee_role: interview.human_interviewer_role || activeInvitation.value?.invitee_role
+      }
+    }
     pendingNextQuestion.value = null
     currentQuestion.value = null
     pendingEnd.value = false
@@ -683,6 +745,7 @@ const startInterview = async () => {
     // Initialize Chat — adapt greeting for different modes
     const isBlindBox = settings.value.mode === 'blindbox' && blindBoxScenario.value
     const isRandom = settings.value.interviewMode === 'random'
+    const isHuman = settings.value.interviewMode === 'human'
     
     const modeLabels = { technical: '技术', hr: 'HR', comprehensive: '综合' }
     const styleLabels = { gentle: '温和型', stress: '压力型', deep: '技术深挖型', practical: '项目实战型', algorithm: '算法考察型' }
@@ -691,6 +754,10 @@ const startInterview = async () => {
     let scenarioGreeting
     if (isBlindBox) {
       scenarioGreeting = `🎲 盲盒场景已揭晓：${blindBoxScenario.value.icon} **${blindBoxScenario.value.name}**\n\n${blindBoxScenario.value.description}\n\n压力等级：${pressureLabels[blindBoxScenario.value.pressure] || '未知'}${blindBoxScenario.value.time_limit ? `\n每题限时：${blindBoxScenario.value.time_limit}秒` : ''}\n\n准备好了吗？让我们开始！`
+    } else if (isHuman) {
+      const interviewerName = interview.human_interviewer_name || activeInvitation.value?.invitee?.username || '真人面试官'
+      const interviewerRole = interview.human_interviewer_role === 'university' ? '高校端' : interview.human_interviewer_role === 'enterprise' ? '企业端' : '协作方'
+      scenarioGreeting = `已进入真人模拟面试（${interviewerRole}：${interviewerName}）。\n\n本场采用“破冰 -> 技术深挖 -> 场景追问 -> 反问总结”流程。\n系统将负责记录答题、语音监测与实时建议，不再使用虚拟AI面试官形象。`
     } else if (isRandom) {
       scenarioGreeting = `🎲 随机模式已启动！\n\n系统已为您随机分配了面试官风格，在面试过程中不会提前告知。\n这模拟了真实企业面试中的"突然切换风格"场景，请保持灵活应变！\n\n面试岗位：${settings.value.position}\n面试结束后将揭晓面试官风格，让我们开始吧！`
     } else {
@@ -708,7 +775,7 @@ const startInterview = async () => {
     ]
     
     // Push first question after a short delay
-    processingHint.value = '面试官正在组织首个话题...'
+    processingHint.value = isHuman ? '正在准备真人面试流程首题...' : '面试官正在组织首个话题...'
     setTimeout(() => {
       pushAIQuestion(currentQuestion.value)
       // Start question timer if scenario has time limit
@@ -719,7 +786,7 @@ const startInterview = async () => {
     }, 1000)
 
     // Handle video transition
-    if (settings.value.presentationMode === 'video_avatar' && isCameraOn.value) {
+    if (settings.value.presentationMode === 'video_avatar' && isCameraOn.value && settings.value.interviewMode !== 'human') {
       // Small delay to ensure DOM is ready
       setTimeout(async () => {
         if (!stream.value) await startCamera()
@@ -746,7 +813,9 @@ const pushAIQuestion = (question) => {
     content: text,
     type: 'question'
   })
-  speakAIText(text)
+  if (settings.value.interviewMode !== 'human') {
+    speakAIText(text)
+  }
   preloadShadowHintPack()
 }
 
@@ -981,19 +1050,23 @@ const normalizeAnswerSubmitError = (msg = '') => {
   return text
 }
 
-const submitCurrentAnswer = async (answerText = '', audioData = '') => {
+const submitCurrentAnswer = async (answerText = '', audioData = '', audioMime = '') => {
   const currentQ = currentQuestion.value
   if (!currentQ || !currentQ.questionId) {
     throw new Error('当前题目ID无效，请重新开始面试')
   }
 
-  const res = await apiSubmitAnswer(interviewId.value, {
+  const payload = {
     question_id: currentQ.questionId,
     question_title: currentQ.title || '',
     question_content: currentQ.content || '',
     answer: answerText,
     audio_data: audioData
-  })
+  }
+  if (audioMime) {
+    payload.audio_mime = audioMime
+  }
+  const res = await apiSubmitAnswer(interviewId.value, payload)
 
   const result = res.result
   const formatted = formatFeedback(result.feedback)
@@ -1030,7 +1103,7 @@ const submitCurrentAnswer = async (answerText = '', audioData = '') => {
   return result
 }
 
-const submitAudioAnswer = async (audioData) => {
+const submitAudioAnswer = async (audioData, audioMime = '') => {
   if (!audioData) return
   if (isProcessing.value) return
 
@@ -1050,7 +1123,7 @@ const submitAudioAnswer = async (audioData) => {
   answerVoiceError.value = ''
 
   try {
-    const result = await submitCurrentAnswer('', audioData)
+    const result = await submitCurrentAnswer('', audioData, audioMime)
     const transcript = String(result?.answer || '').trim()
     const plainText = transcript || '（未识别到有效语音文本）'
     const rendered = `【语音回答】\n${plainText}`
@@ -1110,15 +1183,20 @@ const startAnswerRecording = async () => {
   answerVoiceSeconds.value = 0
   quietSeconds.value = 0
   answerAudioChunks = []
+  answerRecorderMimeType = ''
 
   try {
     answerRecorderStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    const preferredMime = pickSupportedAudioMime()
 
     try {
-      answerMediaRecorder = new MediaRecorder(answerRecorderStream, { mimeType: 'audio/webm' })
+      answerMediaRecorder = preferredMime
+        ? new MediaRecorder(answerRecorderStream, { mimeType: preferredMime })
+        : new MediaRecorder(answerRecorderStream)
     } catch (_) {
       answerMediaRecorder = new MediaRecorder(answerRecorderStream)
     }
+    answerRecorderMimeType = normalizeAudioMime(answerMediaRecorder.mimeType || preferredMime)
 
     answerMediaRecorder.ondataavailable = (event) => {
       if (event.data && event.data.size > 0) {
@@ -1139,17 +1217,22 @@ const startAnswerRecording = async () => {
       }
 
       answerVoiceStatus.value = 'transcribing'
-      const audioBlob = new Blob(answerAudioChunks, { type: 'audio/webm' })
+      const audioBlob = new Blob(answerAudioChunks, { type: answerRecorderMimeType || 'audio/webm' })
       const reader = new FileReader()
       reader.onloadend = async () => {
-        const raw = reader.result || ''
-        const parts = String(raw).split(',')
-        if (parts.length < 2) {
+        const raw = String(reader.result || '')
+        const matched = raw.match(/^data:([^;]+);base64,(.+)$/)
+        if (matched && matched[2]) {
+          await submitAudioAnswer(matched[2], normalizeAudioMime(matched[1] || answerRecorderMimeType))
+          return
+        }
+        const parts = raw.split(',')
+        if (parts.length < 2 || !parts[1]) {
           answerVoiceError.value = '音频编码失败，请重试'
           answerVoiceStatus.value = 'error'
           return
         }
-        await submitAudioAnswer(parts[1])
+        await submitAudioAnswer(parts[1], answerRecorderMimeType || '')
       }
       reader.readAsDataURL(audioBlob)
     }
@@ -1285,6 +1368,9 @@ const completeInterview = async () => {
   try {
     await stopAndUploadInterviewRecording()
     await apiEndInterview(interviewId.value)
+    if (settings.value.interviewMode === 'human') {
+      await loadUserInvitations()
+    }
     const reportRes = await apiGenerateReport({
       interview_id: interviewId.value
     })
@@ -1370,6 +1456,9 @@ const endInterviewEarly = async () => {
     blindBoxRevealed.value = false
     randomStyleRevealed.value = false
     revealedStyleInfo.value = null
+    if (settings.value.interviewMode === 'human') {
+      loadUserInvitations()
+    }
     resetShadowHintProgress()
     hideShadowBubble()
     if (interviewId.value) {
@@ -1388,52 +1477,99 @@ const loadInterviewConfig = async () => {
   }
 }
 
-// ===== Human Interviewer Functions =====
-const loadHumanInterviewers = async (type_filter = '') => {
-  humanInterviewersLoading.value = true
+// ===== Human Interview Invitation Functions =====
+const normalizeCandidateRole = (role) => {
+  if (role === 'university') return '高校端'
+  if (role === 'enterprise') return '企业端'
+  return '协作方'
+}
+
+const loadInviteCandidates = async (roleFilter = '') => {
+  inviteCandidatesLoading.value = true
   try {
-    const res = await apiGetHumanInterviewers({ type: type_filter, page: 1, page_size: 50 })
-    humanInterviewers.value = res.interviewers || []
+    const role = roleFilter === 'campus' ? 'university' : roleFilter
+    const res = await apiGetInviteCandidates({ role, page: 1, page_size: 50 })
+    inviteCandidates.value = res.users || []
   } catch (err) {
-    console.warn('Failed to load human interviewers:', err)
-    humanInterviewers.value = []
+    console.warn('Failed to load invite candidates:', err)
+    inviteCandidates.value = []
   } finally {
-    humanInterviewersLoading.value = false
+    inviteCandidatesLoading.value = false
   }
 }
 
-const selectInterviewer = (interviewer) => {
-  selectedInterviewer.value = interviewer
+const selectInviteCandidate = (candidate) => {
+  selectedInvitee.value = candidate
   showBookingDialog.value = true
 }
 
 const submitBooking = async () => {
-  if (!selectedInterviewer.value || !bookingForm.value.scheduledAt) return
+  if (!selectedInvitee.value) return
   try {
-    const res = await apiBookHumanInterview({
-      interviewer_id: selectedInterviewer.value.id,
-      scheduled_at: new Date(bookingForm.value.scheduledAt).toISOString(),
+    const payload = {
+      invitee_user_id: selectedInvitee.value.id,
       position: settings.value.position,
       difficulty: settings.value.difficulty,
+      mode: settings.value.mode,
+      style: settings.value.style,
+      company: settings.value.company,
       notes: bookingForm.value.notes
-    })
-    alert('预约成功！面试官确认后将收到通知。')
+    }
+    if (bookingForm.value.scheduledAt) {
+      payload.scheduled_at = new Date(bookingForm.value.scheduledAt).toISOString()
+    }
+    await apiCreateHumanInvitation(payload)
+    alert('邀请已发送，已加入你的真人面试列表。')
     showBookingDialog.value = false
     bookingForm.value = { scheduledAt: '', notes: '' }
-    selectedInterviewer.value = null
-    loadUserBookings()
+    selectedInvitee.value = null
+    await loadUserInvitations()
   } catch (err) {
-    alert('预约失败：' + (err.response?.data?.error || err.message))
+    alert('发送邀请失败：' + (err.response?.data?.error || err.message))
   }
 }
 
-const loadUserBookings = async () => {
+const loadUserInvitations = async () => {
   try {
-    const res = await apiGetUserBookings()
-    userBookings.value = res.bookings || []
+    const res = await apiGetHumanInvitations()
+    userInvitations.value = res.invitations || []
+    if (!activeInvitationId.value && userInvitations.value.length > 0) {
+      const firstAvailable = userInvitations.value.find((i) => i.status === 'accepted' || i.status === 'in_progress')
+      if (firstAvailable) {
+        activeInvitationId.value = firstAvailable.id
+        activeInvitation.value = firstAvailable
+      }
+    }
   } catch (err) {
-    console.warn('Failed to load bookings:', err)
+    console.warn('Failed to load invitations:', err)
   }
+}
+
+const useInvitationForInterview = (invitation) => {
+  activeInvitationId.value = invitation.id
+  activeInvitation.value = invitation
+  settings.value.interviewMode = 'human'
+
+  // Keep form selections aligned with the accepted invitation to avoid accidental AI-mode params.
+  if (invitation.mode) settings.value.mode = invitation.mode
+  if (invitation.style) settings.value.style = invitation.style
+  if (invitation.position) settings.value.position = invitation.position
+  if (invitation.difficulty) settings.value.difficulty = invitation.difficulty
+  if (invitation.company) settings.value.company = invitation.company
+
+  ElMessage.success('已切换到真人面试模式，请点击下方“开始面试”。')
+}
+
+const goLiveInterviewRoom = (invitation) => {
+  if (!invitation?.id) {
+    ElMessage.warning('邀请信息无效，请刷新后重试')
+    return
+  }
+  useInvitationForInterview(invitation)
+  router.push({
+    path: '/student/live-interview',
+    query: { invitation_id: String(invitation.id) }
+  })
 }
 
 // ===== Random Mode Reveal =====
@@ -1494,22 +1630,27 @@ onUnmounted(() => {
       <div class="grid grid-cols-1 md:grid-cols-2 gap-8 w-full items-stretch">
         <!-- Preview Area -->
         <div class="flex flex-col gap-4 min-h-[480px]">
-          <div class="aspect-video bg-zinc-900 rounded-2xl relative overflow-hidden flex items-center justify-center group shadow-xl">
+          <div class="aspect-video rounded-2xl relative overflow-hidden flex items-center justify-center group shadow-xl bg-gradient-to-br from-slate-900 via-slate-800 to-cyan-900/80">
             <template v-if="settings.presentationMode === 'video_avatar'">
+              <div class="absolute inset-0 interview-room-scene interview-room-scene--compact pointer-events-none"></div>
+              <div class="absolute inset-y-0 left-0 w-20 interview-room-wall interview-room-wall--left interview-room-wall--compact pointer-events-none"></div>
+              <div class="absolute inset-y-0 right-0 w-24 interview-room-wall interview-room-wall--right interview-room-wall--compact pointer-events-none"></div>
+              <div class="absolute left-0 right-0 bottom-0 h-20 interview-room-floor interview-room-floor--compact pointer-events-none"></div>
               <model-viewer
-                src="/business_man_-_low_polygon_game_character.glb"
+                src="/interview3.glb"
                 autoplay
-                auto-rotate
-                camera-controls
-                camera-target="0m 0.85m 0m"
-                camera-orbit="0deg 74deg 3.35m"
-                exposure="1.08"
-                shadow-intensity="1"
-                class="w-full h-full bg-gradient-to-b from-zinc-900 via-zinc-950 to-zinc-900"
+                environment-image="neutral"
+                interaction-prompt="none"
+                camera-target="auto auto auto"
+                camera-orbit="0deg 78deg auto"
+                field-of-view="28deg"
+                exposure="1.35"
+                shadow-intensity="0.65"
+                class="w-full h-full interviewer-static relative z-20"
               ></model-viewer>
 
-              <div class="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-zinc-950/95 to-transparent pointer-events-none"></div>
-              <div class="absolute bottom-5 left-1/2 -translate-x-1/2 w-[58%] h-10 rounded-t-2xl bg-zinc-800/70 border border-zinc-600/40 backdrop-blur-sm"></div>
+              <div class="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-slate-950/90 via-slate-900/45 to-transparent pointer-events-none"></div>
+              <div class="absolute bottom-5 left-1/2 -translate-x-1/2 w-[58%] h-10 rounded-t-2xl interview-room-desk"></div>
 
               <div class="absolute bottom-4 left-4 w-36 h-24 rounded-2xl overflow-hidden border border-white/15 bg-zinc-950/90 shadow-lg">
                 <video ref="previewVideo" class="w-full h-full object-cover transform scale-x-[-1]" autoplay muted v-if="isCameraOn"></video>
@@ -1767,11 +1908,11 @@ onUnmounted(() => {
               <button 
                 v-for="im in [
                   { key: 'ai', label: 'AI仿真面试官', icon: '🤖', desc: 'AI模拟真实面试' },
-                  { key: 'human', label: '真人面试', icon: '👤', desc: '预约真人面试官' },
+                  { key: 'human', label: '真人面试', icon: '👤', desc: '邀请高校端/企业端账号' },
                   { key: 'random', label: '随机模式', icon: '🎲', desc: '风格随机不提前告知' }
                 ]" 
                 :key="im.key"
-                @click="settings.interviewMode = im.key; if(im.key === 'human') loadHumanInterviewers()"
+                @click="settings.interviewMode = im.key; if(im.key === 'human') { loadInviteCandidates(); loadUserInvitations() }"
                 class="flex flex-col items-center gap-1 px-3 py-3 rounded-xl text-xs font-medium border transition-all text-center"
                 :class="settings.interviewMode === im.key 
                   ? (im.key === 'random' ? 'bg-violet-50 border-violet-300 text-violet-700 ring-1 ring-violet-200' : im.key === 'human' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 ring-1 ring-emerald-200' : 'bg-indigo-50 border-indigo-200 text-indigo-600 ring-1 ring-indigo-200')
@@ -1806,7 +1947,7 @@ onUnmounted(() => {
               <button 
                 v-for="t in [{key: '', label: '全部'}, {key: 'campus', label: '🏫 校内老师'}, {key: 'enterprise', label: '🏢 企业专家'}]"
                 :key="t.key"
-                @click="loadHumanInterviewers(t.key)"
+                @click="loadInviteCandidates(t.key)"
                 class="px-3 py-1.5 rounded-lg text-xs font-medium border transition-all"
                 :class="'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
               >
@@ -1815,47 +1956,48 @@ onUnmounted(() => {
             </div>
 
             <!-- Interviewers List -->
-            <div v-if="humanInterviewersLoading" class="text-center py-4">
+            <div v-if="inviteCandidatesLoading" class="text-center py-4">
               <Loader2 class="w-6 h-6 text-zinc-400 animate-spin mx-auto" />
-              <p class="text-xs text-zinc-400 mt-2">加载面试官列表...</p>
+              <p class="text-xs text-zinc-400 mt-2">加载可邀请用户...</p>
             </div>
-            <div v-else-if="humanInterviewers.length > 0" class="space-y-2 max-h-[180px] overflow-y-auto custom-scrollbar">
+            <div v-else-if="inviteCandidates.length > 0" class="space-y-2 max-h-[180px] overflow-y-auto custom-scrollbar">
               <div 
-                v-for="interviewer in humanInterviewers" 
-                :key="interviewer.id"
-                @click="selectInterviewer(interviewer)"
+                v-for="candidate in inviteCandidates" 
+                :key="candidate.id"
+                @click="selectInviteCandidate(candidate)"
                 class="flex items-center gap-3 p-3 rounded-xl border border-zinc-100 hover:border-indigo-200 hover:bg-indigo-50/30 cursor-pointer transition-all group"
               >
                 <div class="h-10 w-10 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 flex items-center justify-center text-indigo-700 font-bold text-sm shrink-0">
-                  {{ interviewer.name?.[0] || '?' }}
+                  {{ candidate.username?.[0] || '?' }}
                 </div>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2">
-                    <span class="text-sm font-bold text-zinc-800">{{ interviewer.name }}</span>
+                    <span class="text-sm font-bold text-zinc-800">{{ candidate.username }}</span>
                     <span class="text-[10px] px-1.5 py-0.5 rounded-full" 
-                      :class="interviewer.type === 'campus' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'">
-                      {{ interviewer.type === 'campus' ? '校内' : '企业' }}
+                      :class="candidate.role === 'university' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'">
+                      {{ candidate.role === 'university' ? '高校端' : '企业端' }}
                     </span>
                   </div>
-                  <p class="text-[11px] text-zinc-500 truncate">{{ interviewer.title }}{{ interviewer.company ? ` · ${interviewer.company}` : '' }}</p>
+                  <p class="text-[11px] text-zinc-500 truncate">{{ candidate.email }}</p>
                   <div class="flex items-center gap-2 mt-0.5">
-                    <span class="text-[10px] text-amber-600 flex items-center gap-0.5">
-                      <Star class="w-2.5 h-2.5 fill-amber-400 text-amber-400" /> {{ interviewer.rating?.toFixed(1) }}
-                    </span>
-                    <span class="text-[10px] text-zinc-400">{{ interviewer.total_sessions }}次面试</span>
+                    <span class="text-[10px] text-zinc-400">{{ normalizeCandidateRole(candidate.role) }}</span>
                   </div>
                 </div>
                 <Calendar class="w-4 h-4 text-zinc-300 group-hover:text-indigo-500 transition-colors shrink-0" />
               </div>
             </div>
             <div v-else class="p-4 bg-zinc-50 rounded-xl text-center">
-              <p class="text-xs text-zinc-400">暂无可用面试官。校内老师和企业专家将陆续上线。</p>
+              <p class="text-xs text-zinc-400">暂无可邀请用户，请先在高校端/企业端注册账号。</p>
             </div>
 
             <!-- Bookings Button -->
-            <button @click="showBookingsPanel = true; loadUserBookings()" class="w-full py-2 rounded-xl text-xs font-medium border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-600 transition-all flex items-center justify-center gap-1.5">
-              <Clock class="w-3 h-3" /> 查看我的预约
+            <button @click="showBookingsPanel = true; loadUserInvitations()" class="w-full py-2 rounded-xl text-xs font-medium border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-600 transition-all flex items-center justify-center gap-1.5">
+              <Clock class="w-3 h-3" /> 查看我的邀请
             </button>
+
+            <div v-if="activeInvitation" class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+              已选择邀请：{{ activeInvitation.invitee?.username || activeInvitation.invitee_user_id }}（{{ normalizeCandidateRole(activeInvitation.invitee_role) }}）
+            </div>
           </div>
 
           <!-- Blind Box Mode (unchanged) -->
@@ -1918,25 +2060,25 @@ onUnmounted(() => {
 
           <button 
             @click="startInterview"
-            :disabled="isProcessing || (settings.interviewMode === 'human')"
+            :disabled="isProcessing || (settings.interviewMode === 'human' && !activeInvitationId)"
             class="w-full mt-2 py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Loader2 v-if="isProcessing" class="h-5 w-5 animate-spin" />
-            <span v-else-if="settings.interviewMode === 'human'">请先预约真人面试官</span>
+            <span v-else-if="settings.interviewMode === 'human' && !activeInvitationId">请先选择一个邀请</span>
             <span v-else>开始面试</span>
-            <ChevronRight v-if="!isProcessing && settings.interviewMode !== 'human'" class="h-5 w-5" />
+            <ChevronRight v-if="!isProcessing && (settings.interviewMode !== 'human' || activeInvitationId)" class="h-5 w-5" />
           </button>
         </div>
       </div>
     </div>
 
     <!-- Interview Phase (New Layout) -->
-    <div v-else-if="phase === 'interview'" class="h-full flex flex-col lg:flex-row gap-6 p-6 bg-zinc-50 overflow-y-auto">
+    <div v-else-if="phase === 'interview'" class="h-full flex flex-col lg:flex-row gap-6 p-6 bg-gradient-to-br from-slate-50 via-white to-cyan-50 overflow-y-auto">
       
       <!-- Left Main Column (Video + Input) -->
       <div class="flex-1 flex flex-col gap-6 min-w-0 h-full">
         <!-- Video Section (Top) -->
-        <div v-if="settings.presentationMode === 'video_avatar'" class="flex-1 bg-black rounded-3xl relative overflow-hidden shadow-2xl group ring-1 ring-zinc-900/5">
+        <div v-if="settings.presentationMode === 'video_avatar' && settings.interviewMode !== 'human'" class="flex-1 rounded-3xl relative overflow-hidden shadow-2xl group ring-1 ring-slate-900/10 bg-gradient-to-br from-slate-900 via-slate-800 to-cyan-900/70">
           <!-- Status Badge -->
           <div class="absolute top-6 left-6 flex items-center gap-3 z-10 pointer-events-none">
             <div class="text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-2 shadow-lg"
@@ -1978,22 +2120,26 @@ onUnmounted(() => {
           ></div>
           
           <!-- Main Interviewer Stage -->
-          <div class="absolute inset-0 bg-gradient-to-b from-zinc-900 via-zinc-950 to-zinc-900">
+          <div class="absolute inset-0 interview-room-scene pointer-events-none">
+            <div class="absolute inset-y-0 left-0 w-32 interview-room-wall interview-room-wall--left pointer-events-none"></div>
+            <div class="absolute inset-y-0 right-0 w-36 interview-room-wall interview-room-wall--right pointer-events-none"></div>
+            <div class="absolute left-0 right-0 bottom-0 h-28 interview-room-floor pointer-events-none"></div>
             <model-viewer
-              src="/business_man_-_low_polygon_game_character.glb"
+              src="/interview3.glb"
               autoplay
-              auto-rotate
-              camera-controls
-              camera-target="0m 0.85m 0m"
-              camera-orbit="0deg 74deg 3.45m"
-              shadow-intensity="1"
-              exposure="1.05"
-              class="w-full h-full interviewer-stage"
+              environment-image="neutral"
+              interaction-prompt="none"
+              camera-target="auto auto auto"
+              camera-orbit="0deg 78deg auto"
+              field-of-view="28deg"
+              shadow-intensity="0.65"
+              exposure="1.35"
+              class="w-full h-full interviewer-stage interviewer-static relative z-20"
               :class="isAvatarSpeaking ? 'interviewer-speaking' : ''"
             ></model-viewer>
 
-            <div class="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-zinc-950/95 to-transparent pointer-events-none"></div>
-            <div class="absolute bottom-8 left-1/2 -translate-x-1/2 w-[56%] h-14 rounded-t-2xl bg-zinc-800/75 border border-zinc-600/40 shadow-[0_0_30px_rgba(0,0,0,0.35)]"></div>
+            <div class="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-slate-950/95 via-slate-900/45 to-transparent pointer-events-none"></div>
+            <div class="absolute bottom-8 left-1/2 -translate-x-1/2 w-[56%] h-14 rounded-t-2xl interview-room-desk"></div>
             <div class="absolute top-6 right-6 text-xs px-3 py-1.5 rounded-full border backdrop-blur-sm"
               :class="settings.style === 'stress' ? 'bg-rose-500/20 text-rose-100 border-rose-300/40' : 'bg-emerald-500/15 text-emerald-100 border-emerald-300/40'">
               {{ settings.style === 'stress' ? '施压面试状态' : '安抚面试状态' }}
@@ -2147,13 +2293,15 @@ onUnmounted(() => {
         <!-- AI Profile Card -->
         <div class="bg-white p-4 rounded-3xl border border-white shadow-lg shadow-zinc-200/50 flex items-center gap-4 hover:shadow-xl transition-shadow duration-300 shrink-0">
           <div class="h-14 w-14 rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30 ring-4 ring-indigo-50">
-            <BrainCircuit class="h-7 w-7" />
+            <User v-if="settings.interviewMode === 'human'" class="h-7 w-7" />
+            <BrainCircuit v-else class="h-7 w-7" />
           </div>
           <div>
-            <h3 class="font-bold text-zinc-900 text-lg">智聘智能引擎</h3>
+            <h3 class="font-bold text-zinc-900 text-lg">{{ settings.interviewMode === 'human' ? '真人模拟面试' : '智聘智能引擎' }}</h3>
             <p class="text-xs text-zinc-500 font-medium flex items-center gap-1">
               <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>
               <span v-if="settings.interviewMode === 'random'">🎲 随机面试模式</span>
+              <span v-else-if="settings.interviewMode === 'human'">{{ activeInvitation?.invitee?.username || '真人面试官' }} · {{ normalizeCandidateRole(activeInvitation?.invitee_role) }}</span>
               <span v-else>{{ settings.mode === 'hr' ? 'HR面试官' : settings.mode === 'comprehensive' ? '综合面试官' : 'AI 技术面试官' }} · {{ settings.style === 'gentle' ? '温和型' : settings.style === 'stress' ? '压力型' : settings.style === 'deep' ? '深挖型' : settings.style === 'practical' ? '实战型' : settings.style === 'algorithm' ? '算法型' : '标准' }}</span>
             </p>
           </div>
@@ -2423,7 +2571,7 @@ onUnmounted(() => {
                 :class="msg.role === 'user' ? 'text-zinc-400 justify-end' : 'text-indigo-400'">
                 <User v-if="msg.role === 'user'" class="w-3 h-3" />
                 <BrainCircuit v-else class="w-3 h-3" />
-                {{ msg.role === 'ai' ? 'AI 面试官' : '你' }}
+                {{ msg.role === 'ai' ? (settings.interviewMode === 'human' ? '真人面试流程' : 'AI 面试官') : '你' }}
               </div>
               <div class="leading-relaxed whitespace-pre-wrap">{{ getHistoryMessageContent(msg) }}</div>
             </div>
@@ -2462,10 +2610,10 @@ onUnmounted(() => {
     </div>
 
     <!-- ===== Booking Dialog (Overlay) ===== -->
-    <div v-if="showBookingDialog && selectedInterviewer" class="fixed inset-0 z-[60] bg-black/30 backdrop-blur-sm flex items-center justify-center" @click.self="showBookingDialog = false">
+    <div v-if="showBookingDialog && selectedInvitee" class="fixed inset-0 z-[60] bg-black/30 backdrop-blur-sm flex items-center justify-center" @click.self="showBookingDialog = false">
       <div class="bg-white rounded-2xl shadow-2xl border border-zinc-100 p-6 w-[420px] max-w-[90vw] animate-in fade-in zoom-in-95 duration-300">
         <div class="flex items-center justify-between mb-5">
-          <h3 class="font-bold text-lg text-zinc-900">预约面试</h3>
+          <h3 class="font-bold text-lg text-zinc-900">发送真人面试邀请</h3>
           <button @click="showBookingDialog = false" class="p-2 hover:bg-zinc-100 rounded-lg transition-colors">
             <X class="w-4 h-4 text-zinc-400" />
           </button>
@@ -2474,18 +2622,18 @@ onUnmounted(() => {
         <!-- Interviewer Info -->
         <div class="flex items-center gap-3 p-3 bg-zinc-50 rounded-xl mb-4">
           <div class="h-12 w-12 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 flex items-center justify-center text-indigo-700 font-bold shrink-0">
-            {{ selectedInterviewer.name?.[0] || '?' }}
+            {{ selectedInvitee.username?.[0] || '?' }}
           </div>
           <div>
-            <p class="font-bold text-zinc-800">{{ selectedInterviewer.name }}</p>
-            <p class="text-xs text-zinc-500">{{ selectedInterviewer.title }}{{ selectedInterviewer.company ? ` · ${selectedInterviewer.company}` : '' }}</p>
+            <p class="font-bold text-zinc-800">{{ selectedInvitee.username }}</p>
+            <p class="text-xs text-zinc-500">{{ selectedInvitee.email }} · {{ normalizeCandidateRole(selectedInvitee.role) }}</p>
           </div>
         </div>
 
         <!-- Booking Form -->
         <div class="space-y-3">
           <div>
-            <label class="text-xs font-bold text-zinc-500 mb-1 block">预约时间</label>
+            <label class="text-xs font-bold text-zinc-500 mb-1 block">计划开始时间（可选）</label>
             <input 
               type="datetime-local" 
               v-model="bookingForm.scheduledAt" 
@@ -2496,7 +2644,7 @@ onUnmounted(() => {
             <label class="text-xs font-bold text-zinc-500 mb-1 block">备注（可选）</label>
             <textarea 
               v-model="bookingForm.notes" 
-              placeholder="如：希望重点考察微服务架构设计能力"
+              placeholder="如：希望重点考察微服务架构设计能力，并增加2轮追问"
               class="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none h-20"
             ></textarea>
           </div>
@@ -2504,10 +2652,9 @@ onUnmounted(() => {
 
         <button 
           @click="submitBooking"
-          :disabled="!bookingForm.scheduledAt"
           class="w-full mt-4 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          确认预约
+          发送邀请
         </button>
       </div>
     </div>
@@ -2518,7 +2665,7 @@ onUnmounted(() => {
         <div class="flex items-center justify-between mb-4">
           <h3 class="font-bold text-lg text-zinc-900 flex items-center gap-2">
             <Calendar class="w-5 h-5 text-indigo-600" />
-            我的面试预约
+            我的真人面试邀请
           </h3>
           <button @click="showBookingsPanel = false" class="p-2 hover:bg-zinc-100 rounded-lg transition-colors">
             <X class="w-4 h-4 text-zinc-400" />
@@ -2526,28 +2673,37 @@ onUnmounted(() => {
         </div>
 
         <div class="flex-1 overflow-y-auto space-y-3 custom-scrollbar">
-          <div v-if="userBookings.length === 0" class="text-center py-8">
+          <div v-if="userInvitations.length === 0" class="text-center py-8">
             <Calendar class="w-10 h-10 text-zinc-200 mx-auto mb-3" />
-            <p class="text-sm text-zinc-400">暂无预约记录</p>
+            <p class="text-sm text-zinc-400">暂无邀请记录</p>
           </div>
-          <div v-for="booking in userBookings" :key="booking.id" class="p-4 rounded-xl border border-zinc-100 hover:border-zinc-200 transition-all">
+          <div v-for="booking in userInvitations" :key="booking.id" class="p-4 rounded-xl border border-zinc-100 hover:border-zinc-200 transition-all">
             <div class="flex items-center justify-between mb-2">
-              <span class="text-sm font-bold text-zinc-800">{{ booking.interviewer?.name || '面试官' }}</span>
+              <span class="text-sm font-bold text-zinc-800">{{ booking.invitee?.username || `用户#${booking.invitee_user_id}` }}</span>
               <span class="text-[10px] px-2 py-0.5 rounded-full font-bold"
                 :class="{
                   'bg-amber-100 text-amber-700': booking.status === 'pending',
-                  'bg-emerald-100 text-emerald-700': booking.status === 'confirmed',
+                  'bg-sky-100 text-sky-700': booking.status === 'accepted',
+                  'bg-emerald-100 text-emerald-700': booking.status === 'in_progress',
                   'bg-blue-100 text-blue-700': booking.status === 'completed',
+                  'bg-rose-100 text-rose-700': booking.status === 'rejected',
                   'bg-zinc-100 text-zinc-500': booking.status === 'cancelled'
                 }">
-                {{ booking.status === 'pending' ? '待确认' : booking.status === 'confirmed' ? '已确认' : booking.status === 'completed' ? '已完成' : '已取消' }}
+                {{ booking.status === 'pending' ? '待对方确认' : booking.status === 'accepted' ? '已接受，可开始' : booking.status === 'in_progress' ? '进行中' : booking.status === 'completed' ? '已完成' : booking.status === 'rejected' ? '已拒绝' : '已取消' }}
               </span>
             </div>
             <div class="text-xs text-zinc-500 space-y-1">
-              <p class="flex items-center gap-1.5"><Clock class="w-3 h-3" /> {{ new Date(booking.scheduled_at).toLocaleString('zh-CN') }}</p>
-              <p class="flex items-center gap-1.5"><Briefcase class="w-3 h-3" /> {{ booking.position }} · {{ booking.difficulty }}</p>
+              <p class="flex items-center gap-1.5" v-if="booking.scheduled_at"><Clock class="w-3 h-3" /> {{ new Date(booking.scheduled_at).toLocaleString('zh-CN') }}</p>
+              <p class="flex items-center gap-1.5"><Briefcase class="w-3 h-3" /> {{ booking.position }} · {{ booking.difficulty }} · {{ normalizeCandidateRole(booking.invitee_role) }}</p>
               <p v-if="booking.notes" class="flex items-start gap-1.5"><MessageSquare class="w-3 h-3 mt-0.5 shrink-0" /> {{ booking.notes }}</p>
             </div>
+            <button
+              v-if="booking.status === 'accepted' || booking.status === 'in_progress'"
+              @click="goLiveInterviewRoom(booking); showBookingsPanel = false"
+              class="mt-3 w-full py-2 rounded-xl text-xs font-semibold border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-all"
+            >
+              进入真人视频面试房间
+            </button>
           </div>
         </div>
       </div>
@@ -2566,6 +2722,93 @@ onUnmounted(() => {
 #chat-container::-webkit-scrollbar-thumb {
   background-color: #e4e4e7;
   border-radius: 20px;
+}
+
+.interview-room-scene {
+  background-color: #0f172a;
+}
+
+.interview-room-scene::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(2, 6, 23, 0.3) 0%, rgba(2, 6, 23, 0.62) 100%),
+    linear-gradient(100deg, rgba(2, 132, 199, 0.14) 0%, rgba(2, 132, 199, 0) 52%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0) 64%, rgba(2, 6, 23, 0.55) 100%),
+    url('/interview-room.jpg');
+  background-size: cover;
+  background-position: center;
+  pointer-events: none;
+}
+
+.interview-room-scene::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(56% 42% at 50% 82%, rgba(148, 163, 184, 0.18) 0%, rgba(148, 163, 184, 0) 78%),
+    radial-gradient(38% 26% at 14% 14%, rgba(251, 191, 36, 0.12) 0%, rgba(251, 191, 36, 0) 70%);
+  pointer-events: none;
+}
+
+.interview-room-scene--compact::after {
+  opacity: 0.85;
+}
+
+.interview-room-desk {
+  background: linear-gradient(90deg, rgba(120, 53, 15, 0.65) 0%, rgba(146, 64, 14, 0.62) 46%, rgba(120, 53, 15, 0.65) 100%);
+  border: 1px solid rgba(253, 186, 116, 0.24);
+  box-shadow: 0 0 34px rgba(15, 23, 42, 0.35);
+}
+
+.interview-room-wall {
+  top: 18%;
+  bottom: 14%;
+  border: 1px solid rgba(148, 163, 184, 0.08);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.22) 0%, rgba(15, 23, 42, 0.08) 100%);
+  opacity: 0.35;
+}
+
+.interview-room-wall--left {
+  left: -8px;
+  transform: perspective(420px) rotateY(18deg);
+  transform-origin: left center;
+  border-radius: 0 14px 14px 0;
+}
+
+.interview-room-wall--right {
+  right: -10px;
+  transform: perspective(420px) rotateY(-18deg);
+  transform-origin: right center;
+  border-radius: 14px 0 0 14px;
+}
+
+.interview-room-wall--compact {
+  top: 24%;
+  bottom: 20%;
+}
+
+.interview-room-floor {
+  left: 8%;
+  right: 8%;
+  bottom: 6%;
+  height: 24%;
+  border-radius: 22px 22px 10px 10px;
+  border: 1px solid rgba(56, 189, 248, 0.08);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0) 0%, rgba(2, 132, 199, 0.05) 32%, rgba(15, 23, 42, 0.35) 100%),
+    linear-gradient(100deg, rgba(30, 41, 59, 0.55) 0%, rgba(15, 23, 42, 0.7) 100%);
+  transform: perspective(520px) rotateX(60deg);
+  transform-origin: bottom center;
+  box-shadow: 0 22px 40px rgba(2, 6, 23, 0.35);
+  opacity: 0.45;
+}
+
+.interview-room-floor--compact {
+  left: 12%;
+  right: 12%;
+  height: 22%;
 }
 
 /* Desktop: allow manual height drag on key interview panels. */
@@ -2601,6 +2844,10 @@ onUnmounted(() => {
   .interviewer-stage {
     animation: interviewer-idle 5.2s ease-in-out infinite;
     transform-origin: center 78%;
+  }
+
+  .interviewer-static {
+    pointer-events: none;
   }
 
   .interviewer-speaking {

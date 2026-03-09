@@ -81,3 +81,16 @@ export function pushStudentsToEnterprise(data) {
 export function getPushHistory(params) {
   return request({ url: '/university/talent-push/history', method: 'get', params })
 }
+
+// ===== 真人面试邀请 =====
+export function getReceivedInterviewInvitations() {
+  return request({ url: '/interview/invitations/received', method: 'get' })
+}
+
+export function respondInterviewInvitation(invitationId, action) {
+  return request({
+    url: `/interview/invitations/${invitationId}/respond`,
+    method: 'post',
+    data: { action }
+  })
+}

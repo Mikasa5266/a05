@@ -156,3 +156,41 @@ export function revealRandomStyle(interviewId) {
     method: 'get'
   })
 }
+
+export function getInviteCandidates(params) {
+  return request({
+    url: '/interview/invite-candidates',
+    method: 'get',
+    params
+  })
+}
+
+export function createHumanInvitation(data) {
+  return request({
+    url: '/interview/invitations',
+    method: 'post',
+    data
+  })
+}
+
+export function getHumanInvitations() {
+  return request({
+    url: '/interview/invitations',
+    method: 'get'
+  })
+}
+
+export function getReceivedHumanInvitations() {
+  return request({
+    url: '/interview/invitations/received',
+    method: 'get'
+  })
+}
+
+export function respondHumanInvitation(invitationId, action) {
+  return request({
+    url: `/interview/invitations/${invitationId}/respond`,
+    method: 'post',
+    data: { action }
+  })
+}

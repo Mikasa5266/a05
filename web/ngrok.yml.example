@@ -1,0 +1,9 @@
+version: "2"
+authtoken: "zhanweifu"
+
+tunnels:
+  interview-web:
+    proto: http
+    addr: https://localhost:5173
+    schemes:
+      - https

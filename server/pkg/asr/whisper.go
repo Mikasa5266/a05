@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,6 +62,10 @@ type TranscriptionResponse struct {
 }
 
 func (c *WhisperClient) TranscribeAudio(audioData []byte, language string) (string, error) {
+	return c.TranscribeAudioWithOptions(audioData, language, "", "")
+}
+
+func (c *WhisperClient) TranscribeAudioWithOptions(audioData []byte, language, mimeType, prompt string) (string, error) {
 	if len(audioData) == 0 {
 		return "", fmt.Errorf("audio data is empty")
 	}
@@ -70,7 +75,14 @@ func (c *WhisperClient) TranscribeAudio(audioData []byte, language string) (stri
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	part, err := writer.CreateFormFile("file", "audio.webm")
+	filename := "audio" + extByMimeType(mimeType)
+	fileHeader := make(textproto.MIMEHeader)
+	fileHeader.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, filename))
+	if strings.TrimSpace(mimeType) != "" {
+		fileHeader.Set("Content-Type", mimeType)
+	}
+
+	part, err := writer.CreatePart(fileHeader)
 	if err != nil {
 		return "", fmt.Errorf("failed to create form file: %w", err)
 	}
@@ -84,6 +96,13 @@ func (c *WhisperClient) TranscribeAudio(audioData []byte, language string) (stri
 		err = writer.WriteField("language", language)
 		if err != nil {
 			return "", fmt.Errorf("failed to write language field: %w", err)
+		}
+	}
+
+	if strings.TrimSpace(prompt) != "" {
+		err = writer.WriteField("prompt", prompt)
+		if err != nil {
+			return "", fmt.Errorf("failed to write prompt field: %w", err)
 		}
 	}
 
@@ -132,6 +151,26 @@ func (c *WhisperClient) TranscribeAudio(audioData []byte, language string) (stri
 	}
 
 	return result.Text, nil
+}
+
+func extByMimeType(mimeType string) string {
+	mime := strings.ToLower(strings.TrimSpace(mimeType))
+	switch {
+	case strings.Contains(mime, "webm"):
+		return ".webm"
+	case strings.Contains(mime, "mp4"):
+		return ".mp4"
+	case strings.Contains(mime, "mpeg"), strings.Contains(mime, "mp3"):
+		return ".mp3"
+	case strings.Contains(mime, "wav"):
+		return ".wav"
+	case strings.Contains(mime, "ogg"):
+		return ".ogg"
+	case strings.Contains(mime, "m4a"), strings.Contains(mime, "aac"):
+		return ".m4a"
+	default:
+		return ".webm"
+	}
 }
 
 func (c *WhisperClient) TranscribeBase64Audio(base64Audio string, language string) (string, error) {

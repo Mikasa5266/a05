@@ -13,6 +13,7 @@ import (
 type InterviewService struct {
 	interviewRepo *repository.InterviewRepository
 	questionRepo  *repository.QuestionRepository
+	userRepo      *repository.UserRepository
 	aiService     *AIService
 	ragService    *RAGService // Add RAG service
 }
@@ -21,17 +22,19 @@ func NewInterviewService() *InterviewService {
 	return &InterviewService{
 		interviewRepo: repository.NewInterviewRepository(),
 		questionRepo:  repository.NewQuestionRepository(),
+		userRepo:      repository.NewUserRepository(),
 		aiService:     NewAIService(),
 		ragService:    GetRAGService(), // Init RAG service
 	}
 }
 
 // StartInterview now accepts mode, style, company, and interviewMode. It uses AI to generate questions based on these parameters.
-func (s *InterviewService) StartInterview(userID uint, position, difficulty, mode, style, company, interviewMode string) (*model.Interview, error) {
+func (s *InterviewService) StartInterview(userID uint, position, difficulty, mode, style, company, interviewMode string, invitationID *uint) (*model.Interview, error) {
 	var questions []*model.Question
 	var scenarioJSON string
 	var revealedStyle string
 	var capabilityGraph *model.JobCapabilityDimension
+	var invitation *model.HumanInterviewInvitation
 
 	topicCount, totalTarget := buildInterviewPlan(difficulty)
 	topicQuestionMin, topicQuestionMax, maxFollowUps := 2, 4, 3
@@ -48,6 +51,44 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 		style = randomStyle
 		company = randomCompany
 		revealedStyle = style // will be stored but not shown until end
+	}
+
+	if interviewMode == "human" {
+		if invitationID == nil || *invitationID == 0 {
+			return nil, fmt.Errorf("请选择已邀请的真人面试官")
+		}
+		loaded, err := s.interviewRepo.GetInvitationByID(*invitationID)
+		if err != nil {
+			return nil, fmt.Errorf("邀请记录不存在")
+		}
+		if loaded.StudentID != userID {
+			return nil, fmt.Errorf("无权使用该邀请")
+		}
+		if loaded.Status == "cancelled" {
+			return nil, fmt.Errorf("该邀请已取消")
+		}
+		if loaded.Status == "rejected" {
+			return nil, fmt.Errorf("该邀请已被对方拒绝")
+		}
+		if loaded.Status != "accepted" && loaded.Status != "in_progress" {
+			return nil, fmt.Errorf("请等待对方接受邀请后再开始真人面试")
+		}
+		invitation = loaded
+		if invitation.Position != "" {
+			position = invitation.Position
+		}
+		if invitation.Difficulty != "" {
+			difficulty = invitation.Difficulty
+		}
+		if invitation.Mode != "" {
+			mode = invitation.Mode
+		}
+		if invitation.Style != "" {
+			style = invitation.Style
+		}
+		if invitation.Company != "" {
+			company = invitation.Company
+		}
 	}
 
 	// Blindbox mode: draw a random scenario and generate tailored questions
@@ -67,7 +108,7 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 		for _, q := range generated {
 			q.Position = position
 			q.Difficulty = difficulty
-			q.Source = "standard"
+			q.Source = "ai_opening"
 			q.RAGEligible = true
 			s.normalizeOpeningQuestion(q)
 			if err := s.questionRepo.Create(q); err != nil {
@@ -92,7 +133,12 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 				for _, chunk := range chunks {
 					q, qErr := s.aiService.GenerateTopicQuestionFromContext(dummyInterview, chunk.Content, chunk.Category)
 					if qErr == nil && q != nil {
+						q.Source = "ai_opening"
+						q.RAGEligible = true
 						if normalized := s.normalizeOpeningQuestion(q); normalized != nil {
+							if err := s.questionRepo.Create(normalized); err != nil {
+								continue
+							}
 							questions = append(questions, q)
 						}
 					}
@@ -109,6 +155,10 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 			for _, q := range fallback {
 				if len(questions) >= topicCount {
 					break
+				}
+				if s.aiService.IsContextDependentOpeningQuestion(q) {
+					s.quarantineQuestionAsFollowUp(q)
+					continue
 				}
 				if normalized := s.normalizeOpeningQuestion(q); normalized != nil {
 					questions = append(questions, normalized)
@@ -130,7 +180,7 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 				}
 				q.Position = position
 				q.Difficulty = difficulty
-				q.Source = "standard"
+				q.Source = "ai_opening"
 				q.RAGEligible = true
 				if normalized := s.normalizeOpeningQuestion(q); normalized == nil {
 					continue
@@ -174,8 +224,22 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 		TotalQuestionTarget: totalTarget,
 	}
 
+	if invitation != nil {
+		interview.HumanInterviewerUserID = &invitation.InviteeUserID
+		interview.HumanInterviewerName = invitation.Invitee.Username
+		interview.HumanInterviewerRole = invitation.InviteeRole
+	}
+
 	if err := s.interviewRepo.Create(interview); err != nil {
 		return nil, fmt.Errorf("failed to create interview: %w", err)
+	}
+
+	if invitation != nil {
+		invitation.Status = "in_progress"
+		invitation.InterviewID = &interview.ID
+		if err := s.interviewRepo.UpdateInvitation(invitation); err != nil {
+			return nil, fmt.Errorf("failed to update invitation status: %w", err)
+		}
 	}
 
 	for i, q := range questions {
@@ -217,10 +281,24 @@ func (s *InterviewService) normalizeOpeningQuestion(q *model.Question) *model.Qu
 	return q
 }
 
+func (s *InterviewService) quarantineQuestionAsFollowUp(q *model.Question) {
+	if q == nil || q.ID == 0 {
+		return
+	}
+	if q.Source == "follow_up" && !q.RAGEligible {
+		return
+	}
+	q.Source = "follow_up"
+	q.RAGEligible = false
+	if err := s.questionRepo.Update(q); err != nil {
+		fmt.Printf("failed to quarantine question %d: %v\n", q.ID, err)
+	}
+}
+
 // Package-level wrapper
-func StartInterview(userID uint, position, difficulty, mode, style, company, interviewMode string) (*model.Interview, error) {
+func StartInterview(userID uint, position, difficulty, mode, style, company, interviewMode string, invitationID *uint) (*model.Interview, error) {
 	svc := NewInterviewService()
-	return svc.StartInterview(userID, position, difficulty, mode, style, company, interviewMode)
+	return svc.StartInterview(userID, position, difficulty, mode, style, company, interviewMode, invitationID)
 }
 
 func GetInterviewByID(userID, interviewID uint) (*model.Interview, error) {
@@ -228,14 +306,121 @@ func GetInterviewByID(userID, interviewID uint) (*model.Interview, error) {
 	return svc.GetInterviewByID(userID, interviewID)
 }
 
-func SubmitAnswer(userID, interviewID, questionID uint, answer, audioData, questionTitle, questionContent string) (*model.AnswerResult, error) {
+func SubmitAnswer(userID, interviewID, questionID uint, answer, audioData, audioMime, questionTitle, questionContent string) (*model.AnswerResult, error) {
 	svc := NewInterviewService()
-	return svc.SubmitAnswer(userID, interviewID, questionID, answer, audioData, questionTitle, questionContent)
+	return svc.SubmitAnswer(userID, interviewID, questionID, answer, audioData, audioMime, questionTitle, questionContent)
 }
 
 func EndInterview(userID, interviewID uint) (*model.Interview, error) {
 	svc := NewInterviewService()
 	return svc.EndInterview(userID, interviewID)
+}
+
+func ListInviteCandidates(role, keyword string, page, pageSize int) ([]model.User, int64, error) {
+	svc := NewInterviewService()
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	return svc.userRepo.ListInviteCandidates(role, keyword, page, pageSize)
+}
+
+func CreateHumanInvitation(studentID, inviteeUserID uint, scheduledAt *time.Time, position, difficulty, mode, style, company, notes string) (*model.HumanInterviewInvitation, error) {
+	svc := NewInterviewService()
+	student, err := svc.userRepo.GetByID(studentID)
+	if err != nil {
+		return nil, fmt.Errorf("用户不存在")
+	}
+	if student.Role != "student" {
+		return nil, fmt.Errorf("仅学生用户可以发起真人面试邀请")
+	}
+	invitee, err := svc.userRepo.GetByID(inviteeUserID)
+	if err != nil {
+		return nil, fmt.Errorf("被邀请用户不存在")
+	}
+	if invitee.Role != "enterprise" && invitee.Role != "university" {
+		return nil, fmt.Errorf("只能邀请学校端或企业端用户")
+	}
+
+	inv := &model.HumanInterviewInvitation{
+		StudentID:     studentID,
+		InviteeUserID: inviteeUserID,
+		InviteeRole:   invitee.Role,
+		Position:      strings.TrimSpace(position),
+		Difficulty:    strings.TrimSpace(difficulty),
+		Mode:          strings.TrimSpace(mode),
+		Style:         strings.TrimSpace(style),
+		Company:       strings.TrimSpace(company),
+		Status:        "pending",
+		ScheduledAt:   scheduledAt,
+		Notes:         strings.TrimSpace(notes),
+	}
+	if err := svc.interviewRepo.CreateInvitation(inv); err != nil {
+		return nil, fmt.Errorf("创建邀请失败: %w", err)
+	}
+	inv.Invitee = *invitee
+	return inv, nil
+}
+
+func ListHumanInvitations(studentID uint) ([]model.HumanInterviewInvitation, error) {
+	svc := NewInterviewService()
+	return svc.interviewRepo.GetInvitationsByStudentID(studentID)
+}
+
+func ListReceivedHumanInvitations(inviteeUserID uint) ([]model.HumanInterviewInvitation, error) {
+	svc := NewInterviewService()
+	user, err := svc.userRepo.GetByID(inviteeUserID)
+	if err != nil {
+		return nil, fmt.Errorf("用户不存在")
+	}
+	if user.Role != "enterprise" && user.Role != "university" {
+		return nil, fmt.Errorf("仅企业端或学校端可以查看收到的邀请")
+	}
+	return svc.interviewRepo.GetInvitationsByInviteeID(inviteeUserID)
+}
+
+func GetInvitationByID(invitationID uint) (*model.HumanInterviewInvitation, error) {
+	svc := NewInterviewService()
+	return svc.interviewRepo.GetInvitationByID(invitationID)
+}
+
+func RespondHumanInvitation(inviteeUserID, invitationID uint, action string) (*model.HumanInterviewInvitation, error) {
+	svc := NewInterviewService()
+	user, err := svc.userRepo.GetByID(inviteeUserID)
+	if err != nil {
+		return nil, fmt.Errorf("用户不存在")
+	}
+	if user.Role != "enterprise" && user.Role != "university" {
+		return nil, fmt.Errorf("仅企业端或学校端可以处理邀请")
+	}
+
+	invitation, err := svc.interviewRepo.GetInvitationByIDForInvitee(invitationID, inviteeUserID)
+	if err != nil {
+		return nil, fmt.Errorf("邀请不存在")
+	}
+
+	normalizedAction := strings.ToLower(strings.TrimSpace(action))
+	if normalizedAction != "accept" && normalizedAction != "reject" {
+		return nil, fmt.Errorf("action 仅支持 accept 或 reject")
+	}
+
+	if invitation.Status != "pending" {
+		return nil, fmt.Errorf("当前邀请状态为 %s，无法重复处理", invitation.Status)
+	}
+
+	if normalizedAction == "accept" {
+		invitation.Status = "accepted"
+	} else {
+		invitation.Status = "rejected"
+	}
+
+	if err := svc.interviewRepo.UpdateInvitation(invitation); err != nil {
+		return nil, fmt.Errorf("更新邀请状态失败: %w", err)
+	}
+
+	return invitation, nil
 }
 
 func GenerateShadowHint(userID, interviewID uint, question, transcript string, silenceSeconds int) (string, error) {
@@ -271,7 +456,7 @@ func (s *InterviewService) GetInterviewByID(userID, interviewID uint) (*model.In
 	return interview, nil
 }
 
-func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, answer, audioData, questionTitle, questionContent string) (*model.AnswerResult, error) {
+func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, answer, audioData, audioMime, questionTitle, questionContent string) (*model.AnswerResult, error) {
 	interview, err := s.GetInterviewByID(userID, interviewID)
 	if err != nil {
 		return nil, err
@@ -301,7 +486,11 @@ func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, an
 		if cfgMax := config.GetConfig().ASR.MaxCallsPerInterview; cfgMax > 0 && interview.ASRCallCount >= cfgMax {
 			return nil, fmt.Errorf("语音转写预算已达上限，请切换文字作答")
 		}
-		transcribedText, err := s.aiService.TranscribeAudio(audioData)
+		audioPayload := strings.TrimSpace(audioData)
+		if !strings.HasPrefix(audioPayload, "data:") && strings.TrimSpace(audioMime) != "" {
+			audioPayload = fmt.Sprintf("data:%s;base64,%s", strings.TrimSpace(audioMime), audioPayload)
+		}
+		transcribedText, err := s.aiService.TranscribeAudio(audioPayload)
 		if err != nil {
 			return nil, fmt.Errorf("failed to transcribe audio: %w", err)
 		}
@@ -502,30 +691,30 @@ func shouldEndEarlyForZeroScores(answers []model.AnswerResult, minCount int) boo
 func buildInterviewPlan(difficulty string) (int, int) {
 	switch difficulty {
 	case "campus_intern":
-		return 5, 11
+		return 5, 15
 	case "campus_graduate":
-		return 4, 11
+		return 4, 12
 	case "social_junior":
-		return 3, 11
+		return 3, 9
 	default:
-		return 4, 11
+		return 4, 12
 	}
 }
 
 func buildStyleQuestionPlan(style string) (topicQuestionMin, topicQuestionMax, maxFollowUps int) {
 	switch style {
 	case "gentle":
-		return 1, 2, 1
+		return 3, 4, 3
 	case "stress":
-		return 2, 5, 4
+		return 3, 5, 4
 	case "deep":
-		return 2, 4, 3
+		return 3, 5, 4
 	case "practical":
-		return 2, 3, 2
+		return 3, 4, 3
 	case "algorithm":
-		return 2, 4, 3
+		return 3, 5, 4
 	default:
-		return 2, 4, 3
+		return 3, 4, 3
 	}
 }
 
@@ -596,6 +785,20 @@ func (s *InterviewService) EndInterview(userID, interviewID uint) (*model.Interv
 
 	if err := s.interviewRepo.Update(interview); err != nil {
 		return nil, fmt.Errorf("failed to update interview: %w", err)
+	}
+
+	if interview.InterviewMode == "human" {
+		invitations, err := s.interviewRepo.GetInvitationsByStudentID(userID)
+		if err == nil {
+			for i := range invitations {
+				inv := invitations[i]
+				if inv.InterviewID != nil && *inv.InterviewID == interviewID && inv.Status == "in_progress" {
+					inv.Status = "completed"
+					_ = s.interviewRepo.UpdateInvitation(&inv)
+					break
+				}
+			}
+		}
 	}
 
 	return interview, nil

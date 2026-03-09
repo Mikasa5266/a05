@@ -9,10 +9,83 @@ import (
 	"strings"
 	"time"
 
+	"your-project/config"
+	ws "your-project/pkg/websocket"
 	"your-project/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 )
+
+func parseUserIDFromToken(tokenString string) (uint, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.ErrSignatureInvalid
+		}
+		return []byte(config.GetConfig().JWT.Secret), nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || !token.Valid {
+		return 0, jwt.ErrTokenInvalidClaims
+	}
+	uid, ok := claims["user_id"].(float64)
+	if !ok || uid <= 0 {
+		return 0, jwt.ErrTokenInvalidClaims
+	}
+	return uint(uid), nil
+}
+
+// InterviewSignalWS provides a websocket signaling channel for live human interview rooms.
+func InterviewSignalWS(c *gin.Context) {
+	tokenString := strings.TrimSpace(c.Query("token"))
+	if tokenString == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "token is required"})
+		return
+	}
+
+	roomID := strings.TrimSpace(c.Query("room_id"))
+	if roomID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "room_id is required"})
+		return
+	}
+
+	userID, err := parseUserIDFromToken(tokenString)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+		return
+	}
+
+	// 1. 基础逻辑检查：如果面试已经结束，禁止进入
+	if strings.HasPrefix(roomID, "invitation-") {
+		invIDStr := strings.TrimPrefix(roomID, "invitation-")
+		invID, _ := strconv.ParseUint(invIDStr, 10, 32)
+		invitation, err := service.GetInvitationByID(uint(invID))
+		if err == nil && (invitation.Status == "completed" || invitation.Status == "rejected" || invitation.Status == "cancelled") {
+			c.JSON(http.StatusForbidden, gin.H{"error": "面试已结束或已失效，无法进入"})
+			return
+		}
+	}
+
+	// 2. 并发检查：检查该用户是否已经在其他房间（防止分身）
+	// 注意：这里允许重新进入同一个房间（断线重连），但禁止跨房间
+	activeClients := ws.GetHub().GetClientsByUserID(strconv.FormatUint(uint64(userID), 10))
+	for _, client := range activeClients {
+		if client.GetInterviewID() != roomID {
+			c.JSON(http.StatusConflict, gin.H{"error": "您已在其他面试间中，请先退出"})
+			return
+		}
+	}
+
+	query := c.Request.URL.Query()
+	query.Set("user_id", strconv.FormatUint(uint64(userID), 10))
+	query.Set("interview_id", roomID)
+	c.Request.URL.RawQuery = query.Encode()
+
+	ws.GetHub().HandleWebSocket(c.Writer, c.Request)
+}
 
 func StartInterview(c *gin.Context) {
 	userID := c.GetUint("user_id")
@@ -24,6 +97,7 @@ func StartInterview(c *gin.Context) {
 		Style         string `json:"style"`          // gentle, stress, deep, practical, algorithm
 		Company       string `json:"company"`        // ali, bytedance, tencent, meituan, baidu
 		InterviewMode string `json:"interview_mode"` // ai, human, random
+		InvitationID  *uint  `json:"invitation_id,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -66,9 +140,9 @@ func StartInterview(c *gin.Context) {
 		req.InterviewMode = "ai"
 	}
 
-	interview, err := service.StartInterview(userID, req.Position, req.Difficulty, req.Mode, req.Style, req.Company, req.InterviewMode)
+	interview, err := service.StartInterview(userID, req.Position, req.Difficulty, req.Mode, req.Style, req.Company, req.InterviewMode, req.InvitationID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -76,6 +150,122 @@ func StartInterview(c *gin.Context) {
 		"message":   "Interview started successfully",
 		"interview": interview,
 	})
+}
+
+// ListInviteCandidates returns university/enterprise users that can be invited for a mock interview.
+func ListInviteCandidates(c *gin.Context) {
+	role := c.DefaultQuery("role", "")
+	keyword := c.DefaultQuery("keyword", "")
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+
+	users, total, err := service.ListInviteCandidates(role, keyword, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"users":     users,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+	})
+}
+
+func CreateHumanInvitation(c *gin.Context) {
+	studentID := c.GetUint("user_id")
+
+	var req struct {
+		InviteeUserID uint   `json:"invitee_user_id" binding:"required"`
+		ScheduledAt   string `json:"scheduled_at,omitempty"`
+		Position      string `json:"position" binding:"required"`
+		Difficulty    string `json:"difficulty" binding:"required"`
+		Mode          string `json:"mode" binding:"required"`
+		Style         string `json:"style" binding:"required"`
+		Company       string `json:"company"`
+		Notes         string `json:"notes"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var scheduledAt *time.Time
+	if strings.TrimSpace(req.ScheduledAt) != "" {
+		parsed, err := time.Parse(time.RFC3339, req.ScheduledAt)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "时间格式无效，请使用 ISO 8601 格式"})
+			return
+		}
+		scheduledAt = &parsed
+	}
+
+	invitation, err := service.CreateHumanInvitation(
+		studentID,
+		req.InviteeUserID,
+		scheduledAt,
+		req.Position,
+		req.Difficulty,
+		req.Mode,
+		req.Style,
+		req.Company,
+		req.Notes,
+	)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"message": "邀请已发送", "invitation": invitation})
+}
+
+func GetHumanInvitations(c *gin.Context) {
+	studentID := c.GetUint("user_id")
+	invitations, err := service.ListHumanInvitations(studentID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"invitations": invitations})
+}
+
+func GetReceivedHumanInvitations(c *gin.Context) {
+	inviteeUserID := c.GetUint("user_id")
+	invitations, err := service.ListReceivedHumanInvitations(inviteeUserID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"invitations": invitations})
+}
+
+func RespondHumanInvitation(c *gin.Context) {
+	inviteeUserID := c.GetUint("user_id")
+	invitationID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid invitation ID"})
+		return
+	}
+
+	var req struct {
+		Action string `json:"action" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	invitation, err := service.RespondHumanInvitation(inviteeUserID, uint(invitationID), req.Action)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "邀请状态已更新", "invitation": invitation})
 }
 
 func GetInterview(c *gin.Context) {
@@ -128,6 +318,7 @@ func SubmitAnswer(c *gin.Context) {
 		QuestionContent string `json:"question_content,omitempty"`
 		Answer          string `json:"answer"`
 		AudioData       string `json:"audio_data,omitempty"`
+		AudioMime       string `json:"audio_mime,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -140,7 +331,7 @@ func SubmitAnswer(c *gin.Context) {
 		return
 	}
 
-	result, err := service.SubmitAnswer(userID, uint(interviewID), req.QuestionID, req.Answer, req.AudioData, req.QuestionTitle, req.QuestionContent)
+	result, err := service.SubmitAnswer(userID, uint(interviewID), req.QuestionID, req.Answer, req.AudioData, req.AudioMime, req.QuestionTitle, req.QuestionContent)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -228,6 +419,7 @@ func EndInterview(c *gin.Context) {
 func AnalyzeSpeechChunk(c *gin.Context) {
 	var req struct {
 		AudioData string  `json:"audio_data" binding:"required"`
+		AudioMime string  `json:"audio_mime,omitempty"`
 		Duration  float64 `json:"duration" binding:"required"`
 	}
 
@@ -236,8 +428,13 @@ func AnalyzeSpeechChunk(c *gin.Context) {
 		return
 	}
 
+	audioPayload := strings.TrimSpace(req.AudioData)
+	if !strings.HasPrefix(audioPayload, "data:") && strings.TrimSpace(req.AudioMime) != "" {
+		audioPayload = "data:" + strings.TrimSpace(req.AudioMime) + ";base64," + audioPayload
+	}
+
 	svc := service.NewSpeechAnalysisService()
-	metrics, err := svc.AnalyzeAudioChunk(req.AudioData, req.Duration)
+	metrics, err := svc.AnalyzeAudioChunk(audioPayload, req.Duration)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -557,7 +754,7 @@ func GetInterviewConfig(c *gin.Context) {
 		},
 		"interview_modes": []gin.H{
 			{"key": "ai", "label": "AI仿真面试官", "icon": "🤖", "description": "AI模拟真实面试官进行面试"},
-			{"key": "human", "label": "真人面试", "icon": "👤", "description": "预约真人面试官进行面试"},
+			{"key": "human", "label": "真人面试", "icon": "👤", "description": "邀请学校端/企业端账号参与模拟面试"},
 			{"key": "random", "label": "随机模式", "icon": "🎲", "description": "系统随机分配面试风格，不提前告知"},
 		},
 	})
