@@ -410,10 +410,18 @@ const speechMetrics = ref({
   speechRateLevel: 'normal',
   fillerWordCount: 0,
   fluencyAlert: false,
-  totalFillerWords: 0
+  totalFillerWords: 0,
+  transcribedText: ''
 })
 const energyLevel = ref(0)
 const speechAnalysisActive = ref(false)
+const speechRateSmoother = ref(0)
+
+const classifySpeechRateLevelClient = (rate) => {
+  if (rate < 120) return 'slow'
+  if (rate <= 240) return 'normal'
+  return 'fast'
+}
 
 // Audio chunk recording for speech analysis
 let audioContext = null
@@ -543,11 +551,31 @@ const sendSpeechChunk = async (audioBase64, duration, audioMime = '') => {
     })
     if (res.metrics) {
       const m = res.metrics
-      speechMetrics.value.speechRate = m.speech_rate
-      speechMetrics.value.speechRateLevel = m.speech_rate_level
+      const transcribed = String(m.transcribed_text || '').trim()
+      const charCount = Number(m.char_count) || 0
+      const rawRate = Number(m.speech_rate) || 0
+      let boundedRate = Math.max(0, Math.min(rawRate, 280))
+
+      // Empty / near-empty chunks should not push the gauge to high speed.
+      if (!transcribed || charCount <= 1) {
+        boundedRate = 0
+      }
+
+      const alpha = transcribed ? 0.35 : 0.2
+      if (!speechRateSmoother.value || !Number.isFinite(speechRateSmoother.value)) {
+        speechRateSmoother.value = boundedRate
+      } else {
+        speechRateSmoother.value = (speechRateSmoother.value * (1 - alpha)) + (boundedRate * alpha)
+      }
+
+      speechMetrics.value.speechRate = Math.round(speechRateSmoother.value * 10) / 10
+      speechMetrics.value.speechRateLevel = classifySpeechRateLevelClient(speechMetrics.value.speechRate)
       speechMetrics.value.fillerWordCount = m.filler_word_count
       speechMetrics.value.fluencyAlert = m.fluency_alert
       speechMetrics.value.totalFillerWords += m.filler_word_count
+      if (transcribed) {
+        speechMetrics.value.transcribedText = transcribed
+      }
     }
   } catch (err) {
     console.warn('Speech analysis chunk failed:', err)
@@ -1044,6 +1072,24 @@ const normalizeAnswerSubmitError = (msg = '') => {
   if (/field\s+validation.*answer.*required/i.test(text) || /key:\s*'answer'/i.test(text)) {
     return '您似乎没有做出任何回答'
   }
+  if (text.includes('语音转写预算已达上限')) {
+    return '语音转写次数已达上限，请改用文字作答或开始新一场面试'
+  }
+  if (/audio\s+too\s+large|413/i.test(text)) {
+    return '语音文件过大，请缩短录音后重试'
+  }
+  if (/status:\s*401|invalid\s+api\s*key|unauthorized|authentication/i.test(text)) {
+    return '语音服务鉴权失败，请检查 ASR 的 API Key 是否有效'
+  }
+  if (/status:\s*429|quota|rate\s*limit|too\s+many\s+requests/i.test(text)) {
+    return '语音服务额度或频率受限，请稍后重试'
+  }
+  if (/instruction\s+text|prompt\s+echo|possible\s+model\/provider\s+mismatch/i.test(text)) {
+    return '语音转写服务返回了提示词回显，当前模型可能不兼容音频转写'
+  }
+  if (/model|unsupported\s+asr\s+provider|not\s+found/i.test(text) && /transcrib|audio/i.test(text)) {
+    return '当前语音模型不可用，请检查 asr.model 和服务商兼容性'
+  }
   if (/failed\s+to\s+transcribe\s+audio/i.test(text) || /empty\s+transcription\s+result/i.test(text)) {
     return '未识别到有效语音，请靠近麦克风并清晰作答后重试'
   }
@@ -1184,6 +1230,8 @@ const startAnswerRecording = async () => {
   quietSeconds.value = 0
   answerAudioChunks = []
   answerRecorderMimeType = ''
+  speechRateSmoother.value = 0
+  speechMetrics.value.transcribedText = ''
 
   try {
     answerRecorderStream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -2269,7 +2317,7 @@ onUnmounted(() => {
                </div>
                 <div class="rounded-xl bg-white border border-zinc-200 p-3 min-h-0 flex-1 overflow-hidden">
                   <p class="text-[11px] text-zinc-400">最近语音转写</p>
-                  <p class="text-sm text-zinc-700 mt-1 whitespace-pre-wrap break-words max-h-full overflow-y-auto custom-scrollbar">{{ latestUserTranscript || '暂无转写内容' }}</p>
+                  <p class="text-sm text-zinc-700 mt-1 whitespace-pre-wrap break-words max-h-full overflow-y-auto custom-scrollbar">{{ speechMetrics.transcribedText || latestUserTranscript || '暂无转写内容' }}</p>
                 </div>
              </div>
            </template>

@@ -4,7 +4,7 @@ import (
 	"math"
 	"regexp"
 	"strings"
-	"unicode/utf8"
+	"unicode"
 )
 
 // SpeechMetrics holds real-time speech analysis results for a single audio chunk
@@ -55,12 +55,19 @@ func (s *SpeechAnalysisService) AnalyzeAudioChunk(audioBase64 string, chunkDurat
 // AnalyzeText computes speech metrics from already-transcribed text and known duration
 func (s *SpeechAnalysisService) AnalyzeText(text string, durationSec float64) *SpeechMetrics {
 	text = strings.TrimSpace(text)
-	charCount := utf8.RuneCountInString(text)
+	charCount := countMeaningfulChars(text)
 
 	// Calculate speech rate (chars per minute)
 	var speechRate float64
 	if durationSec > 0 {
-		speechRate = float64(charCount) / (durationSec / 60.0)
+		effectiveDuration := durationSec
+		if effectiveDuration < 5 {
+			effectiveDuration = 5
+		}
+		speechRate = float64(charCount) / (effectiveDuration / 60.0)
+		if speechRate > 280 {
+			speechRate = 280
+		}
 	}
 
 	// Determine speech rate level
@@ -86,6 +93,19 @@ func (s *SpeechAnalysisService) AnalyzeText(text string, durationSec float64) *S
 		Duration:        durationSec,
 		CharCount:       charCount,
 	}
+}
+
+func countMeaningfulChars(text string) int {
+	count := 0
+	for _, r := range text {
+		if unicode.IsSpace(r) || unicode.IsPunct(r) {
+			continue
+		}
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.In(r, unicode.Han) {
+			count++
+		}
+	}
+	return count
 }
 
 // classifySpeechRate maps chars/min to a level

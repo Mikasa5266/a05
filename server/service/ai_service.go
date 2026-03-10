@@ -1774,31 +1774,125 @@ func clampScore(value int) int {
 
 func (s *AIService) transcribeWithWhisper(audioData []byte, mimeType string) (string, error) {
 	asrConfig := config.GetConfig().ASR
-	client := asr.NewWhisperClient(asrConfig.APIKey, asrConfig.BaseURL, asrConfig.Model)
+	primaryModel := strings.TrimSpace(asrConfig.Model)
+	if primaryModel == "" {
+		primaryModel = "gpt-4o-transcribe"
+	}
+	client := asr.NewWhisperClient(asrConfig.APIKey, asrConfig.BaseURL, primaryModel)
 
-	prompt := "这是一次中文技术面试语音转写。请逐字转写，不要意译，不要补充不存在内容；保留英文技术术语、数字与代码标识。"
+	prompt := "这是一次中文技术面试语音转写。请逐字转写，不要意译，不要补充不存在内容；保留英文技术术语、数字与代码标识。若听到数字序列（如12345），请直接按数字或对应逐字输出，不要改写成完整句子。"
 	text, err := client.TranscribeAudioWithOptions(audioData, "zh", mimeType, prompt)
-	if err != nil {
-		return "", fmt.Errorf("whisper transcription failed: %w", err)
+	primaryErr := err
+	if err == nil {
+		text = strings.TrimSpace(text)
+		if isASRPromptEcho(text) {
+			primaryErr = fmt.Errorf("asr returned instruction text, possible model/provider mismatch")
+		} else if text == "" {
+			primaryErr = fmt.Errorf("empty transcription result")
+		}
 	}
-
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return "", fmt.Errorf("empty transcription result")
-	}
-
-	// If long audio produces extremely short/low-signal text, retry once without forced language.
-	if shouldRetryASR(text, len(audioData)) {
-		retried, retryErr := client.TranscribeAudioWithOptions(audioData, "", mimeType, prompt)
-		if retryErr == nil {
-			retried = strings.TrimSpace(retried)
-			if retried != "" && !shouldRetryASR(retried, len(audioData)) {
-				text = retried
+	if primaryErr != nil {
+		// Some OpenAI-compatible gateways mishandle `prompt` in transcription.
+		noPromptText, noPromptErr := client.TranscribeAudioWithOptions(audioData, "zh", mimeType, "")
+		if noPromptErr == nil {
+			noPromptText = strings.TrimSpace(noPromptText)
+			if noPromptText != "" && !isASRPromptEcho(noPromptText) {
+				if shouldRetryASR(noPromptText, len(audioData)) {
+					retried, retryErr := client.TranscribeAudioWithOptions(audioData, "", mimeType, "")
+					if retryErr == nil {
+						retried = strings.TrimSpace(retried)
+						if retried != "" && !isASRPromptEcho(retried) && !shouldRetryASR(retried, len(audioData)) {
+							noPromptText = retried
+						}
+					}
+				}
+				log.Printf("ASR prompt-less retry activated: model=%s", primaryModel)
+				return noPromptText, nil
 			}
 		}
 	}
 
-	return text, nil
+	if primaryErr == nil {
+		// If long audio produces extremely short/low-signal text, retry once without forced language.
+		if shouldRetryASR(text, len(audioData)) {
+			retried, retryErr := client.TranscribeAudioWithOptions(audioData, "", mimeType, prompt)
+			if retryErr == nil {
+				retried = strings.TrimSpace(retried)
+				if retried != "" && !isASRPromptEcho(retried) && !shouldRetryASR(retried, len(audioData)) {
+					text = retried
+				}
+			}
+		}
+		return text, nil
+	}
+
+	if strings.EqualFold(primaryModel, "whisper-1") {
+		return "", fmt.Errorf("whisper transcription failed (model=%s): %w", primaryModel, primaryErr)
+	}
+
+	// Fallback for provider compatibility issues: downgrade to whisper-1.
+	fallbackModel := "whisper-1"
+	fallbackClient := asr.NewWhisperClient(asrConfig.APIKey, asrConfig.BaseURL, fallbackModel)
+	fallbackText, fallbackErr := fallbackClient.TranscribeAudioWithOptions(audioData, "zh", mimeType, prompt)
+	if fallbackErr == nil {
+		fallbackText = strings.TrimSpace(fallbackText)
+		if fallbackText != "" && !isASRPromptEcho(fallbackText) {
+			if shouldRetryASR(fallbackText, len(audioData)) {
+				retried, retryErr := fallbackClient.TranscribeAudioWithOptions(audioData, "", mimeType, prompt)
+				if retryErr == nil {
+					retried = strings.TrimSpace(retried)
+					if retried != "" && !isASRPromptEcho(retried) && !shouldRetryASR(retried, len(audioData)) {
+						fallbackText = retried
+					}
+				}
+			}
+			log.Printf("ASR fallback activated: model=%s -> %s", primaryModel, fallbackModel)
+			return fallbackText, nil
+		}
+		fallbackErr = fmt.Errorf("empty or prompt-echo transcription")
+	}
+	if fallbackErr != nil {
+		fallbackNoPromptText, fallbackNoPromptErr := fallbackClient.TranscribeAudioWithOptions(audioData, "zh", mimeType, "")
+		if fallbackNoPromptErr == nil {
+			fallbackNoPromptText = strings.TrimSpace(fallbackNoPromptText)
+			if fallbackNoPromptText != "" && !isASRPromptEcho(fallbackNoPromptText) {
+				if shouldRetryASR(fallbackNoPromptText, len(audioData)) {
+					retried, retryErr := fallbackClient.TranscribeAudioWithOptions(audioData, "", mimeType, "")
+					if retryErr == nil {
+						retried = strings.TrimSpace(retried)
+						if retried != "" && !isASRPromptEcho(retried) && !shouldRetryASR(retried, len(audioData)) {
+							fallbackNoPromptText = retried
+						}
+					}
+				}
+				log.Printf("ASR fallback prompt-less retry activated: model=%s -> %s", primaryModel, fallbackModel)
+				return fallbackNoPromptText, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("whisper transcription failed (model=%s): %v; fallback %s failed: %v", primaryModel, primaryErr, fallbackModel, fallbackErr)
+}
+
+func isASRPromptEcho(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return false
+	}
+	echoMarkers := []string{
+		"这是一次中文技术面试语音转写",
+		"请逐字转写",
+		"不要意译",
+		"不要补充不存在内容",
+		"保留英文技术术语",
+	}
+	hits := 0
+	for _, marker := range echoMarkers {
+		if strings.Contains(trimmed, marker) {
+			hits++
+		}
+	}
+	return hits >= 2
 }
 
 func shouldRetryASR(text string, audioBytes int) bool {

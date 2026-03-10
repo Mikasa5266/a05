@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
@@ -142,7 +143,8 @@ func (c *WhisperClient) TranscribeAudioWithOptions(audioData []byte, language, m
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API returned status: %d", resp.StatusCode)
+		respBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("API returned status: %d, body: %s", resp.StatusCode, strings.TrimSpace(string(respBytes)))
 	}
 
 	var result TranscriptionResponse
