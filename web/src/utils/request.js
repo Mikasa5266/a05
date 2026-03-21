@@ -59,7 +59,7 @@ service.interceptors.response.use(
         window.location.href = `/${portal}/login`
       }
     } else if (error?.code === 'ECONNABORTED') {
-      error.message = '请求超时，请稍后重试（AI处理较慢时属于正常现象）'
+      error.message = '请求超时：长语音转写可能超过等待时长。请重试，或将单次语音控制在 30-45 秒内分段提交。'
     }
     return Promise.reject(error)
   }

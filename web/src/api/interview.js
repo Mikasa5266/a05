@@ -27,7 +27,8 @@ export function submitAnswer(id, data) {
   return request({
     url: `/interview/${id}/answer`,
     method: 'put',
-    data
+    data,
+    timeout: 180000
   })
 }
 
@@ -192,5 +193,30 @@ export function respondHumanInvitation(invitationId, action) {
     url: `/interview/invitations/${invitationId}/respond`,
     method: 'post',
     data: { action }
+  })
+}
+
+export function getAlgorithmSession(interviewId, params = {}) {
+  return request({
+    url: `/interview/${interviewId}/algorithm/session`,
+    method: 'get',
+    params
+  })
+}
+
+export function runAlgorithmCode(interviewId, data) {
+  return request({
+    url: `/interview/${interviewId}/algorithm/run`,
+    method: 'post',
+    data,
+    timeout: 120000
+  })
+}
+
+export function skipAlgorithmProblem(interviewId, data) {
+  return request({
+    url: `/interview/${interviewId}/algorithm/skip`,
+    method: 'post',
+    data
   })
 }

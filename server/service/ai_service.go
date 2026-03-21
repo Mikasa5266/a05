@@ -1439,15 +1439,12 @@ func (s *AIService) GenerateFollowUpQuestion(interview *model.Interview, current
 
 func (s *AIService) TranscribeAudio(audioData string) (string, error) {
 	mimeType, base64Payload := parseAudioPayload(audioData)
-	decodedAudio, err := base64.StdEncoding.DecodeString(base64Payload)
+	decodedAudio, err := decodeAudioBase64Payload(base64Payload)
 	if err != nil {
 		return "", fmt.Errorf("failed to decode audio data: %w", err)
 	}
 
 	asrConfig := config.GetConfig().ASR
-	if asrConfig.MaxAudioBytes > 0 && len(decodedAudio) > asrConfig.MaxAudioBytes {
-		return "", fmt.Errorf("audio too large: %d bytes (max %d)", len(decodedAudio), asrConfig.MaxAudioBytes)
-	}
 
 	if asrConfig.Provider == "whisper" || asrConfig.Provider == "openai" || asrConfig.Provider == "" {
 		return s.transcribeWithWhisper(decodedAudio, mimeType)
@@ -1474,6 +1471,37 @@ func parseAudioPayload(audioData string) (mimeType string, base64Payload string)
 	return "", trimmed
 }
 
+func decodeAudioBase64Payload(payload string) ([]byte, error) {
+	trimmed := strings.TrimSpace(payload)
+	if trimmed == "" {
+		return nil, fmt.Errorf("audio payload is empty")
+	}
+
+	decodeOrders := []func(string) ([]byte, error){
+		base64.StdEncoding.DecodeString,
+		base64.RawStdEncoding.DecodeString,
+		base64.URLEncoding.DecodeString,
+		base64.RawURLEncoding.DecodeString,
+	}
+	for _, decode := range decodeOrders {
+		if data, err := decode(trimmed); err == nil {
+			return data, nil
+		}
+	}
+
+	normalized := strings.ReplaceAll(trimmed, " ", "+")
+	if rem := len(normalized) % 4; rem != 0 {
+		normalized += strings.Repeat("=", 4-rem)
+	}
+	for _, decode := range decodeOrders {
+		if data, err := decode(normalized); err == nil {
+			return data, nil
+		}
+	}
+
+	return nil, fmt.Errorf("invalid base64 payload")
+}
+
 func (s *AIService) SynthesizeSpeech(text string) ([]byte, error) {
 	ttsConfig := config.GetConfig().TTS
 	if !ttsConfig.Enabled {
@@ -1484,10 +1512,6 @@ func (s *AIService) SynthesizeSpeech(text string) ([]byte, error) {
 	if trimmed == "" {
 		return nil, fmt.Errorf("text is empty")
 	}
-	if ttsConfig.MaxCharsPerRequest > 0 && len([]rune(trimmed)) > ttsConfig.MaxCharsPerRequest {
-		trimmed = string([]rune(trimmed)[:ttsConfig.MaxCharsPerRequest])
-	}
-
 	baseURL := strings.TrimSpace(ttsConfig.BaseURL)
 	if baseURL == "" {
 		baseURL = "https://api.openai.com/v1"
@@ -1774,14 +1798,18 @@ func clampScore(value int) int {
 
 func (s *AIService) transcribeWithWhisper(audioData []byte, mimeType string) (string, error) {
 	asrConfig := config.GetConfig().ASR
-	primaryModel := strings.TrimSpace(asrConfig.Model)
-	if primaryModel == "" {
-		primaryModel = "gpt-4o-transcribe"
+	configuredModel := strings.TrimSpace(asrConfig.Model)
+	primaryModel := resolveASRModel(configuredModel)
+	if configuredModel != "" && !strings.EqualFold(configuredModel, primaryModel) {
+		log.Printf("ASR model '%s' is not a transcription model, fallback to '%s'", configuredModel, primaryModel)
 	}
 	client := asr.NewWhisperClient(asrConfig.APIKey, asrConfig.BaseURL, primaryModel)
+	language := "zh"
+	log.Printf("ASR request start: model=%s mime=%s bytes=%d", primaryModel, strings.TrimSpace(mimeType), len(audioData))
 
-	prompt := "这是一次中文技术面试语音转写。请逐字转写，不要意译，不要补充不存在内容；保留英文技术术语、数字与代码标识。若听到数字序列（如12345），请直接按数字或对应逐字输出，不要改写成完整句子。"
-	text, err := client.TranscribeAudioWithOptions(audioData, "zh", mimeType, prompt)
+	// Keep ASR constraints minimal to improve recognition compatibility.
+	prompt := ""
+	text, err := client.TranscribeAudioWithOptions(audioData, language, mimeType, prompt)
 	primaryErr := err
 	if err == nil {
 		text = strings.TrimSpace(text)
@@ -1793,12 +1821,12 @@ func (s *AIService) transcribeWithWhisper(audioData []byte, mimeType string) (st
 	}
 	if primaryErr != nil {
 		// Some OpenAI-compatible gateways mishandle `prompt` in transcription.
-		noPromptText, noPromptErr := client.TranscribeAudioWithOptions(audioData, "zh", mimeType, "")
+		noPromptText, noPromptErr := client.TranscribeAudioWithOptions(audioData, language, mimeType, "")
 		if noPromptErr == nil {
 			noPromptText = strings.TrimSpace(noPromptText)
 			if noPromptText != "" && !isASRPromptEcho(noPromptText) {
 				if shouldRetryASR(noPromptText, len(audioData)) {
-					retried, retryErr := client.TranscribeAudioWithOptions(audioData, "", mimeType, "")
+					retried, retryErr := client.TranscribeAudioWithOptions(audioData, language, mimeType, "")
 					if retryErr == nil {
 						retried = strings.TrimSpace(retried)
 						if retried != "" && !isASRPromptEcho(retried) && !shouldRetryASR(retried, len(audioData)) {
@@ -1815,7 +1843,7 @@ func (s *AIService) transcribeWithWhisper(audioData []byte, mimeType string) (st
 	if primaryErr == nil {
 		// If long audio produces extremely short/low-signal text, retry once without forced language.
 		if shouldRetryASR(text, len(audioData)) {
-			retried, retryErr := client.TranscribeAudioWithOptions(audioData, "", mimeType, prompt)
+			retried, retryErr := client.TranscribeAudioWithOptions(audioData, language, mimeType, prompt)
 			if retryErr == nil {
 				retried = strings.TrimSpace(retried)
 				if retried != "" && !isASRPromptEcho(retried) && !shouldRetryASR(retried, len(audioData)) {
@@ -1823,6 +1851,7 @@ func (s *AIService) transcribeWithWhisper(audioData []byte, mimeType string) (st
 				}
 			}
 		}
+		log.Printf("ASR request success: model=%s bytes=%d chars=%d", primaryModel, len(audioData), len([]rune(text)))
 		return text, nil
 	}
 
@@ -1833,12 +1862,12 @@ func (s *AIService) transcribeWithWhisper(audioData []byte, mimeType string) (st
 	// Fallback for provider compatibility issues: downgrade to whisper-1.
 	fallbackModel := "whisper-1"
 	fallbackClient := asr.NewWhisperClient(asrConfig.APIKey, asrConfig.BaseURL, fallbackModel)
-	fallbackText, fallbackErr := fallbackClient.TranscribeAudioWithOptions(audioData, "zh", mimeType, prompt)
+	fallbackText, fallbackErr := fallbackClient.TranscribeAudioWithOptions(audioData, language, mimeType, prompt)
 	if fallbackErr == nil {
 		fallbackText = strings.TrimSpace(fallbackText)
 		if fallbackText != "" && !isASRPromptEcho(fallbackText) {
 			if shouldRetryASR(fallbackText, len(audioData)) {
-				retried, retryErr := fallbackClient.TranscribeAudioWithOptions(audioData, "", mimeType, prompt)
+				retried, retryErr := fallbackClient.TranscribeAudioWithOptions(audioData, language, mimeType, prompt)
 				if retryErr == nil {
 					retried = strings.TrimSpace(retried)
 					if retried != "" && !isASRPromptEcho(retried) && !shouldRetryASR(retried, len(audioData)) {
@@ -1847,17 +1876,18 @@ func (s *AIService) transcribeWithWhisper(audioData []byte, mimeType string) (st
 				}
 			}
 			log.Printf("ASR fallback activated: model=%s -> %s", primaryModel, fallbackModel)
+			log.Printf("ASR request success: model=%s bytes=%d chars=%d", fallbackModel, len(audioData), len([]rune(fallbackText)))
 			return fallbackText, nil
 		}
 		fallbackErr = fmt.Errorf("empty or prompt-echo transcription")
 	}
 	if fallbackErr != nil {
-		fallbackNoPromptText, fallbackNoPromptErr := fallbackClient.TranscribeAudioWithOptions(audioData, "zh", mimeType, "")
+		fallbackNoPromptText, fallbackNoPromptErr := fallbackClient.TranscribeAudioWithOptions(audioData, language, mimeType, "")
 		if fallbackNoPromptErr == nil {
 			fallbackNoPromptText = strings.TrimSpace(fallbackNoPromptText)
 			if fallbackNoPromptText != "" && !isASRPromptEcho(fallbackNoPromptText) {
 				if shouldRetryASR(fallbackNoPromptText, len(audioData)) {
-					retried, retryErr := fallbackClient.TranscribeAudioWithOptions(audioData, "", mimeType, "")
+					retried, retryErr := fallbackClient.TranscribeAudioWithOptions(audioData, language, mimeType, "")
 					if retryErr == nil {
 						retried = strings.TrimSpace(retried)
 						if retried != "" && !isASRPromptEcho(retried) && !shouldRetryASR(retried, len(audioData)) {
@@ -1866,6 +1896,7 @@ func (s *AIService) transcribeWithWhisper(audioData []byte, mimeType string) (st
 					}
 				}
 				log.Printf("ASR fallback prompt-less retry activated: model=%s -> %s", primaryModel, fallbackModel)
+				log.Printf("ASR request success: model=%s bytes=%d chars=%d", fallbackModel, len(audioData), len([]rune(fallbackNoPromptText)))
 				return fallbackNoPromptText, nil
 			}
 		}
@@ -1875,29 +1906,76 @@ func (s *AIService) transcribeWithWhisper(audioData []byte, mimeType string) (st
 }
 
 func isASRPromptEcho(text string) bool {
-	trimmed := strings.TrimSpace(text)
-	if trimmed == "" {
+	// Disable strict prompt-echo rejection to avoid false negatives.
+	_ = text
+	return false
+}
+
+func resolveASRModel(configured string) string {
+	model := strings.TrimSpace(configured)
+	if model == "" {
+		return "whisper-1"
+	}
+	if looksLikeNonASRModel(model) {
+		return "whisper-1"
+	}
+	return model
+}
+
+func looksLikeNonASRModel(model string) bool {
+	lower := strings.ToLower(strings.TrimSpace(model))
+	if lower == "" {
+		return true
+	}
+	if strings.Contains(lower, "transcribe") || strings.Contains(lower, "whisper") || strings.Contains(lower, "asr") {
 		return false
 	}
-	echoMarkers := []string{
-		"这是一次中文技术面试语音转写",
-		"请逐字转写",
-		"不要意译",
-		"不要补充不存在内容",
-		"保留英文技术术语",
+	if strings.HasPrefix(lower, "gpt-") {
+		// GPT models for /audio/transcriptions must be *-transcribe variants.
+		return true
 	}
-	hits := 0
-	for _, marker := range echoMarkers {
-		if strings.Contains(trimmed, marker) {
-			hits++
+	nonASRTokens := []string{
+		"gemini", "deepseek", "qwen", "glm", "claude", "grok", "llama", "ernie", "doubao",
+	}
+	for _, token := range nonASRTokens {
+		if strings.Contains(lower, token) {
+			return true
 		}
 	}
-	return hits >= 2
+	return false
+}
+
+func isLowInformationTranscription(text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	normalized = strings.Trim(normalized, " \t\r\n.,!?;:'\"`~()[]{}<>，。！？；：")
+	if normalized == "" {
+		return true
+	}
+
+	lowInfo := map[string]struct{}{
+		"you":          {},
+		"uh":           {},
+		"um":           {},
+		"hmm":          {},
+		"嗯":            {},
+		"啊":            {},
+		"呃":            {},
+		"哦":            {},
+		"知道了":          {},
+		"不知道":          {},
+		"听不清":          {},
+		"i don't know": {},
+	}
+	_, exists := lowInfo[normalized]
+	return exists
 }
 
 func shouldRetryASR(text string, audioBytes int) bool {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
+		return true
+	}
+	if audioBytes >= 30000 && isLowInformationTranscription(trimmed) {
 		return true
 	}
 	runes := []rune(trimmed)

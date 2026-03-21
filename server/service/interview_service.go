@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"your-project/config"
 	"your-project/model"
 	"your-project/repository"
 )
@@ -28,6 +27,22 @@ func NewInterviewService() *InterviewService {
 	}
 }
 
+func normalizeInterviewPosition(position string) string {
+	p := strings.ToLower(strings.TrimSpace(position))
+	switch {
+	case p == "", strings.Contains(p, "java"), strings.Contains(p, "后端"), p == "backend":
+		return "Java后端工程师"
+	case strings.Contains(p, "前端"), strings.Contains(p, "frontend"):
+		return "前端工程师"
+	case strings.Contains(p, "算法"), p == "algorithm":
+		return "算法工程师"
+	case strings.Contains(p, "ai"), strings.Contains(p, "llm"), strings.Contains(p, "模型"), p == "ai_engineer":
+		return "AI工程师"
+	default:
+		return "Java后端工程师"
+	}
+}
+
 // StartInterview now accepts mode, style, company, and interviewMode. It uses AI to generate questions based on these parameters.
 func (s *InterviewService) StartInterview(userID uint, position, difficulty, mode, style, company, interviewMode string, invitationID *uint) (*model.Interview, error) {
 	var questions []*model.Question
@@ -38,6 +53,7 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 
 	topicCount, totalTarget := buildInterviewPlan(difficulty)
 	topicQuestionMin, topicQuestionMax, maxFollowUps := 2, 4, 3
+	position = normalizeInterviewPosition(position)
 
 	// ==== Dynamic Adapter: Load Capability Graph ====
 	// Try to find capability graph from RAG/KnowledgeBase or Enterprise settings
@@ -75,7 +91,7 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 		}
 		invitation = loaded
 		if invitation.Position != "" {
-			position = invitation.Position
+			position = normalizeInterviewPosition(invitation.Position)
 		}
 		if invitation.Difficulty != "" {
 			difficulty = invitation.Difficulty
@@ -189,6 +205,43 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 					questions = append(questions, q)
 				}
 			}
+		}
+	}
+
+	questions = s.prioritizeTopicVariety(questions, topicCount)
+
+	if len(questions) < topicCount {
+		dummyInterview := &model.Interview{
+			Position:   position,
+			Difficulty: difficulty,
+			Mode:       mode,
+			Style:      style,
+			Company:    company,
+		}
+		maxAttempts := (topicCount - len(questions)) * 4
+		for i := 0; i < maxAttempts && len(questions) < topicCount; i++ {
+			q, genErr := s.aiService.GenerateNextQuestionWithWeights(dummyInterview, nil, capabilityGraph)
+			if genErr != nil {
+				q, genErr = s.aiService.GenerateNextQuestion(dummyInterview, nil)
+				if genErr != nil {
+					continue
+				}
+			}
+			q.Position = position
+			q.Difficulty = difficulty
+			q.Source = "ai_opening"
+			q.RAGEligible = true
+			normalized := s.normalizeOpeningQuestion(q)
+			if normalized == nil {
+				continue
+			}
+			if s.isDuplicateOpeningQuestion(questions, normalized) {
+				continue
+			}
+			if err := s.questionRepo.Create(normalized); err != nil {
+				continue
+			}
+			questions = append(questions, normalized)
 		}
 	}
 
@@ -457,6 +510,8 @@ func (s *InterviewService) GetInterviewByID(userID, interviewID uint) (*model.In
 }
 
 func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, answer, audioData, audioMime, questionTitle, questionContent string) (*model.AnswerResult, error) {
+	_ = audioMime
+
 	interview, err := s.GetInterviewByID(userID, interviewID)
 	if err != nil {
 		return nil, err
@@ -483,14 +538,7 @@ func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, an
 
 	var finalAnswer string
 	if audioData != "" {
-		if cfgMax := config.GetConfig().ASR.MaxCallsPerInterview; cfgMax > 0 && interview.ASRCallCount >= cfgMax {
-			return nil, fmt.Errorf("语音转写预算已达上限，请切换文字作答")
-		}
-		audioPayload := strings.TrimSpace(audioData)
-		if !strings.HasPrefix(audioPayload, "data:") && strings.TrimSpace(audioMime) != "" {
-			audioPayload = fmt.Sprintf("data:%s;base64,%s", strings.TrimSpace(audioMime), audioPayload)
-		}
-		transcribedText, err := s.aiService.TranscribeAudio(audioPayload)
+		transcribedText, err := s.aiService.TranscribeAudio(strings.TrimSpace(audioData))
 		if err != nil {
 			return nil, fmt.Errorf("failed to transcribe audio: %w", err)
 		}
@@ -519,21 +567,14 @@ func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, an
 	}
 
 	answers, _ := s.interviewRepo.GetAnswersByInterviewID(interviewID)
-	if shouldEndEarlyForZeroScores(answers, 3) {
-		interview.Status = "completed"
-		now := time.Now()
-		interview.EndTime = &now
-		interview.CurrentIndex = len(answers)
-		result.InterviewCompleted = true
-		if err := s.interviewRepo.Update(interview); err != nil {
-			return nil, fmt.Errorf("failed to update interview: %w", err)
-		}
-		return result, nil
-	}
 
 	// ==== Dynamic Follow-Up Logic ====
 	// Follow-up questions are generated in real time and kept ephemeral (no DB write).
-	shouldFollowUp, nextQuestion, err := s.decideNextQuestion(interview, evalQuestion, finalAnswer, evaluation.Score)
+	askedQuestionText := strings.TrimSpace(evalQuestion.Content)
+	if askedQuestionText == "" {
+		askedQuestionText = strings.TrimSpace(evalQuestion.Title)
+	}
+	shouldFollowUp, nextQuestion, err := s.decideNextQuestion(interview, baseQuestion, askedQuestionText, finalAnswer, evaluation.Score)
 	if err != nil {
 		fmt.Printf("Dynamic question generation failed: %v\n", err)
 	}
@@ -584,11 +625,12 @@ func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, an
 }
 
 // decideNextQuestion determines if a follow-up is needed and generates it
-func (s *InterviewService) decideNextQuestion(interview *model.Interview, currentQ *model.Question, answer string, score int) (bool, *model.Question, error) {
+func (s *InterviewService) decideNextQuestion(interview *model.Interview, topicRootQ *model.Question, askedQuestionText, answer string, score int) (bool, *model.Question, error) {
 	if interview == nil {
 		return false, nil, nil
 	}
 	if score <= 0 {
+		// Hard stop current topic when answer quality is 0.
 		return false, nil, nil
 	}
 	// 1. Check constraints
@@ -646,14 +688,14 @@ func (s *InterviewService) decideNextQuestion(interview *model.Interview, curren
 		}
 	}
 
-	nextQ, reason, err := s.aiService.GenerateFollowUpQuestion(interview, currentQ, answer, ragContext, interview.FollowUpCount)
+	nextQ, reason, err := s.aiService.GenerateFollowUpQuestion(interview, topicRootQ, answer, ragContext, interview.FollowUpCount)
 	if err != nil {
 		return false, nil, err
 	}
 
 	if nextQ == nil {
 		if forceFollowUp {
-			forced, err := s.aiService.GenerateClarifyingFollowUpQuestion(currentQ, answer, interview.FollowUpCount)
+			forced, err := s.aiService.GenerateClarifyingFollowUpQuestion(topicRootQ, answer, interview.FollowUpCount)
 			if err != nil {
 				return false, nil, nil
 			}
@@ -668,6 +710,16 @@ func (s *InterviewService) decideNextQuestion(interview *model.Interview, curren
 	if isMeaninglessFollowUpQuestion(nextQ) {
 		return false, nil, nil
 	}
+	if s.isDuplicateQuestionInSession(interview.ID, askedQuestionText, nextQ) {
+		if forceFollowUp {
+			forced, forceErr := s.aiService.GenerateClarifyingFollowUpQuestion(topicRootQ, answer, interview.FollowUpCount)
+			if forceErr != nil || isMeaninglessFollowUpQuestion(forced) || s.isDuplicateQuestionInSession(interview.ID, askedQuestionText, forced) {
+				return false, nil, nil
+			}
+			return true, forced, nil
+		}
+		return false, nil, nil
+	}
 
 	// Add metadata for frontend (e.g., reason for follow-up)
 	// We could store this in a new field if needed.
@@ -676,29 +728,71 @@ func (s *InterviewService) decideNextQuestion(interview *model.Interview, curren
 	return true, nextQ, nil
 }
 
-func shouldEndEarlyForZeroScores(answers []model.AnswerResult, minCount int) bool {
-	if len(answers) < minCount {
+func (s *InterviewService) isDuplicateQuestionInSession(interviewID uint, askedQuestionText string, candidate *model.Question) bool {
+	if candidate == nil {
+		return true
+	}
+	if isNearDuplicateQuestionText(askedQuestionText, candidate) {
+		return true
+	}
+
+	candidateKey := normalizeQuestionKey(candidate.Title, candidate.Content)
+	if candidateKey == "" {
+		return true
+	}
+
+	answers, err := s.interviewRepo.GetAnswersByInterviewID(interviewID)
+	if err != nil {
 		return false
 	}
-	for _, a := range answers {
-		if a.Score > 0 {
-			return false
+
+	for _, ans := range answers {
+		text := strings.TrimSpace(ans.Question.Content)
+		if text == "" {
+			text = strings.TrimSpace(ans.Question.Title)
+		}
+		if text == "" && ans.QuestionID != 0 {
+			storedQ, qErr := s.questionRepo.GetByID(ans.QuestionID)
+			if qErr == nil && storedQ != nil {
+				text = strings.TrimSpace(storedQ.Content)
+				if text == "" {
+					text = strings.TrimSpace(storedQ.Title)
+				}
+			}
+		}
+		if text == "" {
+			continue
+		}
+
+		askedKey := normalizeQuestionKey("", text)
+		if askedKey == "" {
+			continue
+		}
+		if askedKey == candidateKey || strings.Contains(askedKey, candidateKey) || strings.Contains(candidateKey, askedKey) {
+			return true
 		}
 	}
-	return true
+
+	return false
 }
 
 func buildInterviewPlan(difficulty string) (int, int) {
+	var topicCount int
+	var totalTarget int
 	switch difficulty {
 	case "campus_intern":
-		return 5, 15
+		topicCount, totalTarget = 5, 15
 	case "campus_graduate":
-		return 4, 12
+		topicCount, totalTarget = 4, 12
 	case "social_junior":
-		return 3, 9
+		topicCount, totalTarget = 3, 9
 	default:
-		return 4, 12
+		topicCount, totalTarget = 4, 12
 	}
+	if topicCount > 5 {
+		topicCount = 5
+	}
+	return topicCount, totalTarget
 }
 
 func buildStyleQuestionPlan(style string) (topicQuestionMin, topicQuestionMax, maxFollowUps int) {
@@ -706,16 +800,128 @@ func buildStyleQuestionPlan(style string) (topicQuestionMin, topicQuestionMax, m
 	case "gentle":
 		return 3, 4, 3
 	case "stress":
-		return 3, 5, 4
+		return 3, 4, 3
 	case "deep":
-		return 3, 5, 4
+		return 3, 4, 3
 	case "practical":
 		return 3, 4, 3
 	case "algorithm":
-		return 3, 5, 4
+		return 3, 4, 3
 	default:
 		return 3, 4, 3
 	}
+}
+
+func normalizeQuestionKey(title, content string) string {
+	joined := strings.ToLower(strings.TrimSpace(title + " " + content))
+	joined = strings.ReplaceAll(joined, " ", "")
+	joined = strings.ReplaceAll(joined, "\n", "")
+	joined = strings.ReplaceAll(joined, "\t", "")
+	joined = strings.ReplaceAll(joined, "，", "")
+	joined = strings.ReplaceAll(joined, "。", "")
+	joined = strings.ReplaceAll(joined, "？", "")
+	joined = strings.ReplaceAll(joined, "!", "")
+	joined = strings.ReplaceAll(joined, "?", "")
+	joined = strings.ReplaceAll(joined, ":", "")
+	joined = strings.ReplaceAll(joined, "：", "")
+	return joined
+}
+
+func (s *InterviewService) isDuplicateOpeningQuestion(existing []*model.Question, candidate *model.Question) bool {
+	if candidate == nil {
+		return true
+	}
+	key := normalizeQuestionKey(candidate.Title, candidate.Content)
+	if key == "" {
+		return true
+	}
+	for _, q := range existing {
+		if q == nil {
+			continue
+		}
+		if normalizeQuestionKey(q.Title, q.Content) == key {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *InterviewService) prioritizeTopicVariety(questions []*model.Question, target int) []*model.Question {
+	if len(questions) == 0 || target <= 0 {
+		return questions
+	}
+
+	unique := make([]*model.Question, 0, len(questions))
+	seenKey := map[string]bool{}
+	for _, q := range questions {
+		if q == nil {
+			continue
+		}
+		key := normalizeQuestionKey(q.Title, q.Content)
+		if key == "" || seenKey[key] {
+			continue
+		}
+		seenKey[key] = true
+		unique = append(unique, q)
+	}
+
+	if len(unique) <= 1 {
+		if len(unique) > target {
+			return unique[:target]
+		}
+		return unique
+	}
+
+	result := make([]*model.Question, 0, len(unique))
+	usedCategory := map[string]bool{}
+
+	for _, q := range unique {
+		cat := strings.TrimSpace(q.Category)
+		if cat == "" || usedCategory[cat] {
+			continue
+		}
+		usedCategory[cat] = true
+		result = append(result, q)
+		if len(result) >= target {
+			return result
+		}
+	}
+
+	for _, q := range unique {
+		if len(result) >= target {
+			break
+		}
+		already := false
+		for _, picked := range result {
+			if picked == q {
+				already = true
+				break
+			}
+		}
+		if !already {
+			result = append(result, q)
+		}
+	}
+
+	return result
+}
+
+func isNearDuplicateQuestionText(lastAsked string, candidate *model.Question) bool {
+	if candidate == nil {
+		return true
+	}
+	left := normalizeQuestionKey("", lastAsked)
+	right := normalizeQuestionKey(candidate.Title, candidate.Content)
+	if left == "" || right == "" {
+		return false
+	}
+	if left == right {
+		return true
+	}
+	if strings.Contains(left, right) || strings.Contains(right, left) {
+		return true
+	}
+	return false
 }
 
 func isLowSignalAnswer(answer string) bool {
@@ -895,10 +1101,11 @@ func (s *InterviewService) GenerateShadowHintPack(userID, interviewID uint, ques
 // loadJobCapabilityGraph simulates loading job capability graph
 // In production, this would fetch from DB or RAG
 func (s *InterviewService) loadJobCapabilityGraph(position string) *model.JobCapabilityDimension {
+	position = normalizeInterviewPosition(position)
 	switch position {
-	case "后端开发", "backend":
+	case "Java后端工程师":
 		return &model.JobCapabilityDimension{
-			Name:   "后端开发",
+			Name:   "Java后端工程师",
 			Weight: 100,
 			SubDimensions: []model.JobCapabilitySubDimension{
 				{Name: "JVM原理", Weight: 30, Tags: []string{"GC", "Memory Model", "Classloader"}},
@@ -908,9 +1115,9 @@ func (s *InterviewService) loadJobCapabilityGraph(position string) *model.JobCap
 				{Name: "并发编程", Weight: 10, Tags: []string{"Go Routine", "Channel", "Sync"}},
 			},
 		}
-	case "前端开发", "frontend":
+	case "前端工程师":
 		return &model.JobCapabilityDimension{
-			Name:   "前端开发",
+			Name:   "前端工程师",
 			Weight: 100,
 			SubDimensions: []model.JobCapabilitySubDimension{
 				{Name: "React/Vue框架深度", Weight: 30, Tags: []string{"Virtual DOM", "Hooks", "Reactivity"}},
@@ -918,6 +1125,28 @@ func (s *InterviewService) loadJobCapabilityGraph(position string) *model.JobCap
 				{Name: "工程化", Weight: 20, Tags: []string{"Webpack", "Vite", "CI/CD"}},
 				{Name: "性能优化", Weight: 15, Tags: []string{"Rendering", "Network", "Cache"}},
 				{Name: "CSS/布局", Weight: 10, Tags: []string{"Flexbox", "Grid", "Animation"}},
+			},
+		}
+	case "算法工程师":
+		return &model.JobCapabilityDimension{
+			Name:   "算法工程师",
+			Weight: 100,
+			SubDimensions: []model.JobCapabilitySubDimension{
+				{Name: "数据结构与算法", Weight: 35, Tags: []string{"DP", "Graph", "Complexity"}},
+				{Name: "机器学习基础", Weight: 30, Tags: []string{"Supervised Learning", "Evaluation", "Feature Engineering"}},
+				{Name: "数学基础", Weight: 20, Tags: []string{"Probability", "Linear Algebra", "Optimization"}},
+				{Name: "工程实现", Weight: 15, Tags: []string{"Python", "Model Serving", "Debugging"}},
+			},
+		}
+	case "AI工程师":
+		return &model.JobCapabilityDimension{
+			Name:   "AI工程师",
+			Weight: 100,
+			SubDimensions: []model.JobCapabilitySubDimension{
+				{Name: "大模型基础", Weight: 30, Tags: []string{"Transformer", "Prompt", "Fine-tuning"}},
+				{Name: "RAG与Agent", Weight: 30, Tags: []string{"RAG", "Tool Calling", "Workflow"}},
+				{Name: "多模态能力", Weight: 20, Tags: []string{"Vision", "Audio", "Fusion"}},
+				{Name: "部署与优化", Weight: 20, Tags: []string{"Inference", "Latency", "Cost"}},
 			},
 		}
 	default:
@@ -1030,19 +1259,4 @@ func RevealRandomStyle(userID, interviewID uint) (string, string, error) {
 		return "", "", fmt.Errorf("面试尚未结束，无法揭晓风格")
 	}
 	return interview.RevealedStyle, interview.Company, nil
-}
-
-func GetTTSConfig() config.TTSConfig {
-	return config.GetConfig().TTS
-}
-
-func SaveInterviewBudgetUsage(interview *model.Interview) (*model.Interview, error) {
-	if interview == nil {
-		return nil, fmt.Errorf("interview is nil")
-	}
-	svc := NewInterviewService()
-	if err := svc.interviewRepo.Update(interview); err != nil {
-		return nil, fmt.Errorf("failed to update interview budget usage: %w", err)
-	}
-	return interview, nil
 }

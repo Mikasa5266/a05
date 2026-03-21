@@ -46,10 +46,10 @@ const portal = computed(() => {
 
 const studentNav = [
   { name: '个人主页', href: '/student/dashboard', icon: LayoutDashboard },
+  { name: '简历匹配', href: '/student/resume', icon: FileText },
   { name: '模拟面试', href: '/student/interview', icon: Video },
   { name: '复盘报告', href: '/student/history', icon: BarChart3 },
   { name: '成长中心', href: '/student/growth', icon: TrendingUp },
-  { name: '简历匹配', href: '/student/resume', icon: FileText },
   { name: '校友社区', href: '/student/community', icon: Users },
 ]
 

@@ -43,6 +43,9 @@ func SetupRouter() *gin.Engine {
 			protected.POST("/interview/:id/speech-analyze", handler.AnalyzeSpeechChunk)
 			protected.POST("/interview/:id/shadow-hint", handler.GetShadowCoachHint)
 			protected.POST("/interview/:id/tts", handler.SynthesizeInterviewSpeech)
+			protected.GET("/interview/:id/algorithm/session", handler.GetAlgorithmSession)
+			protected.POST("/interview/:id/algorithm/run", handler.RunAlgorithmCode)
+			protected.POST("/interview/:id/algorithm/skip", handler.SkipAlgorithmProblem)
 			protected.POST("/interview/:id/human-feedback", handler.SubmitHumanFeedback)
 			protected.GET("/interview/:id/reveal-style", handler.RevealRandomStyle)
 			protected.POST("/interview/blindbox/draw", handler.DrawBlindBoxScenario)
@@ -71,6 +74,9 @@ func SetupRouter() *gin.Engine {
 			// Resume
 			protected.POST("/resume/parse", handler.ParseResume)
 			protected.POST("/resume/generate-questions", handler.GenerateQuestions)
+			protected.POST("/resume/authenticity", handler.AnalyzeResumeAuthenticity)
+			protected.POST("/resume/optimize", handler.GetResumeOptimizationSuggestions)
+			protected.POST("/resume/template", handler.GenerateResumeTemplate)
 			// protected.POST("/resume/match", handler.MatchJobs) // Merged into ParseResume for now
 
 			// Growth

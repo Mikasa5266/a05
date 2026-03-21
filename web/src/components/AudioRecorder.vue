@@ -69,11 +69,6 @@ const startRecording = async () => {
       reader.readAsDataURL(audioBlob)
       reader.onloadend = () => {
         const raw = String(reader.result || '')
-        const matched = raw.match(/^data:([^;]+);base64,(.+)$/)
-        if (matched && matched[2]) {
-          emit('record-complete', { base64: matched[2], mime: normalizeAudioMime(matched[1]) })
-          return
-        }
         const parts = raw.split(',')
         if (parts.length < 2) return
         emit('record-complete', { base64: parts[1], mime: recorderMimeType || '' })

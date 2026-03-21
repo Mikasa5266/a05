@@ -29,7 +29,7 @@ func NewWhisperClient(apiKey, baseURL, model string) *WhisperClient {
 		}
 	}
 	if strings.TrimSpace(model) == "" {
-		model = "gpt-4o-transcribe"
+		model = "whisper-1"
 	}
 
 	return &WhisperClient{
@@ -47,11 +47,13 @@ type TranscriptionRequest struct {
 }
 
 type TranscriptionResponse struct {
-	Text     string  `json:"text"`
-	Task     string  `json:"task"`
-	Language string  `json:"language"`
-	Duration float64 `json:"duration"`
-	Segments []struct {
+	Text       string  `json:"text"`
+	Result     string  `json:"result"`
+	Transcript string  `json:"transcript"`
+	Task       string  `json:"task"`
+	Language   string  `json:"language"`
+	Duration   float64 `json:"duration"`
+	Segments   []struct {
 		ID               int     `json:"id"`
 		Start            float64 `json:"start"`
 		End              float64 `json:"end"`
@@ -133,7 +135,7 @@ func (c *WhisperClient) TranscribeAudioWithOptions(audioData []byte, language, m
 	}
 
 	client := &http.Client{
-		Timeout: 60 * time.Second,
+		Timeout: 180 * time.Second,
 	}
 
 	resp, err := client.Do(req)
@@ -147,12 +149,144 @@ func (c *WhisperClient) TranscribeAudioWithOptions(audioData []byte, language, m
 		return "", fmt.Errorf("API returned status: %d, body: %s", resp.StatusCode, strings.TrimSpace(string(respBytes)))
 	}
 
-	var result TranscriptionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("failed to decode response: %w", err)
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	return result.Text, nil
+	text, err := extractTranscriptionText(respBytes)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse transcription response: %w, body: %s", err, strings.TrimSpace(string(respBytes)))
+	}
+
+	return text, nil
+}
+
+func extractTranscriptionText(respBytes []byte) (string, error) {
+	trimmed := strings.TrimSpace(string(respBytes))
+	if trimmed == "" {
+		return "", nil
+	}
+
+	// Some gateways may return plain text directly.
+	if !strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "[") {
+		var quoted string
+		if err := json.Unmarshal(respBytes, &quoted); err == nil {
+			return strings.TrimSpace(quoted), nil
+		}
+		return trimmed, nil
+	}
+
+	var result TranscriptionResponse
+	if err := json.Unmarshal(respBytes, &result); err == nil {
+		if text := strings.TrimSpace(firstNonEmpty(result.Text, result.Transcript, result.Result)); text != "" {
+			return text, nil
+		}
+		if text := flattenStructuredSegments(result.Segments); text != "" {
+			return text, nil
+		}
+	}
+
+	var generic map[string]interface{}
+	if err := json.Unmarshal(respBytes, &generic); err == nil {
+		if text := extractTextFromGenericPayload(generic); text != "" {
+			return text, nil
+		}
+		return "", nil
+	}
+
+	return "", fmt.Errorf("unsupported response format")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, item := range values {
+		if strings.TrimSpace(item) != "" {
+			return item
+		}
+	}
+	return ""
+}
+
+func flattenStructuredSegments(segments []struct {
+	ID               int     `json:"id"`
+	Start            float64 `json:"start"`
+	End              float64 `json:"end"`
+	Text             string  `json:"text"`
+	AvgLogprob       float64 `json:"avg_logprob"`
+	CompressionRatio float64 `json:"compression_ratio"`
+	NoSpeechProb     float64 `json:"no_speech_prob"`
+}) string {
+	var builder strings.Builder
+	for _, seg := range segments {
+		if strings.TrimSpace(seg.Text) == "" {
+			continue
+		}
+		builder.WriteString(seg.Text)
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+func extractTextFromGenericPayload(payload map[string]interface{}) string {
+	for _, key := range []string{"text", "transcript", "result", "output_text"} {
+		if text := asNonEmptyString(payload[key]); text != "" {
+			return text
+		}
+	}
+
+	if dataNode, ok := payload["data"].(map[string]interface{}); ok {
+		for _, key := range []string{"text", "transcript", "result"} {
+			if text := asNonEmptyString(dataNode[key]); text != "" {
+				return text
+			}
+		}
+	}
+
+	if text := flattenGenericSegments(payload["segments"]); text != "" {
+		return text
+	}
+
+	if choices, ok := payload["choices"].([]interface{}); ok && len(choices) > 0 {
+		if firstChoice, ok := choices[0].(map[string]interface{}); ok {
+			if text := asNonEmptyString(firstChoice["text"]); text != "" {
+				return text
+			}
+			if msg, ok := firstChoice["message"].(map[string]interface{}); ok {
+				if text := asNonEmptyString(msg["content"]); text != "" {
+					return text
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+func flattenGenericSegments(raw interface{}) string {
+	segments, ok := raw.([]interface{})
+	if !ok || len(segments) == 0 {
+		return ""
+	}
+
+	var builder strings.Builder
+	for _, seg := range segments {
+		segMap, ok := seg.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		text := asNonEmptyString(segMap["text"])
+		if text == "" {
+			continue
+		}
+		builder.WriteString(text)
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+func asNonEmptyString(raw interface{}) string {
+	if value, ok := raw.(string); ok {
+		return strings.TrimSpace(value)
+	}
+	return ""
 }
 
 func extByMimeType(mimeType string) string {
@@ -176,9 +310,18 @@ func extByMimeType(mimeType string) string {
 }
 
 func (c *WhisperClient) TranscribeBase64Audio(base64Audio string, language string) (string, error) {
-	audioData, err := base64.StdEncoding.DecodeString(base64Audio)
+	cleanBase64 := strings.TrimSpace(base64Audio)
+	if comma := strings.Index(cleanBase64, ","); comma >= 0 && comma < len(cleanBase64)-1 {
+		cleanBase64 = strings.TrimSpace(cleanBase64[comma+1:])
+	}
+
+	audioData, err := base64.StdEncoding.DecodeString(cleanBase64)
 	if err != nil {
 		return "", fmt.Errorf("failed to decode base64 audio: %w", err)
+	}
+
+	if len(audioData) < 100 {
+		return "", nil
 	}
 
 	return c.TranscribeAudio(audioData, language)

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/base64"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -359,8 +360,7 @@ func SynthesizeInterviewSpeech(c *gin.Context) {
 		return
 	}
 
-	interview, err := service.GetInterviewByID(userID, uint(interviewID))
-	if err != nil {
+	if _, err := service.GetInterviewByID(userID, uint(interviewID)); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Interview not found"})
 		return
 	}
@@ -371,22 +371,15 @@ func SynthesizeInterviewSpeech(c *gin.Context) {
 		return
 	}
 
-	ttsCfg := service.GetTTSConfig()
-	if ttsCfg.MaxCharsPerInterview > 0 && interview.TTSCharCount+len([]rune(text)) > ttsCfg.MaxCharsPerInterview {
-		c.JSON(http.StatusPaymentRequired, gin.H{"error": "语音播报预算已达上限，请切换文字模式"})
-		return
-	}
-
 	aiService := service.NewAIService()
 	audioBytes, err := aiService.SynthesizeSpeech(text)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	interview.TTSCharCount += len([]rune(text))
-	if _, updateErr := service.SaveInterviewBudgetUsage(interview); updateErr != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": updateErr.Error()})
+		log.Printf("TTS synth failed: interview=%d user=%d err=%v", interviewID, userID, err)
+		c.JSON(http.StatusOK, gin.H{
+			"audio_base64":     "",
+			"tts_unavailable":  true,
+			"fallback_to_text": true,
+		})
 		return
 	}
 
@@ -418,9 +411,10 @@ func EndInterview(c *gin.Context) {
 // AnalyzeSpeechChunk receives a short audio chunk and returns real-time speech metrics
 func AnalyzeSpeechChunk(c *gin.Context) {
 	var req struct {
-		AudioData string  `json:"audio_data" binding:"required"`
-		AudioMime string  `json:"audio_mime,omitempty"`
-		Duration  float64 `json:"duration" binding:"required"`
+		AudioData   string  `json:"audio_data" binding:"required"`
+		AudioMime   string  `json:"audio_mime,omitempty"`
+		Duration    float64 `json:"duration" binding:"required"`
+		EnergyLevel float64 `json:"energy_level,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -428,15 +422,19 @@ func AnalyzeSpeechChunk(c *gin.Context) {
 		return
 	}
 
-	audioPayload := strings.TrimSpace(req.AudioData)
-	if !strings.HasPrefix(audioPayload, "data:") && strings.TrimSpace(req.AudioMime) != "" {
-		audioPayload = "data:" + strings.TrimSpace(req.AudioMime) + ";base64," + audioPayload
-	}
-
 	svc := service.NewSpeechAnalysisService()
-	metrics, err := svc.AnalyzeAudioChunk(audioPayload, req.Duration)
+	metrics, err := svc.AnalyzeAudioChunk(strings.TrimSpace(req.AudioData), req.Duration, req.EnergyLevel)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		// Keep realtime feedback available even if upstream ASR is temporarily unavailable.
+		log.Printf("Speech chunk ASR failed: interview=%s err=%v", c.Param("id"), err)
+		fallback := svc.AnalyzeText("", req.Duration)
+		fallback.EnergyLevel = req.EnergyLevel
+		fallback.AudioDetected = req.EnergyLevel >= 0.02
+		fallback.ASRSkipped = true
+		c.JSON(http.StatusOK, gin.H{
+			"metrics":  fallback,
+			"degraded": true,
+		})
 		return
 	}
 
@@ -517,12 +515,8 @@ func UploadInterviewRecording(c *gin.Context) {
 	}
 
 	relativeURL := "/" + filepath.ToSlash(targetPath)
-	scheme := "http"
-	if c.Request.TLS != nil {
-		scheme = "https"
-	}
-	publicURL := scheme + "://" + c.Request.Host + relativeURL
-	interview, err := service.SaveInterviewRecording(userID, uint(interviewID), publicURL)
+	// Save as relative URL to avoid binding replay links to localhost host headers behind proxies.
+	interview, err := service.SaveInterviewRecording(userID, uint(interviewID), relativeURL)
 	if err != nil {
 		_ = os.Remove(targetPath)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

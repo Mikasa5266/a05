@@ -10,3 +10,35 @@ export function parseResume(formData) {
     }
   })
 }
+
+export function analyzeResumeAuthenticity(payload) {
+  return request({
+    url: '/resume/authenticity',
+    method: 'post',
+    data: payload
+  })
+}
+
+export function getResumeOptimizationSuggestions(payload) {
+  return request({
+    url: '/resume/optimize',
+    method: 'post',
+    data: payload
+  })
+}
+
+export function generateResumeTemplate(payload) {
+  return request({
+    url: '/resume/template',
+    method: 'post',
+    data: payload
+  })
+}
+
+export function aiChatFallback(payload) {
+  return request({
+    url: '/ai/chat',
+    method: 'post',
+    data: payload
+  })
+}

@@ -3,7 +3,7 @@
     "description": "按岗位方向定义的关键能力维度与权重（4个岗位方向）",
     "positions": {
       "backend": {
-        "name": "后端工程师",
+        "name": "Java后端工程师",
         "weight_distribution": {
           "technical_score": 0.50,
           "behavioral_score": 0.50

@@ -216,6 +216,156 @@ func (s *ResumeService) GenerateInterviewQuestions(resumeData *model.ResumeData,
 	return result, nil
 }
 
+// AnalyzeAuthenticity evaluates claim credibility from resume content and returns a risk report.
+func (s *ResumeService) AnalyzeAuthenticity(resumeData *model.ResumeData, rawText string, targetRole string) (*model.ResumeAuthenticityReport, error) {
+	resumeJSON, _ := json.Marshal(resumeData)
+
+	prompt := fmt.Sprintf(`
+你是一位招聘风控顾问。请基于候选人的简历结构化信息和原文，做“真实性风险分析”。
+
+【目标岗位】
+%s
+
+【结构化简历】
+%s
+
+【简历原文】
+"""
+%s
+"""
+
+【重要约束】
+1. 必须使用简体中文。
+2. 你不能断言候选人“造假”，只能输出“潜在风险”和“核验建议”。
+3. 仅根据输入内容分析，不得编造外部信息。
+4. 输出必须是 JSON，不要 Markdown。
+
+输出 JSON 结构：
+{
+  "overallRiskScore": 0,
+  "summary": "整体判断",
+  "verifiableItems": ["可核验点1"],
+  "potentialRiskItems": [
+    {
+      "claim": "某条经历或数据",
+      "riskLevel": "low|medium|high",
+      "reason": "为什么存在风险",
+      "verificationTip": "如何在面试/背调中核验"
+    }
+  ],
+  "interviewChecks": ["可直接用于面试的核验问题1"],
+  "disclaimer": "免责声明"
+}
+`, targetRole, string(resumeJSON), rawText)
+
+	resp, err := s.aiService.ChatWithTask(context.Background(), prompt, "resume_authenticity")
+	if err != nil {
+		return nil, fmt.Errorf("authenticity analysis failed: %w", err)
+	}
+
+	jsonStr := CleanJSON(resp)
+	var result model.ResumeAuthenticityReport
+	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse authenticity report: %w", err)
+	}
+
+	if result.Disclaimer == "" {
+		result.Disclaimer = "该分析仅用于面试核验参考，不构成事实认定或法律结论。"
+	}
+
+	return &result, nil
+}
+
+// GenerateOptimizationSuggestions provides actionable resume improvements and rewrite demos.
+func (s *ResumeService) GenerateOptimizationSuggestions(resumeData *model.ResumeData, targetRole string) (*model.ResumeOptimizationReport, error) {
+	resumeJSON, _ := json.Marshal(resumeData)
+
+	prompt := fmt.Sprintf(`
+你是一位资深简历教练。请根据候选人的简历信息输出“可执行的简历优化建议”。
+
+【目标岗位】
+%s
+
+【简历信息】
+%s
+
+【要求】
+1. 必须使用简体中文。
+2. 建议必须具体、可执行，不要空话。
+3. 重点关注：项目描述量化、技术深度表达、关键词覆盖、结构层次。
+4. 输出必须是 JSON，不要 Markdown。
+
+输出 JSON：
+{
+  "overallScore": 0,
+  "strengths": ["优势1"],
+  "weaknesses": ["问题1"],
+  "suggestions": ["改进建议1"],
+  "rewriteDemo": ["原句 -> 改写句"],
+  "keywords": ["岗位关键词1"]
+}
+`, targetRole, string(resumeJSON))
+
+	resp, err := s.aiService.ChatWithTask(context.Background(), prompt, "resume_optimization")
+	if err != nil {
+		return nil, fmt.Errorf("resume optimization failed: %w", err)
+	}
+
+	jsonStr := CleanJSON(resp)
+	var result model.ResumeOptimizationReport
+	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse optimization report: %w", err)
+	}
+
+	return &result, nil
+}
+
+// GenerateResumeTemplate creates a role-specific resume template in markdown.
+func (s *ResumeService) GenerateResumeTemplate(targetRole string, seniority string, language string) (*model.ResumeTemplate, error) {
+	if strings.TrimSpace(language) == "" {
+		language = "zh-CN"
+	}
+
+	prompt := fmt.Sprintf(`
+你是一位招聘专家，请生成一份高质量的简历范本。
+
+【参数】
+- 目标岗位: %s
+- 经验级别: %s
+- 输出语言: %s
+
+【要求】
+1. 输出适合该岗位的真实可用模板，结构清晰，包含：个人信息、职业摘要、核心技能、工作经历、项目经历、教育背景、证书/加分项。
+2. 工作经历与项目经历要包含“结果导向”的表达示例（含量化指标占位符）。
+3. 输出必须是 JSON，不要 Markdown 代码块。
+
+输出 JSON：
+{
+  "targetRole": "岗位名",
+  "templateMarkdown": "完整 Markdown 模板文本",
+  "writingGuides": ["撰写建议1"],
+  "commonMistakes": ["常见错误1"]
+}
+`, targetRole, seniority, language)
+
+	resp, err := s.aiService.ChatWithTask(context.Background(), prompt, "resume_template")
+	if err != nil {
+		return nil, fmt.Errorf("resume template generation failed: %w", err)
+	}
+
+	jsonStr := CleanJSON(resp)
+	var result model.ResumeTemplate
+	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse resume template: %w", err)
+	}
+
+	if strings.TrimSpace(result.TargetRole) == "" {
+		result.TargetRole = targetRole
+	}
+
+	return &result, nil
+}
+
 // Helper to clean markdown code blocks if AI returns them
 func CleanJSON(s string) string {
 	s = strings.TrimSpace(s)

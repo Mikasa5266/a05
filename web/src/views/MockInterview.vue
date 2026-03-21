@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { 
@@ -14,6 +14,7 @@ import {
 import { startInterview as apiStartInterview, submitAnswer as apiSubmitAnswer, endInterview as apiEndInterview, uploadInterviewRecording as apiUploadInterviewRecording, analyzeSpeechChunk as apiAnalyzeSpeechChunk, getShadowCoachHint as apiGetShadowCoachHint, drawBlindBoxScenario as apiDrawBlindBox, getInterviewConfig as apiGetInterviewConfig, revealRandomStyle as apiRevealRandomStyle, synthesizeInterviewSpeech as apiSynthesizeInterviewSpeech, getInviteCandidates as apiGetInviteCandidates, createHumanInvitation as apiCreateHumanInvitation, getHumanInvitations as apiGetHumanInvitations } from '../api/interview'
 import { generateReport as apiGenerateReport } from '../api/report'
 import SpeechDashboard from '../components/SpeechDashboard.vue'
+import AlgorithmInterviewPanel from '../components/AlgorithmInterviewPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -31,6 +32,7 @@ const answerVoiceSeconds = ref(0)
 const answerVoiceError = ref('')
 let interviewMediaRecorder = null
 let interviewRecordedChunks = []
+let interviewRecordingStream = null
 let answerMediaRecorder = null
 let answerAudioChunks = []
 let answerVoiceTimer = null
@@ -75,10 +77,19 @@ const latestUserTranscript = computed(() => {
   return userMsgs.length > 0 ? userMsgs[userMsgs.length - 1].rawTranscript : ''
 })
 
-const isVideoInterviewMode = computed(() => settings.value.presentationMode === 'video_avatar')
+const isHumanInterviewMode = computed(() => settings.value.interviewMode === 'human')
+const isVideoInterviewMode = computed(() => settings.value.presentationMode === 'video_avatar' && !isHumanInterviewMode.value)
+const isAlgorithmStyle = computed(() => settings.value.style === 'algorithm')
+
+const algorithmBriefText = ref('请用算法思维，在满足复杂度约束的情况下，实现如下算法题目。')
+const algorithmProgress = ref({ current: 1, total: 0, finished: 0, passed: 0, skipped: 0, failed: 0 })
+
+watch(showHistory, (visible) => {
+  document.body.style.overflow = visible ? 'hidden' : ''
+})
 
 const settings = ref({
-  position: route.query.position || 'Java后端开发',
+  position: route.query.position || 'Java后端工程师',
   difficulty: 'campus_intern',
   mode: route.query.mode || 'technical',
   style: 'gentle',
@@ -88,13 +99,10 @@ const settings = ref({
 })
 
 const positionOptions = [
-  'Java后端开发',
-  'Go后端开发',
-  '前端开发工程师',
+  'Java后端工程师',
+  '前端工程师',
   '算法工程师',
-  'AI工程师',
-  '测试开发工程师',
-  '产品经理'
+  'AI工程师'
 ]
 
 const showPositionDropdown = ref(false)
@@ -139,6 +147,7 @@ const shadowCoachHints = ref([])
 const shadowCoachBubbleText = ref('')
 const shadowCoachBubbleVisible = ref(false)
 const shadowCoachHintPending = ref(false)
+const modelViewerReady = ref(false)
 const silenceStreakSeconds = ref(0)
 const thinkingStreakSeconds = ref(0)
 const quietSeconds = ref(0)
@@ -216,12 +225,30 @@ const stopQuestionTimer = () => {
 }
 
 const ensureModelViewerScript = () => {
-  if (window.customElements && window.customElements.get('model-viewer')) return
-  if (document.getElementById('model-viewer-script')) return
+  if (window.customElements && window.customElements.get('model-viewer')) {
+    modelViewerReady.value = true
+    return
+  }
+
+  const existing = document.getElementById('model-viewer-script')
+  if (existing) {
+    existing.addEventListener('load', () => {
+      modelViewerReady.value = !!(window.customElements && window.customElements.get('model-viewer'))
+    }, { once: true })
+    return
+  }
+
   const script = document.createElement('script')
   script.id = 'model-viewer-script'
   script.type = 'module'
   script.src = 'https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js'
+  script.onload = () => {
+    modelViewerReady.value = !!(window.customElements && window.customElements.get('model-viewer'))
+  }
+  script.onerror = () => {
+    modelViewerReady.value = false
+    console.error('model-viewer script failed to load')
+  }
   document.head.appendChild(script)
 }
 
@@ -416,11 +443,35 @@ const speechMetrics = ref({
 const energyLevel = ref(0)
 const speechAnalysisActive = ref(false)
 const speechRateSmoother = ref(0)
+const answerRecordingPeakEnergy = ref(0)
+const chunkTranscriptHistory = ref([])
 
 const classifySpeechRateLevelClient = (rate) => {
   if (rate < 120) return 'slow'
   if (rate <= 240) return 'normal'
   return 'fast'
+}
+
+const normalizeChunkTranscript = (text = '') => {
+  return String(text || '').replace(/\s+/g, ' ').trim()
+}
+
+const mergeChunkTranscript = (existing, incoming) => {
+  const base = normalizeChunkTranscript(existing)
+  const next = normalizeChunkTranscript(incoming)
+  if (!next) return base
+  if (!base) return next
+  if (base.includes(next)) return base
+  if (next.includes(base)) return next
+
+  const maxOverlap = Math.min(base.length, next.length, 24)
+  for (let overlap = maxOverlap; overlap >= 4; overlap -= 1) {
+    if (base.slice(-overlap) === next.slice(0, overlap)) {
+      return `${base}${next.slice(overlap)}`.trim()
+    }
+  }
+
+  return `${base} ${next}`.trim()
 }
 
 // Audio chunk recording for speech analysis
@@ -430,7 +481,8 @@ let chunkMediaRecorder = null
 let chunkRecordingStream = null
 let chunkInterval = null
 let energyAnimFrame = null
-const speechChunkSeconds = 4
+let analysisSourceStream = null
+const speechChunkSeconds = 6
 let chunkRecorderMimeType = ''
 
 const pickSupportedAudioMime = () => {
@@ -457,44 +509,68 @@ const normalizeAudioMime = (mime) => {
   return semi > 0 ? raw.slice(0, semi) : raw
 }
 
-const startSpeechAnalysis = () => {
-  if (speechAnalysisActive.value || !stream.value) return
+const startSpeechAnalysis = (sourceStream = null) => {
+  const activeStream = sourceStream || answerRecorderStream || stream.value
+  if (speechAnalysisActive.value || !activeStream) return
+  const activeAudioTracks = activeStream.getAudioTracks()
+  if (!activeAudioTracks.length) return
+
+  analysisSourceStream = activeStream
   speechAnalysisActive.value = true
 
   // Set up Web Audio API for real-time energy
   audioContext = new (window.AudioContext || window.webkitAudioContext)()
-  const source = audioContext.createMediaStreamSource(stream.value)
+  if (audioContext.state === 'suspended') {
+    audioContext.resume().catch((err) => {
+      console.warn('AudioContext resume failed:', err)
+    })
+  }
+  const source = audioContext.createMediaStreamSource(activeStream)
   analyserNode = audioContext.createAnalyser()
-  analyserNode.fftSize = 256
+  analyserNode.fftSize = 1024
+  analyserNode.smoothingTimeConstant = 0.82
   source.connect(analyserNode)
 
   // Animate energy level
-  const dataArray = new Uint8Array(analyserNode.frequencyBinCount)
+  const dataArray = new Uint8Array(analyserNode.fftSize)
+  let smoothedEnergy = 0
+  let noiseFloor = 0.003
   const updateEnergy = () => {
     if (!speechAnalysisActive.value) return
-    analyserNode.getByteFrequencyData(dataArray)
-    let sum = 0
-    for (let i = 0; i < dataArray.length; i++) sum += dataArray[i]
-    const avg = sum / dataArray.length / 255
-    energyLevel.value = avg
+    analyserNode.getByteTimeDomainData(dataArray)
+    let sumSquares = 0
+    for (let i = 0; i < dataArray.length; i += 1) {
+      const sample = (dataArray[i] - 128) / 128
+      sumSquares += sample * sample
+    }
+    const rms = Math.sqrt(sumSquares / dataArray.length)
+    noiseFloor = (noiseFloor * 0.992) + (rms * 0.008)
+    const gated = Math.max(0, rms - (noiseFloor * 1.15))
+    const normalized = Math.min(1, gated * 28)
+    smoothedEnergy = (smoothedEnergy * 0.68) + (normalized * 0.32)
+    energyLevel.value = Math.min(1, smoothedEnergy)
+    if (answerVoiceStatus.value === 'recording') {
+      answerRecordingPeakEnergy.value = Math.max(answerRecordingPeakEnergy.value, energyLevel.value)
+    }
     energyAnimFrame = requestAnimationFrame(updateEnergy)
   }
   updateEnergy()
 
   // Start chunked recording: every 4 seconds, capture a chunk and send for analysis
-  startChunkRecording()
+  startChunkRecording(activeStream)
 }
 
-const startChunkRecording = () => {
-  if (!stream.value) return
+const startChunkRecording = (sourceStream) => {
+  if (!sourceStream) return
 
   const startNewChunk = () => {
-    if (!speechAnalysisActive.value || !stream.value) return
+    if (!speechAnalysisActive.value || !sourceStream) return
 
     // Clone audio tracks for chunk recording
-    const audioTracks = stream.value.getAudioTracks()
+    const audioTracks = sourceStream.getAudioTracks()
     if (audioTracks.length === 0) return
-    chunkRecordingStream = new MediaStream(audioTracks)
+    const clonedTracks = audioTracks.map((track) => track.clone())
+    chunkRecordingStream = new MediaStream(clonedTracks)
     const preferredMime = pickSupportedAudioMime()
 
     try {
@@ -507,21 +583,25 @@ const startChunkRecording = () => {
     chunkRecorderMimeType = normalizeAudioMime(chunkMediaRecorder.mimeType || preferredMime)
 
     const chunks = []
+    let chunkPeakEnergy = 0
+    const chunkEnergySampler = setInterval(() => {
+      chunkPeakEnergy = Math.max(chunkPeakEnergy, Number(energyLevel.value) || 0)
+    }, 120)
     chunkMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }
     chunkMediaRecorder.onstop = () => {
+      clearInterval(chunkEnergySampler)
+      if (chunkRecordingStream) {
+        chunkRecordingStream.getTracks().forEach((track) => track.stop())
+        chunkRecordingStream = null
+      }
       if (chunks.length === 0 || !interviewId.value) return
       const blob = new Blob(chunks, { type: chunkRecorderMimeType || 'audio/webm' })
       const reader = new FileReader()
       reader.onloadend = () => {
         const raw = String(reader.result || '')
-        const matched = raw.match(/^data:([^;]+);base64,(.+)$/)
-        if (matched && matched[2]) {
-          sendSpeechChunk(matched[2], speechChunkSeconds, normalizeAudioMime(matched[1]))
-          return
-        }
         const parts = raw.split(',')
-        if (parts.length < 2) return
-        sendSpeechChunk(parts[1], speechChunkSeconds, chunkRecorderMimeType || '')
+        if (parts.length < 2 || !parts[1]) return
+        sendSpeechChunk(parts[1], speechChunkSeconds, chunkRecorderMimeType || '', chunkPeakEnergy)
       }
       reader.readAsDataURL(blob)
     }
@@ -541,27 +621,31 @@ const startChunkRecording = () => {
   startNewChunk()
 }
 
-const sendSpeechChunk = async (audioBase64, duration, audioMime = '') => {
+const sendSpeechChunk = async (audioBase64, duration, audioMime = '', chunkEnergy = 0) => {
   if (!interviewId.value) return
   try {
     const res = await apiAnalyzeSpeechChunk(interviewId.value, {
       audio_data: audioBase64,
       audio_mime: audioMime || undefined,
-      duration: duration
+      duration: duration,
+      energy_level: chunkEnergy
     })
     if (res.metrics) {
       const m = res.metrics
       const transcribed = String(m.transcribed_text || '').trim()
       const charCount = Number(m.char_count) || 0
       const rawRate = Number(m.speech_rate) || 0
+      const audioDetected = (typeof m.audio_detected === 'boolean')
+        ? m.audio_detected
+        : ((Number(chunkEnergy) || 0) >= 0.02)
       let boundedRate = Math.max(0, Math.min(rawRate, 280))
 
       // Empty / near-empty chunks should not push the gauge to high speed.
-      if (!transcribed || charCount <= 1) {
+      if (!audioDetected || !transcribed || charCount <= 1) {
         boundedRate = 0
       }
 
-      const alpha = transcribed ? 0.35 : 0.2
+      const alpha = (audioDetected && transcribed) ? 0.35 : 0.2
       if (!speechRateSmoother.value || !Number.isFinite(speechRateSmoother.value)) {
         speechRateSmoother.value = boundedRate
       } else {
@@ -573,8 +657,13 @@ const sendSpeechChunk = async (audioBase64, duration, audioMime = '') => {
       speechMetrics.value.fillerWordCount = m.filler_word_count
       speechMetrics.value.fluencyAlert = m.fluency_alert
       speechMetrics.value.totalFillerWords += m.filler_word_count
-      if (transcribed) {
-        speechMetrics.value.transcribedText = transcribed
+      if (audioDetected && transcribed) {
+        const merged = mergeChunkTranscript(speechMetrics.value.transcribedText, transcribed)
+        speechMetrics.value.transcribedText = merged
+        chunkTranscriptHistory.value.push(transcribed)
+        if (chunkTranscriptHistory.value.length > 120) {
+          chunkTranscriptHistory.value.shift()
+        }
       }
     }
   } catch (err) {
@@ -588,11 +677,19 @@ const stopSpeechAnalysis = () => {
   if (chunkMediaRecorder && chunkMediaRecorder.state === 'recording') {
     chunkMediaRecorder.stop()
   }
+  if (chunkRecordingStream) {
+    chunkRecordingStream.getTracks().forEach((track) => track.stop())
+    chunkRecordingStream = null
+  }
   if (energyAnimFrame) { cancelAnimationFrame(energyAnimFrame); energyAnimFrame = null }
-  if (audioContext) { audioContext.close(); audioContext = null }
+  if (audioContext) {
+    audioContext.close().catch(() => {})
+    audioContext = null
+  }
+  energyLevel.value = 0
   analyserNode = null
   chunkMediaRecorder = null
-  chunkRecordingStream = null
+  analysisSourceStream = null
 }
 
 // Camera Logic
@@ -609,11 +706,18 @@ const toggleMic = () => {
   if (stream.value) {
     stream.value.getAudioTracks().forEach(track => { track.enabled = isMicOn.value })
   }
+  if (answerRecorderStream) {
+    answerRecorderStream.getAudioTracks().forEach(track => { track.enabled = isMicOn.value })
+  }
+  if (analysisSourceStream) {
+    analysisSourceStream.getAudioTracks().forEach(track => { track.enabled = isMicOn.value })
+  }
 }
 
 const startCamera = async () => {
   try {
     stream.value = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+    stream.value.getAudioTracks().forEach(track => { track.enabled = isMicOn.value })
     isCameraOn.value = true
     nextTick(() => {
       if (previewVideo.value) previewVideo.value.srcObject = stream.value
@@ -635,6 +739,14 @@ const stopCamera = () => {
 }
 
 const setPresentationMode = async (mode) => {
+  if (mode === 'video_avatar' && settings.value.interviewMode === 'human') {
+    settings.value.presentationMode = 'text_voice'
+    stopAISpeech()
+    stopCamera()
+    ElMessage.warning('真人面试模式不展示 AI 虚拟面试官，请使用文字语音模式或进入实时面试间')
+    return
+  }
+
   settings.value.presentationMode = mode
   if (mode === 'video_avatar') {
     await startCamera()
@@ -644,20 +756,64 @@ const setPresentationMode = async (mode) => {
   stopCamera()
 }
 
-const startInterviewRecording = () => {
-  if (!stream.value || !interviewId.value) return
+const setInterviewMode = (mode) => {
+  settings.value.interviewMode = mode
+  if (mode === 'human') {
+    if (settings.value.presentationMode === 'video_avatar') {
+      settings.value.presentationMode = 'text_voice'
+      stopAISpeech()
+      stopCamera()
+    }
+    loadInviteCandidates()
+    loadUserInvitations()
+  }
+}
+
+const stopInterviewRecordingStream = () => {
+  if (!interviewRecordingStream) return
+  if (stream.value && interviewRecordingStream === stream.value) return
+  interviewRecordingStream.getTracks().forEach(track => track.stop())
+  interviewRecordingStream = null
+}
+
+const startInterviewRecording = async () => {
+  if (!interviewId.value || interviewMediaRecorder) return
+
+  let targetStream = null
+  if (settings.value.presentationMode === 'video_avatar' && stream.value) {
+    targetStream = stream.value
+  } else {
+    try {
+      // Fallback to audio-only recording so replay can still be generated.
+      targetStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      targetStream.getAudioTracks().forEach(track => { track.enabled = isMicOn.value })
+    } catch (err) {
+      console.warn('无法获取回放录制流:', err)
+      recordingStatus.value = 'failed'
+      return
+    }
+  }
+
+  if (!targetStream) {
+    recordingStatus.value = 'failed'
+    return
+  }
+
+  interviewRecordingStream = targetStream
+
   try {
     interviewRecordedChunks = []
     recordingStatus.value = 'recording'
-    interviewMediaRecorder = new MediaRecorder(stream.value, { mimeType: 'video/webm;codecs=vp8,opus' })
+    interviewMediaRecorder = new MediaRecorder(targetStream, { mimeType: 'video/webm;codecs=vp8,opus' })
   } catch (_) {
     try {
-      interviewMediaRecorder = new MediaRecorder(stream.value)
+      interviewMediaRecorder = new MediaRecorder(targetStream)
       recordingStatus.value = 'recording'
       interviewRecordedChunks = []
     } catch (err) {
       console.warn('无法创建视频录制器:', err)
       recordingStatus.value = 'failed'
+      stopInterviewRecordingStream()
       return
     }
   }
@@ -665,20 +821,36 @@ const startInterviewRecording = () => {
   interviewMediaRecorder.ondataavailable = (e) => {
     if (e.data && e.data.size > 0) interviewRecordedChunks.push(e.data)
   }
+  interviewMediaRecorder.onerror = (err) => {
+    console.warn('回放录制异常:', err)
+    recordingStatus.value = 'failed'
+  }
   interviewMediaRecorder.start(1000)
 }
 
 const stopAndUploadInterviewRecording = async () => {
-  if (!interviewMediaRecorder || recordingStatus.value !== 'recording' || !interviewId.value) return
+  if (!interviewId.value) return false
+  if (!interviewMediaRecorder) {
+    recordingStatus.value = recordingStatus.value === 'uploaded' ? 'uploaded' : 'failed'
+    return false
+  }
 
-  await new Promise((resolve) => {
-    interviewMediaRecorder.onstop = resolve
-    interviewMediaRecorder.stop()
-  })
+  if (interviewMediaRecorder.state === 'recording') {
+    await new Promise((resolve) => {
+      interviewMediaRecorder.onstop = resolve
+      try {
+        interviewMediaRecorder.stop()
+      } catch (_) {
+        resolve()
+      }
+    })
+  }
 
   if (!interviewRecordedChunks.length) {
     recordingStatus.value = 'failed'
-    return
+    interviewMediaRecorder = null
+    stopInterviewRecordingStream()
+    return false
   }
 
   const blob = new Blob(interviewRecordedChunks, { type: 'video/webm' })
@@ -689,12 +861,15 @@ const stopAndUploadInterviewRecording = async () => {
     const res = await apiUploadInterviewRecording(interviewId.value, formData)
     recordingUrl.value = res.recording_url || ''
     recordingStatus.value = 'uploaded'
+    return true
   } catch (err) {
     console.warn('视频上传失败:', err)
     recordingStatus.value = 'failed'
+    return false
   } finally {
     interviewMediaRecorder = null
     interviewRecordedChunks = []
+    stopInterviewRecordingStream()
   }
 }
 
@@ -769,6 +944,8 @@ const startInterview = async () => {
     phase.value = 'interview'
     currentQuestionIndex.value = 0
     currentQuestion.value = questions.value[0] || null
+    algorithmBriefText.value = '请用算法思维，在满足复杂度约束的情况下，实现如下算法题目。'
+    algorithmProgress.value = { current: 1, total: 0, finished: 0, passed: 0, skipped: 0, failed: 0 }
     
     // Initialize Chat — adapt greeting for different modes
     const isBlindBox = settings.value.mode === 'blindbox' && blindBoxScenario.value
@@ -802,16 +979,18 @@ const startInterview = async () => {
       }
     ]
     
-    // Push first question after a short delay
-    processingHint.value = isHuman ? '正在准备真人面试流程首题...' : '面试官正在组织首个话题...'
-    setTimeout(() => {
-      pushAIQuestion(currentQuestion.value)
-      // Start question timer if scenario has time limit
-      if (blindBoxScenario.value?.time_limit) {
-        startQuestionTimer(blindBoxScenario.value.time_limit)
-      }
-      scrollToBottom()
-    }, 1000)
+    // Push first question after a short delay. Algorithm style uses dedicated coding panel, so skip chat question push.
+    if (!isAlgorithmStyle.value) {
+      processingHint.value = isHuman ? '正在准备真人面试流程首题...' : '面试官正在组织首个话题...'
+      setTimeout(() => {
+        pushAIQuestion(currentQuestion.value)
+        // Start question timer if scenario has time limit
+        if (blindBoxScenario.value?.time_limit) {
+          startQuestionTimer(blindBoxScenario.value.time_limit)
+        }
+        scrollToBottom()
+      }, 1000)
+    }
 
     // Handle video transition
     if (settings.value.presentationMode === 'video_avatar' && isCameraOn.value && settings.value.interviewMode !== 'human') {
@@ -830,6 +1009,30 @@ const startInterview = async () => {
     isProcessing.value = false
     processingHint.value = ''
   }
+}
+
+const onAlgorithmBriefUpdated = (text) => {
+  algorithmBriefText.value = String(text || '').trim() || '请用算法思维，在满足复杂度约束的情况下，实现如下算法题目。'
+}
+
+const onAlgorithmProgressUpdated = (progress) => {
+  algorithmProgress.value = {
+    current: progress?.current || 1,
+    total: progress?.total || 0,
+    finished: progress?.finished || 0,
+    passed: progress?.passed || 0,
+    skipped: progress?.skipped || 0,
+    failed: progress?.failed || 0
+  }
+}
+
+const onAlgorithmFinished = ({ total = 0, passed = 0, skipped = 0 }) => {
+  messages.value.push({
+    role: 'ai',
+    type: 'system',
+    content: `算法考察完成：共 ${total} 题，通过 ${passed} 题，跳过 ${skipped} 题。正在为你生成面试报告...`
+  })
+  completeInterview()
 }
 
 const pushAIQuestion = (question) => {
@@ -1069,11 +1272,11 @@ const getVoiceStatusLabel = () => {
 const normalizeAnswerSubmitError = (msg = '') => {
   const text = String(msg || '')
   if (!text) return '未知错误'
+  if (/network\s*error|err_network|econnreset|wsarecv|forcibly\s+closed/i.test(text)) {
+    return '网络连接中断（语音上传/转写链路异常）。请重试；若使用 ngrok，请确认隧道、前端 5173 与后端 8080 均在线'
+  }
   if (/field\s+validation.*answer.*required/i.test(text) || /key:\s*'answer'/i.test(text)) {
     return '您似乎没有做出任何回答'
-  }
-  if (text.includes('语音转写预算已达上限')) {
-    return '语音转写次数已达上限，请改用文字作答或开始新一场面试'
   }
   if (/audio\s+too\s+large|413/i.test(text)) {
     return '语音文件过大，请缩短录音后重试'
@@ -1230,8 +1433,10 @@ const startAnswerRecording = async () => {
   quietSeconds.value = 0
   answerAudioChunks = []
   answerRecorderMimeType = ''
+  answerRecordingPeakEnergy.value = 0
   speechRateSmoother.value = 0
   speechMetrics.value.transcribedText = ''
+  chunkTranscriptHistory.value = []
 
   try {
     answerRecorderStream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -1263,17 +1468,17 @@ const startAnswerRecording = async () => {
         answerVoiceStatus.value = 'error'
         return
       }
+      if (isVideoInterviewMode.value && answerRecordingPeakEnergy.value < 0.06) {
+        answerVoiceError.value = '未检测到有效语音输入，请检查麦克风并靠近后重试'
+        answerVoiceStatus.value = 'error'
+        return
+      }
 
       answerVoiceStatus.value = 'transcribing'
       const audioBlob = new Blob(answerAudioChunks, { type: answerRecorderMimeType || 'audio/webm' })
       const reader = new FileReader()
       reader.onloadend = async () => {
         const raw = String(reader.result || '')
-        const matched = raw.match(/^data:([^;]+);base64,(.+)$/)
-        if (matched && matched[2]) {
-          await submitAudioAnswer(matched[2], normalizeAudioMime(matched[1] || answerRecorderMimeType))
-          return
-        }
         const parts = raw.split(',')
         if (parts.length < 2 || !parts[1]) {
           answerVoiceError.value = '音频编码失败，请重试'
@@ -1286,8 +1491,8 @@ const startAnswerRecording = async () => {
     }
 
     answerMediaRecorder.start()
-    if (isVideoInterviewMode.value && stream.value) {
-      startSpeechAnalysis()
+    if (isVideoInterviewMode.value) {
+      startSpeechAnalysis(answerRecorderStream)
     }
     answerVoiceStatus.value = 'recording'
     answerVoiceTimer = setInterval(() => {
@@ -1414,7 +1619,7 @@ const completeInterview = async () => {
   isGeneratingReport.value = true
   stopAISpeech()
   try {
-    await stopAndUploadInterviewRecording()
+    const replayUploaded = await stopAndUploadInterviewRecording()
     await apiEndInterview(interviewId.value)
     if (settings.value.interviewMode === 'human') {
       await loadUserInvitations()
@@ -1431,6 +1636,9 @@ const completeInterview = async () => {
         content: '报告生成中，请稍后点击“查看面试报告”。',
         type: 'system'
       })
+    }
+    if (!replayUploaded) {
+      ElMessage.warning('本次回放上传失败，报告可能不含回放视频')
     }
   } catch (error) {
     console.error('Failed to end interview:', error)
@@ -1596,7 +1804,7 @@ const loadUserInvitations = async () => {
 const useInvitationForInterview = (invitation) => {
   activeInvitationId.value = invitation.id
   activeInvitation.value = invitation
-  settings.value.interviewMode = 'human'
+  setInterviewMode('human')
 
   // Keep form selections aligned with the accepted invitation to avoid accidental AI-mode params.
   if (invitation.mode) settings.value.mode = invitation.mode
@@ -1643,6 +1851,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  document.body.style.overflow = ''
   document.removeEventListener('click', closePositionDropdownOnOutsideClick)
   if (interviewMediaRecorder && interviewMediaRecorder.state === 'recording') {
     interviewMediaRecorder.stop()
@@ -1658,6 +1867,7 @@ onUnmounted(() => {
     clearInterval(answerVoiceTimer)
     answerVoiceTimer = null
   }
+  stopInterviewRecordingStream()
   stopAISpeech()
   stopCamera()
   stopSpeechAnalysis()
@@ -1667,7 +1877,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="h-[calc(100vh-8rem)] flex flex-col">
+  <div class="min-h-[calc(100vh-8rem)] flex flex-col">
     <!-- Setup Phase -->
     <div v-if="phase === 'setup'" class="flex-1 flex flex-col items-center justify-center max-w-4xl mx-auto w-full space-y-8 animate-in fade-in duration-500">
       <header class="text-center">
@@ -1745,7 +1955,7 @@ onUnmounted(() => {
               <div class="w-full h-full p-6 flex flex-col justify-between bg-gradient-to-br from-zinc-900 via-slate-900 to-zinc-800">
                 <div>
                   <p class="text-zinc-200 font-semibold">文字 + 语音模式</p>
-                  <p class="text-zinc-400 text-xs mt-1">专注内容质量与语言表达，默认更省预算。</p>
+                  <p class="text-zinc-400 text-xs mt-1">专注内容质量与语言表达，适合长回答连续训练。</p>
                 </div>
                 <div class="grid grid-cols-3 gap-2">
                   <div class="rounded-xl border border-white/10 bg-white/5 p-2">
@@ -1779,9 +1989,9 @@ onUnmounted(() => {
                 <p class="text-[11px] text-zinc-500 mt-2">更接近真实压力场景，结合表情与语音节奏反馈。</p>
               </div>
               <div class="rounded-xl bg-white border border-emerald-100 p-3">
-                <p class="text-[11px] text-zinc-500">预算保护</p>
-                <p class="text-sm font-bold text-zinc-800 mt-1">ASR / TTS 限额已启用</p>
-                <p class="text-[11px] text-zinc-500 mt-2">到达阈值后自动提醒切换文字模式，防止超额调用。</p>
+                <p class="text-[11px] text-zinc-500">语音策略</p>
+                <p class="text-sm font-bold text-zinc-800 mt-1">当前为无限制模式</p>
+                <p class="text-[11px] text-zinc-500 mt-2">本地配置暂不限制单轮语音和TTS长度，后续可按需调整。</p>
               </div>
               <div class="rounded-xl bg-white border border-zinc-200 p-3 col-span-2">
                 <div class="flex items-center justify-between">
@@ -1960,7 +2170,7 @@ onUnmounted(() => {
                   { key: 'random', label: '随机模式', icon: '🎲', desc: '风格随机不提前告知' }
                 ]" 
                 :key="im.key"
-                @click="settings.interviewMode = im.key; if(im.key === 'human') { loadInviteCandidates(); loadUserInvitations() }"
+                @click="setInterviewMode(im.key)"
                 class="flex flex-col items-center gap-1 px-3 py-3 rounded-xl text-xs font-medium border transition-all text-center"
                 :class="settings.interviewMode === im.key 
                   ? (im.key === 'random' ? 'bg-violet-50 border-violet-300 text-violet-700 ring-1 ring-violet-200' : im.key === 'human' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 ring-1 ring-emerald-200' : 'bg-indigo-50 border-indigo-200 text-indigo-600 ring-1 ring-indigo-200')
@@ -2121,12 +2331,12 @@ onUnmounted(() => {
     </div>
 
     <!-- Interview Phase (New Layout) -->
-    <div v-else-if="phase === 'interview'" class="h-full flex flex-col lg:flex-row gap-6 p-6 bg-gradient-to-br from-slate-50 via-white to-cyan-50 overflow-y-auto">
+    <div v-else-if="phase === 'interview'" class="min-h-[calc(100vh-8rem)] flex flex-col lg:flex-row gap-6 p-6 bg-gradient-to-br from-slate-50 via-white to-cyan-50 overflow-y-auto">
       
       <!-- Left Main Column (Video + Input) -->
-      <div class="flex-1 flex flex-col gap-6 min-w-0 h-full">
+      <div class="flex-1 flex flex-col gap-6 min-w-0">
         <!-- Video Section (Top) -->
-        <div v-if="settings.presentationMode === 'video_avatar' && settings.interviewMode !== 'human'" class="flex-1 rounded-3xl relative overflow-hidden shadow-2xl group ring-1 ring-slate-900/10 bg-gradient-to-br from-slate-900 via-slate-800 to-cyan-900/70">
+        <div v-if="settings.presentationMode === 'video_avatar' && settings.interviewMode !== 'human'" class="flex-1 min-h-[320px] lg:min-h-[420px] rounded-3xl relative overflow-hidden shadow-2xl group ring-1 ring-slate-900/10 bg-gradient-to-br from-slate-900 via-slate-800 to-cyan-900/70">
           <!-- Status Badge -->
           <div class="absolute top-6 left-6 flex items-center gap-3 z-10 pointer-events-none">
             <div class="text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-2 shadow-lg"
@@ -2173,6 +2383,7 @@ onUnmounted(() => {
             <div class="absolute inset-y-0 right-0 w-36 interview-room-wall interview-room-wall--right pointer-events-none"></div>
             <div class="absolute left-0 right-0 bottom-0 h-28 interview-room-floor pointer-events-none"></div>
             <model-viewer
+              v-if="modelViewerReady"
               src="/interview3.glb"
               autoplay
               environment-image="neutral"
@@ -2185,6 +2396,12 @@ onUnmounted(() => {
               class="w-full h-full interviewer-stage interviewer-static relative z-20"
               :class="isAvatarSpeaking ? 'interviewer-speaking' : ''"
             ></model-viewer>
+            <div v-else class="absolute inset-0 z-20 flex items-center justify-center text-center px-6">
+              <div class="rounded-2xl border border-white/20 bg-slate-900/45 text-slate-100 px-5 py-4 backdrop-blur-sm">
+                <p class="text-sm font-semibold">AI 面试官模型加载中</p>
+                <p class="text-xs text-slate-300 mt-1">当前网络较慢时，3D 模型可能延迟出现</p>
+              </div>
+            </div>
 
             <div class="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-slate-950/95 via-slate-900/45 to-transparent pointer-events-none"></div>
             <div class="absolute bottom-8 left-1/2 -translate-x-1/2 w-[56%] h-14 rounded-t-2xl interview-room-desk"></div>
@@ -2208,6 +2425,7 @@ onUnmounted(() => {
           <div class="absolute bottom-5 right-5 w-36 h-40 rounded-2xl overflow-hidden border border-emerald-200/35 backdrop-blur-sm bg-zinc-950/90"
             :class="shadowCoachHintPending ? 'ring-2 ring-emerald-300/80 shadow-[0_0_24px_rgba(16,185,129,0.35)]' : ''">
             <model-viewer
+              v-if="modelViewerReady"
               src="/cute_ghost.glb"
               autoplay
               auto-rotate
@@ -2216,6 +2434,7 @@ onUnmounted(() => {
               shadow-intensity="1"
               class="w-full h-full bg-gradient-to-b from-zinc-900 to-zinc-800"
             ></model-viewer>
+            <div v-else class="w-full h-full flex items-center justify-center text-[11px] text-emerald-100 bg-zinc-900/70">影子教练加载中</div>
             <div class="absolute bottom-2 left-2 text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/85 text-white border border-emerald-300/60">
               影子教练
             </div>
@@ -2224,7 +2443,7 @@ onUnmounted(() => {
           <transition name="coach-bubble">
             <div
               v-if="shadowCoachBubbleVisible && shadowCoachBubbleText"
-              class="absolute right-44 bottom-28 max-w-[250px] rounded-2xl border border-emerald-200 bg-white/95 px-4 py-3 text-xs leading-relaxed text-zinc-700 shadow-lg shadow-emerald-100"
+              class="absolute z-[70] right-44 bottom-28 max-w-[250px] rounded-2xl border border-emerald-200 bg-white/95 px-4 py-3 text-xs leading-relaxed text-zinc-700 shadow-lg shadow-emerald-100"
             >
               <p class="font-semibold text-emerald-700 mb-1">小幽灵提示</p>
               <p class="whitespace-pre-wrap">{{ shadowCoachBubbleText }}</p>
@@ -2254,7 +2473,7 @@ onUnmounted(() => {
         <div v-else class="flex-1 rounded-3xl p-6 border border-zinc-200 bg-gradient-to-br from-emerald-50 via-white to-cyan-50 shadow-xl flex flex-col justify-between">
           <div>
             <p class="text-sm font-bold text-emerald-700">文字 + 语音模式进行中</p>
-            <p class="text-xs text-zinc-500 mt-2">当前聚焦回答内容与逻辑质量，系统已降低实时语音分析频率以控制预算。</p>
+            <p class="text-xs text-zinc-500 mt-2">当前聚焦回答内容与逻辑质量，系统会持续展示实时语音转写与表达指标。</p>
           </div>
           <div class="grid grid-cols-2 gap-3 text-xs">
             <div class="rounded-xl bg-white border border-zinc-200 p-3">
@@ -2269,8 +2488,8 @@ onUnmounted(() => {
         </div>
 
         <!-- Transcript / Input Section (Bottom) -->
-        <div class="bg-white rounded-3xl p-6 shadow-xl shadow-zinc-200/50 border border-white flex flex-col relative transition-all duration-300 focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:shadow-indigo-500/10 group lg:resizable-panel lg:flex-none overflow-hidden"
-          :class="isVideoInterviewMode ? 'h-[32vh] min-h-[320px]' : 'h-1/3 min-h-[200px] lg:h-[32vh]'">
+        <div v-if="!isAlgorithmStyle" class="bg-white rounded-3xl p-6 shadow-xl shadow-zinc-200/50 border border-white flex flex-col relative transition-all duration-300 focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:shadow-indigo-500/10 group lg:resizable-panel lg:flex-none"
+          :class="isVideoInterviewMode ? 'min-h-[320px] lg:min-h-[380px] lg:h-auto' : 'min-h-[260px] lg:min-h-[320px] lg:h-auto'">
            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center items-start gap-2 mb-4 shrink-0">
              <h3 class="font-bold text-zinc-900 flex items-center gap-2 group-focus-within:text-indigo-600 transition-colors">
                <div class="w-1.5 h-4 bg-zinc-300 rounded-full group-focus-within:bg-indigo-600 transition-colors"></div>
@@ -2301,7 +2520,7 @@ onUnmounted(() => {
            </div>
 
            <template v-if="isVideoInterviewMode">
-             <div class="flex-1 min-h-0 rounded-2xl border border-zinc-100 bg-zinc-50/70 p-4 flex flex-col gap-3 overflow-hidden">
+             <div class="flex-1 min-h-0 rounded-2xl border border-zinc-100 bg-zinc-50/70 p-4 flex flex-col gap-3 overflow-auto custom-scrollbar">
                <p class="text-sm text-zinc-600 leading-relaxed shrink-0">
                  视频模式已禁用文字提交。请点击下方按钮开始作答，回答完成后点击“结束语音并开始分析”。
                </p>
@@ -2326,7 +2545,7 @@ onUnmounted(() => {
                 v-model="userInput" 
                 @keydown.ctrl.enter="sendMessage"
                 placeholder="在此处输入您的回答..."
-                class="flex-1 w-full resize-none border-none focus:ring-0 p-4 text-lg text-zinc-700 placeholder:text-zinc-300 bg-zinc-50/50 rounded-xl leading-relaxed transition-all focus:bg-white focus:shadow-inner custom-scrollbar"
+               class="flex-1 min-h-[220px] max-h-[55vh] w-full resize-y border-none focus:ring-0 p-4 text-lg text-zinc-700 placeholder:text-zinc-300 bg-zinc-50/50 rounded-xl leading-relaxed transition-all focus:bg-white focus:shadow-inner overflow-y-auto custom-scrollbar"
              ></textarea>
 
              <div class="absolute bottom-8 right-8 text-[10px] font-medium text-zinc-300 pointer-events-none bg-white/80 backdrop-blur px-2 py-1 rounded-md border border-zinc-100">
@@ -2334,6 +2553,15 @@ onUnmounted(() => {
              </div>
            </template>
         </div>
+
+        <AlgorithmInterviewPanel
+          v-else-if="interviewId"
+          :interview-id="interviewId"
+          :difficulty="settings.difficulty"
+          @brief-updated="onAlgorithmBriefUpdated"
+          @progress-updated="onAlgorithmProgressUpdated"
+          @finished="onAlgorithmFinished"
+        />
       </div>
 
       <!-- Right Sidebar -->
@@ -2385,13 +2613,13 @@ onUnmounted(() => {
             <div class="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-full border"
                :class="isHighPressure ? 'bg-rose-50 text-rose-700 border-rose-100/50' : 'bg-indigo-50 text-indigo-700 border-indigo-100/50'">
                <span class="w-1.5 h-1.5 rounded-full" :class="isHighPressure ? 'bg-rose-600' : 'bg-indigo-600'"></span>
-              当前题目 · 第 {{ currentQuestionIndex + 1 }} 题
+              {{ isAlgorithmStyle ? '语音播报引导' : ('当前题目 · 第 ' + (currentQuestionIndex + 1) + ' 题') }}
              </div>
             <div v-if="isProcessing" class="flex items-center gap-2 text-indigo-600 animate-pulse">
                <Loader2 class="w-4 h-4 animate-spin" />
                <span class="text-xs font-medium">{{ processingHint || '面试官正在评估...' }}</span>
             </div>
-            <div v-else-if="latestAIMessage?.type === 'feedback'" class="flex items-center gap-2 animate-in fade-in slide-in-from-right duration-500">
+            <div v-else-if="!isAlgorithmStyle && latestAIMessage?.type === 'feedback'" class="flex items-center gap-2 animate-in fade-in slide-in-from-right duration-500">
                 <span class="text-xs text-zinc-400 font-medium">评分</span>
                 <span class="text-xl font-black text-indigo-600 tracking-tight">{{ latestAIMessage.score }}</span>
              </div>
@@ -2410,6 +2638,32 @@ onUnmounted(() => {
 
              <!-- Content -->
              <div v-else class="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+               <template v-if="isAlgorithmStyle">
+                 <div class="rounded-2xl border border-cyan-100 bg-gradient-to-br from-cyan-50 to-white p-4">
+                   <p class="text-xs uppercase tracking-wider font-bold text-cyan-700">算法考察提示</p>
+                   <p class="text-base font-semibold text-zinc-900 mt-2 leading-relaxed">{{ algorithmBriefText }}</p>
+                   <div class="mt-4 grid grid-cols-2 gap-2 text-xs">
+                     <div class="rounded-xl border border-zinc-200 bg-white p-2.5">
+                       <p class="text-zinc-400">当前题号</p>
+                       <p class="font-bold text-zinc-800 mt-1">第 {{ algorithmProgress.current }} / {{ algorithmProgress.total || '-' }} 题</p>
+                     </div>
+                     <div class="rounded-xl border border-zinc-200 bg-white p-2.5">
+                       <p class="text-zinc-400">完成进度</p>
+                       <p class="font-bold text-zinc-800 mt-1">{{ algorithmProgress.finished }} 题</p>
+                     </div>
+                     <div class="rounded-xl border border-zinc-200 bg-white p-2.5">
+                       <p class="text-zinc-400">通过</p>
+                       <p class="font-bold text-emerald-700 mt-1">{{ algorithmProgress.passed }}</p>
+                     </div>
+                     <div class="rounded-xl border border-zinc-200 bg-white p-2.5">
+                       <p class="text-zinc-400">跳过</p>
+                       <p class="font-bold text-amber-700 mt-1">{{ algorithmProgress.skipped }}</p>
+                     </div>
+                   </div>
+                 </div>
+               </template>
+
+               <template v-else>
                <!-- If it's a Question -->
                <template v-if="latestAIMessage?.type === 'question' || (latestAIMessage?.role === 'ai' && !latestAIMessage?.type)">
                  <h2 class="text-xl font-bold text-zinc-900 leading-relaxed tracking-wide whitespace-pre-wrap wrap-break-word">
@@ -2532,6 +2786,7 @@ onUnmounted(() => {
                     </div>
                   </div>
                </template>
+                </template>
              </div>
            </div>
         </div>
@@ -2552,7 +2807,7 @@ onUnmounted(() => {
         </div>
 
         <!-- Real-time Speech Dashboard -->
-        <div class="bg-white rounded-3xl p-4 border border-zinc-100 shadow-sm shrink-0 lg:resizable-panel lg:flex-none lg:h-[250px]">
+        <div v-if="!isAlgorithmStyle" class="bg-white rounded-3xl p-4 border border-zinc-100 shadow-sm shrink-0 lg:resizable-panel lg:flex-none lg:h-[250px]">
           <SpeechDashboard
             :speechRate="speechMetrics.speechRate"
             :speechRateLevel="speechMetrics.speechRateLevel"
@@ -2565,6 +2820,7 @@ onUnmounted(() => {
         </div>
 
         <button
+          v-if="!isAlgorithmStyle"
           @click="toggleAnswerRecording"
           :disabled="!canAnswerCurrentQuestion || answerVoiceStatus === 'requesting' || answerVoiceStatus === 'transcribing' || answerVoiceStatus === 'submitting'"
           class="w-full py-3 rounded-2xl font-bold text-base transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 border shrink-0"
@@ -2581,7 +2837,7 @@ onUnmounted(() => {
         <!-- Action Button -->
         <button 
           @click="sendMessage"
-          v-if="!isVideoInterviewMode || latestAIMessage?.type === 'feedback'"
+          v-if="!isAlgorithmStyle && (!isVideoInterviewMode || latestAIMessage?.type === 'feedback')"
           :disabled="isProcessing || (!userInput.trim() && latestAIMessage?.type !== 'feedback')"
           class="w-full py-3 bg-zinc-900 text-white rounded-2xl font-bold text-base hover:bg-zinc-800 hover:shadow-xl hover:shadow-zinc-900/20 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 group relative overflow-hidden shrink-0"
         >
@@ -2601,8 +2857,8 @@ onUnmounted(() => {
       </div>
 
       <!-- History Drawer (Overlay) -->
-      <div v-if="showHistory" class="absolute inset-0 z-50 bg-black/20 backdrop-blur-sm flex justify-end" @click.self="showHistory = false">
-        <div class="w-96 bg-white h-full shadow-2xl animate-in slide-in-from-right duration-300 flex flex-col border-l border-zinc-100">
+      <div v-if="showHistory" class="fixed inset-0 z-70 bg-black/20 backdrop-blur-sm flex justify-end" @click.self="showHistory = false">
+        <div class="w-96 max-w-[92vw] bg-white h-dvh shadow-2xl animate-in slide-in-from-right duration-300 flex flex-col border-l border-zinc-100">
           <div class="p-5 border-b border-zinc-100 flex justify-between items-center bg-zinc-50/50">
             <h3 class="font-bold text-zinc-900 flex items-center gap-2">
               <History class="w-4 h-4 text-zinc-400" />

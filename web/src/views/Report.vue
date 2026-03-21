@@ -117,7 +117,7 @@
       <div class="bg-white rounded-3xl p-8 border border-zinc-100 shadow-sm">
         <h2 class="text-lg font-bold text-zinc-900 mb-4">面试回放</h2>
         <p class="text-sm text-zinc-500 mb-6">查看完整面试过程回放，包含 AI 实时评估标注</p>
-        <video v-if="report.replay_url" :src="report.replay_url" controls class="aspect-video w-full bg-zinc-900 rounded-2xl object-contain"></video>
+        <video v-if="resolvedReplayUrl" :src="resolvedReplayUrl" controls class="aspect-video w-full bg-zinc-900 rounded-2xl object-contain"></video>
         <div v-else class="aspect-video bg-zinc-900 rounded-2xl flex items-center justify-center text-zinc-500">
           <div class="text-center">
             <div class="text-4xl mb-2">▶</div>
@@ -221,6 +221,22 @@ const abilityScores = computed(() => {
     '岗位匹配': safe(report.value.matching_score),
     '职业素养': safe(report.value.behavior_score)
   }
+})
+
+const resolvedReplayUrl = computed(() => {
+  const raw = String(report.value?.replay_url || '').trim()
+  if (!raw) return ''
+  if (raw.startsWith('/')) return raw
+  try {
+    const parsed = new URL(raw)
+    const host = parsed.hostname.toLowerCase()
+    if (host === '127.0.0.1' || host === 'localhost') {
+      return `${parsed.pathname || '/'}${parsed.search || ''}`
+    }
+  } catch (_) {
+    // Keep original value for non-URL strings.
+  }
+  return raw
 })
 
 const submitFeedback = () => {

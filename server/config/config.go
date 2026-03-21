@@ -47,7 +47,7 @@ type LLMConfig struct {
 	APIKey   string            `yaml:"api_key"`
 	BaseURL  string            `yaml:"base_url"`
 	Model    string            `yaml:"model"`  // Default model
-	Models   map[string]string `yaml:"models"` // Task-specific models: resume, chat, evaluation
+	Models   map[string]string `yaml:"models"` // Task-specific models: resume, chat, evaluation, report, resume_authenticity, resume_optimization, resume_template
 }
 
 type ASRConfig struct {

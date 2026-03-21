@@ -2,6 +2,7 @@ package repository
 
 import (
 	"fmt"
+	"strings"
 
 	"your-project/model"
 
@@ -36,7 +37,12 @@ func (r *QuestionRepository) GetQuestions(position, difficulty, category string)
 		Where("(source IS NULL OR source <> ?) AND (rag_eligible IS NULL OR rag_eligible = ?)", "follow_up", true)
 
 	if position != "" {
-		query = query.Where("position = ?", position)
+		candidates := buildPositionCandidates(position)
+		if len(candidates) > 0 {
+			query = query.Where("position IN ?", candidates)
+		} else {
+			query = query.Where("position = ?", position)
+		}
 	}
 	if difficulty != "" {
 		query = query.Where("difficulty = ?", difficulty)
@@ -60,7 +66,12 @@ func (r *QuestionRepository) GetQuestionsByPositionAndDifficulty(position, diffi
 		Where("(source IS NULL OR source <> ?) AND (rag_eligible IS NULL OR rag_eligible = ?)", "follow_up", true)
 
 	if position != "" {
-		query = query.Where("position = ?", position)
+		candidates := buildPositionCandidates(position)
+		if len(candidates) > 0 {
+			query = query.Where("position IN ?", candidates)
+		} else {
+			query = query.Where("position = ?", position)
+		}
 	}
 	if difficulty != "" {
 		query = query.Where("difficulty = ?", difficulty)
@@ -164,4 +175,20 @@ func (r *QuestionRepository) GetQuestionStats() (map[string]interface{}, error) 
 	stats["by_difficulty"] = difficultyStats
 
 	return stats, nil
+}
+
+func buildPositionCandidates(position string) []string {
+	p := strings.ToLower(strings.TrimSpace(position))
+	switch {
+	case p == "", strings.Contains(p, "java"), strings.Contains(p, "后端"), p == "backend":
+		return []string{"Java后端工程师", "后端工程师", "后端开发", "Java", "Go", "Python"}
+	case strings.Contains(p, "前端"), strings.Contains(p, "frontend"):
+		return []string{"前端工程师", "前端开发工程师", "前端开发", "Frontend"}
+	case strings.Contains(p, "算法"), p == "algorithm":
+		return []string{"算法工程师", "Algorithm", "算法"}
+	case strings.Contains(p, "ai"), strings.Contains(p, "llm"), strings.Contains(p, "模型"), p == "ai_engineer":
+		return []string{"AI工程师", "ai_engineer", "AI", "机器学习", "Python"}
+	default:
+		return []string{position}
+	}
 }

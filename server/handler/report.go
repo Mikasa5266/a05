@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +23,32 @@ func buildReportResponse(report interface {
 		"weaknesses":  report.GetWeaknesses(),
 		"suggestions": report.GetSuggestions(),
 	}
+}
+
+func normalizeReplayURL(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	if strings.HasPrefix(trimmed, "/") {
+		return trimmed
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil {
+		return trimmed
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "127.0.0.1" || host == "localhost" {
+		path := strings.TrimSpace(u.EscapedPath())
+		if path == "" {
+			path = "/"
+		}
+		if u.RawQuery != "" {
+			path += "?" + u.RawQuery
+		}
+		return path
+	}
+	return trimmed
 }
 
 func GetReports(c *gin.Context) {
@@ -68,7 +95,7 @@ func GetReport(c *gin.Context) {
 	interview, _ := service.GetInterviewByID(userID, report.InterviewID)
 	replayURL := ""
 	if interview != nil {
-		replayURL = interview.RecordingURL
+		replayURL = normalizeReplayURL(interview.RecordingURL)
 	}
 
 	resp := gin.H{
@@ -119,7 +146,7 @@ func GenerateReport(c *gin.Context) {
 	interview, _ := service.GetInterviewByID(userID, report.InterviewID)
 	replayURL := ""
 	if interview != nil {
-		replayURL = interview.RecordingURL
+		replayURL = normalizeReplayURL(interview.RecordingURL)
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -168,7 +195,7 @@ func DownloadReport(c *gin.Context) {
 	interview, _ := service.GetInterviewByID(userID, report.InterviewID)
 	replayURL := ""
 	if interview != nil {
-		replayURL = interview.RecordingURL
+		replayURL = normalizeReplayURL(interview.RecordingURL)
 	}
 
 	builder := &strings.Builder{}

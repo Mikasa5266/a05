@@ -94,3 +94,74 @@ func GenerateQuestions(c *gin.Context) {
 		"questions": questions,
 	})
 }
+
+// AnalyzeResumeAuthenticity checks potential credibility risks and returns interview-verification suggestions.
+func AnalyzeResumeAuthenticity(c *gin.Context) {
+	var req struct {
+		ResumeData *model.ResumeData `json:"resumeData" binding:"required"`
+		RawText    string            `json:"rawText"`
+		TargetRole string            `json:"targetRole"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	svc := service.NewResumeService()
+	report, err := svc.AnalyzeAuthenticity(req.ResumeData, req.RawText, req.TargetRole)
+	if err != nil {
+		log.Printf("Failed to analyze resume authenticity: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to analyze authenticity: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"report": report})
+}
+
+// GetResumeOptimizationSuggestions returns actionable suggestions and rewrite demos.
+func GetResumeOptimizationSuggestions(c *gin.Context) {
+	var req struct {
+		ResumeData *model.ResumeData `json:"resumeData" binding:"required"`
+		TargetRole string            `json:"targetRole"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	svc := service.NewResumeService()
+	report, err := svc.GenerateOptimizationSuggestions(req.ResumeData, req.TargetRole)
+	if err != nil {
+		log.Printf("Failed to generate resume optimization report: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate optimization suggestions: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"report": report})
+}
+
+// GenerateResumeTemplate generates a role-specific resume template.
+func GenerateResumeTemplate(c *gin.Context) {
+	var req struct {
+		TargetRole string `json:"targetRole" binding:"required"`
+		Seniority  string `json:"seniority"`
+		Language   string `json:"language"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	svc := service.NewResumeService()
+	tpl, err := svc.GenerateResumeTemplate(req.TargetRole, req.Seniority, req.Language)
+	if err != nil {
+		log.Printf("Failed to generate resume template: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate resume template: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"template": tpl})
+}

@@ -9,11 +9,10 @@
       <el-form :model="form" :rules="rules" ref="formRef" label-width="100px">
         <el-form-item label="岗位名称" prop="position">
           <el-select v-model="form.position" placeholder="请选择岗位">
-            <el-option label="Java工程师" value="Java" />
-            <el-option label="Python工程师" value="Python" />
-            <el-option label="前端工程师" value="Frontend" />
-            <el-option label="Go工程师" value="Go" />
-            <el-option label="测试工程师" value="QA" />
+            <el-option label="Java后端工程师" value="Java后端工程师" />
+            <el-option label="前端工程师" value="前端工程师" />
+            <el-option label="算法工程师" value="算法工程师" />
+            <el-option label="AI工程师" value="AI工程师" />
           </el-select>
         </el-form-item>
         <el-form-item label="难度级别" prop="difficulty">
