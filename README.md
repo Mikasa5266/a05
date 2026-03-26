@@ -299,6 +299,12 @@ npm run build
 
 ### Option B: Docker deployment (recommended for consistency)
 
+1. Copy `.env.example` to `.env` and fill in real production secrets.
+2. Keep backend private on the host; the bundled compose file binds `8080` to `127.0.0.1` and expects public traffic to go through the frontend reverse proxy.
+3. If you need OCR for scanned resumes in Docker, the backend image now includes `tesseract` and `pdftoppm`.
+4. Use `GET /api/v1/health` for liveness and `GET /api/v1/ready` for readiness checks.
+5. Real-time video interviews now support TURN via the bundled `coturn` service. Fill `TURN_*` and `VITE_WEBRTC_*` values in `.env` before building the frontend image.
+
 Create backend Docker image:
 
 ```dockerfile
@@ -389,8 +395,11 @@ volumes:
 Production checklist:
 
 - Replace all local keys in `server/config.yaml`.
+- Prefer `.env`-driven secrets for Docker deployment instead of editing runtime config in-place.
 - Use environment-specific config management.
 - Enable TLS for public traffic.
+- Add a TURN service before opening live video interviews to external users.
+- Open TURN ports on the server firewall: `3478/tcp`, `3478/udp`, and the relay UDP range you configure (default `49160-49200`).
 - Restrict database network exposure.
 - Back up database and verify restore flow.
 

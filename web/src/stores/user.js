@@ -9,6 +9,13 @@ const ROLE_KEYS = {
 
 const ROLE_NAMES = Object.keys(ROLE_KEYS)
 
+const createDefaultRoleAuth = () => {
+  return ROLE_NAMES.reduce((acc, role) => {
+    acc[role] = { token: '', userInfo: null }
+    return acc
+  }, {})
+}
+
 const resolveRoleFromPath = (path = '') => {
   const pathname = String(path || '')
   if (pathname.startsWith('/enterprise')) return 'enterprise'
@@ -19,29 +26,6 @@ const resolveRoleFromPath = (path = '') => {
 const resolveCurrentRole = () => {
   if (typeof window === 'undefined') return 'student'
   return resolveRoleFromPath(window.location.pathname)
-}
-
-const safeParse = (value) => {
-  try {
-    return JSON.parse(value)
-  } catch {
-    return null
-  }
-}
-
-const readRoleAuthFromStorage = (role) => {
-  const keys = ROLE_KEYS[role] || ROLE_KEYS.student
-  return {
-    token: localStorage.getItem(keys.token) || '',
-    userInfo: safeParse(localStorage.getItem(keys.userInfo) || 'null')
-  }
-}
-
-const readAllRoleAuth = () => {
-  return ROLE_NAMES.reduce((acc, role) => {
-    acc[role] = readRoleAuthFromStorage(role)
-    return acc
-  }, {})
 }
 
 const decodeJwtPayload = (token = '') => {
@@ -58,7 +42,7 @@ const decodeJwtPayload = (token = '') => {
 
 export const useUserStore = defineStore('user', {
   state: () => ({
-    roleAuth: readAllRoleAuth()
+    roleAuth: createDefaultRoleAuth()
   }),
   getters: {
     currentRole: () => resolveCurrentRole(),
@@ -94,32 +78,12 @@ export const useUserStore = defineStore('user', {
       const token = this.getTokenByRole(role)
       return !!token && !this.isTokenExpired(token)
     },
-    persistRoleAuth(role) {
-      const safeRole = ROLE_NAMES.includes(role) ? role : 'student'
-      const keys = ROLE_KEYS[safeRole]
-      const auth = this.getRoleAuth(safeRole)
-      if (auth.token) {
-        localStorage.setItem(keys.token, auth.token)
-      } else {
-        localStorage.removeItem(keys.token)
-      }
-      if (auth.userInfo) {
-        localStorage.setItem(keys.userInfo, JSON.stringify(auth.userInfo))
-      } else {
-        localStorage.removeItem(keys.userInfo)
-      }
-    },
-    clearLegacyStorage() {
-      localStorage.removeItem('token')
-      localStorage.removeItem('userInfo')
-    },
     setRoleAuth(role, payload = {}) {
       const safeRole = ROLE_NAMES.includes(role) ? role : 'student'
       this.roleAuth[safeRole] = {
         token: payload.token || '',
         userInfo: payload.userInfo || null
       }
-      this.persistRoleAuth(safeRole)
     },
     async login(data) {
       const res = await login(data)
@@ -128,7 +92,6 @@ export const useUserStore = defineStore('user', {
         token: res.token,
         userInfo: res.user
       })
-      this.clearLegacyStorage()
       return res
     },
     async register(data) {
@@ -158,7 +121,6 @@ export const useUserStore = defineStore('user', {
         token: '',
         userInfo: null
       })
-      this.clearLegacyStorage()
     },
     logoutAll() {
       ROLE_NAMES.forEach((role) => {
@@ -167,9 +129,9 @@ export const useUserStore = defineStore('user', {
           userInfo: null
         })
       })
-      this.clearLegacyStorage()
     }
-  }
+  },
+  persist: true
 })
 
 export { ROLE_KEYS, ROLE_NAMES, resolveRoleFromPath, resolveCurrentRole }

@@ -1,4 +1,6 @@
 import axios from 'axios'
+import { ElMessage } from 'element-plus'
+import router from '../router/index.js'
 import { useUserStore, resolveRoleFromPath } from '../stores/user'
 import { API_BASE_URL } from './backend'
 
@@ -60,9 +62,8 @@ const shouldBypassAuthEnforcement = (config = {}) => {
 }
 
 const redirectToRoleLogin = (loginPath, fromPath) => {
-  if (typeof window === 'undefined') return
   const redirect = encodeURIComponent(fromPath || '/')
-  window.location.href = `${loginPath}?redirect=${redirect}`
+  router.replace(`${loginPath}?redirect=${redirect}`).catch(() => {})
 }
 
 const enforceRoleLogoutAndRedirect = ({ role, loginPath }) => {
@@ -119,6 +120,12 @@ service.interceptors.response.use(
     } else if (error?.code === 'ECONNABORTED') {
       error.message = '请求超时：长语音转写可能超过等待时长。请重试，或将单次语音控制在 30-45 秒内分段提交。'
     }
+
+    const isCanceled = axios.isCancel(error) || error?.code === 'ERR_CANCELED'
+    if (res?.status !== 401 && !isCanceled) {
+      ElMessage.error(error?.message || '请求失败，请稍后重试')
+    }
+
     return Promise.reject(error)
   }
 )

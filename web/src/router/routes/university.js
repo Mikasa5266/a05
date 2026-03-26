@@ -1,13 +1,13 @@
 import Layout from '../../components/layout/Layout.vue'
 
-import UniversityDashboard from '../../views/university/UniversityDashboard.vue'
-import StudentTracking from '../../views/university/StudentTracking.vue'
-import SupportSystem from '../../views/university/SupportSystem.vue'
-import Courses from '../../views/university/Courses.vue'
-import Employment from '../../views/university/Employment.vue'
-import TalentPush from '../../views/university/TalentPush.vue'
-import LiveInterviewRoom from '../../views/LiveInterviewRoom.vue'
-import Settings from '../../views/Settings.vue'
+const UniversityDashboard = () => import('../../views/university/UniversityDashboard.vue')
+const StudentTracking = () => import('../../views/university/StudentTracking.vue')
+const SupportSystem = () => import('../../views/university/SupportSystem.vue')
+const Courses = () => import('../../views/university/Courses.vue')
+const Employment = () => import('../../views/university/Employment.vue')
+const TalentPush = () => import('../../views/university/TalentPush.vue')
+const LiveInterviewRoom = () => import('../../views/LiveInterviewRoom.vue')
+const Settings = () => import('../../views/Settings.vue')
 
 const roleMeta = {
   requiresAuth: true,

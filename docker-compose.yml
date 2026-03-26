@@ -1,0 +1,194 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: a05-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change_me_root_password}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-interview_ai}
+      MYSQL_USER: ${MYSQL_USER:-a05}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change_me_db_password}
+    command:
+      - --default-authentication-plugin=mysql_native_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD || mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - a05-network
+
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: a05-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      DEBUG: ${DEBUG:-false}
+      DB_HOST: ${DB_HOST:-mysql}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_USERNAME: ${DB_USERNAME:-a05}
+      DB_PASSWORD: ${DB_PASSWORD:-change_me_db_password}
+      DB_DATABASE: ${DB_DATABASE:-interview_ai}
+      JWT_SECRET: ${JWT_SECRET:-change_me_jwt_secret}
+      LLM_PROVIDER: ${LLM_PROVIDER:-zhizengzeng}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.zhizengzeng.com/v1}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-v3}
+      ASR_PROVIDER: ${ASR_PROVIDER:-openai}
+      ASR_API_KEY: ${ASR_API_KEY:-}
+      ASR_BASE_URL: ${ASR_BASE_URL:-https://api.zhizengzeng.com/v1}
+      ASR_MODEL: ${ASR_MODEL:-gpt-4o-transcribe}
+      TTS_PROVIDER: ${TTS_PROVIDER:-openai}
+      TTS_API_KEY: ${TTS_API_KEY:-}
+      TTS_BASE_URL: ${TTS_BASE_URL:-https://api.zhizengzeng.com/v1}
+      TTS_MODEL: ${TTS_MODEL:-tts-1-1106}
+      TTS_VOICE: ${TTS_VOICE:-alloy}
+      TTS_ENABLED: ${TTS_ENABLED:-true}
+      OCR_TESSERACT_PATH: ${OCR_TESSERACT_PATH:-}
+      OCR_PDFTOPPM_PATH: ${OCR_PDFTOPPM_PATH:-}
+      OCR_TESSDATA_PATH: ${OCR_TESSDATA_PATH:-/usr/share/tessdata}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/api/v1/ready >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    command:
+      - /bin/sh
+      - -c
+      - |
+        cat >/app/config.yaml <<EOF
+        server:
+          host: "0.0.0.0"
+          port: "8080"
+
+        database:
+          host: "$${DB_HOST}"
+          port: "$${DB_PORT}"
+          username: "$${DB_USERNAME}"
+          password: "$${DB_PASSWORD}"
+          database: "$${DB_DATABASE}"
+          sslmode: "disable"
+
+        jwt:
+          secret: "$${JWT_SECRET}"
+          expire_time: 24
+
+        llm:
+          provider: "$${LLM_PROVIDER}"
+          api_key: "$${LLM_API_KEY}"
+          base_url: "$${LLM_BASE_URL}"
+          model: "$${LLM_MODEL}"
+          models:
+            resume: "$${LLM_MODEL}"
+            resume_authenticity: "$${LLM_MODEL}"
+            resume_optimization: "$${LLM_MODEL}"
+            resume_template: "$${LLM_MODEL}"
+            chat: "$${LLM_MODEL}"
+            evaluation: "$${LLM_MODEL}"
+            report: "$${LLM_MODEL}"
+
+        asr:
+          provider: "$${ASR_PROVIDER}"
+          api_key: "$${ASR_API_KEY}"
+          base_url: "$${ASR_BASE_URL}"
+          model: "$${ASR_MODEL}"
+          max_audio_bytes: 0
+          chunk_min_interval_seconds: 0
+          max_calls_per_interview: 0
+
+        tts:
+          provider: "$${TTS_PROVIDER}"
+          api_key: "$${TTS_API_KEY}"
+          base_url: "$${TTS_BASE_URL}"
+          model: "$${TTS_MODEL}"
+          voice: "$${TTS_VOICE}"
+          enabled: $${TTS_ENABLED}
+          max_chars_per_request: 0
+          max_chars_per_interview: 0
+
+        ocr:
+          tesseract_path: "$${OCR_TESSERACT_PATH}"
+          pdftoppm_path: "$${OCR_PDFTOPPM_PATH}"
+          tessdata_path: "$${OCR_TESSDATA_PATH}"
+        EOF
+        exec /app/app
+    volumes:
+      - backend_uploads:/app/uploads
+      - ./knowledge_base:/knowledge_base
+    networks:
+      - a05-network
+
+  frontend:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.nginx
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api/v1}
+        VITE_WEBRTC_STUN_URLS: ${VITE_WEBRTC_STUN_URLS:-stun:stun.l.google.com:19302}
+        VITE_WEBRTC_TURN_URLS: ${VITE_WEBRTC_TURN_URLS:-}
+        VITE_WEBRTC_TURN_USERNAME: ${VITE_WEBRTC_TURN_USERNAME:-}
+        VITE_WEBRTC_TURN_CREDENTIAL: ${VITE_WEBRTC_TURN_CREDENTIAL:-}
+    container_name: a05-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - a05-network
+
+  coturn:
+    image: instrumentisto/coturn:4.6.3-r0
+    container_name: a05-coturn
+    restart: unless-stopped
+    depends_on:
+      frontend:
+        condition: service_healthy
+    command:
+      - -n
+      - --log-file=stdout
+      - --realm=${TURN_REALM:-localhost}
+      - --server-name=${TURN_SERVER_NAME:-a05-turn}
+      - --external-ip=${TURN_EXTERNAL_IP:-127.0.0.1}
+      - --listening-ip=0.0.0.0
+      - --listening-port=${TURN_PORT:-3478}
+      - --min-port=${TURN_MIN_PORT:-49160}
+      - --max-port=${TURN_MAX_PORT:-49200}
+      - --fingerprint
+      - --lt-cred-mech
+      - --user=${TURN_USERNAME:-a05turn}:${TURN_PASSWORD:-change_me_turn_password}
+      - --no-cli
+    ports:
+      - "${TURN_PORT:-3478}:${TURN_PORT:-3478}/tcp"
+      - "${TURN_PORT:-3478}:${TURN_PORT:-3478}/udp"
+      - "${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}:${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}/udp"
+    networks:
+      - a05-network
+
+networks:
+  a05-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  backend_uploads:

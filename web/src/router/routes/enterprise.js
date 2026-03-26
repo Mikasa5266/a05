@@ -1,13 +1,13 @@
 import Layout from '../../components/layout/Layout.vue'
 
-import EnterpriseDashboard from '../../views/enterprise/EnterpriseDashboard.vue'
-import TalentPool from '../../views/enterprise/TalentPool.vue'
-import JobManagement from '../../views/enterprise/JobManagement.vue'
-import HRPanel from '../../views/enterprise/HRPanel.vue'
-import Analytics from '../../views/enterprise/Analytics.vue'
-import Standards from '../../views/enterprise/Standards.vue'
-import LiveInterviewRoom from '../../views/LiveInterviewRoom.vue'
-import Settings from '../../views/Settings.vue'
+const EnterpriseDashboard = () => import('../../views/enterprise/EnterpriseDashboard.vue')
+const TalentPool = () => import('../../views/enterprise/TalentPool.vue')
+const JobManagement = () => import('../../views/enterprise/JobManagement.vue')
+const HRPanel = () => import('../../views/enterprise/HRPanel.vue')
+const Analytics = () => import('../../views/enterprise/Analytics.vue')
+const Standards = () => import('../../views/enterprise/Standards.vue')
+const LiveInterviewRoom = () => import('../../views/LiveInterviewRoom.vue')
+const Settings = () => import('../../views/Settings.vue')
 
 const roleMeta = {
   requiresAuth: true,

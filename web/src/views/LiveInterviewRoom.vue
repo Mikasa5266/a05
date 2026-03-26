@@ -11,7 +11,7 @@ import {
   startInterview
 } from '../api/interview'
 import { generateReport } from '../api/report'
-import { API_BASE_URL } from '../utils/backend'
+import { API_BASE_URL, WEBRTC_ICE_SERVERS } from '../utils/backend'
 
 const route = useRoute()
 const router = useRouter()
@@ -178,7 +178,7 @@ function ensurePeer() {
   if (peer) return peer
 
   peer = new RTCPeerConnection({
-    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    iceServers: WEBRTC_ICE_SERVERS
   })
 
   localStream?.getTracks().forEach((track) => {

@@ -1,15 +1,15 @@
 import Layout from '../../components/layout/Layout.vue'
 
-import Home from '../../views/Home.vue'
-import ResumeMatching from '../../views/ResumeMatching.vue'
-import MockInterview from '../../views/MockInterview.vue'
-import GrowthCenter from '../../views/GrowthCenter.vue'
-import History from '../../views/History.vue'
-import Report from '../../views/Report.vue'
-import Settings from '../../views/Settings.vue'
-import Community from '../../views/Community.vue'
-import CommunityPostDetail from '../../views/CommunityPostDetail.vue'
-import LiveInterviewRoom from '../../views/LiveInterviewRoom.vue'
+const Home = () => import('../../views/Home.vue')
+const ResumeMatching = () => import('../../views/ResumeMatching.vue')
+const MockInterview = () => import('../../views/MockInterview.vue')
+const GrowthCenter = () => import('../../views/GrowthCenter.vue')
+const History = () => import('../../views/History.vue')
+const Report = () => import('../../views/Report.vue')
+const Settings = () => import('../../views/Settings.vue')
+const Community = () => import('../../views/Community.vue')
+const CommunityPostDetail = () => import('../../views/CommunityPostDetail.vue')
+const LiveInterviewRoom = () => import('../../views/LiveInterviewRoom.vue')
 
 const roleMeta = {
   requiresAuth: true,

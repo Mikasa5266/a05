@@ -4,6 +4,9 @@ server/config.local.yaml
 server/config.*.local.yaml
 
 # Local web environment files
+.env
+.env.*
+!.env.example
 web/.env
 web/.env.*
 !web/.env.example

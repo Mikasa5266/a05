@@ -20,6 +20,8 @@ func SetupRouter() *gin.Engine {
 	{
 		public := api.Group("/")
 		{
+			public.GET("/health", handler.Health)
+			public.GET("/ready", handler.Ready)
 			public.POST("/register", handler.Register)
 			public.POST("/enterprise/apply", handler.ApplyEnterprise)
 			public.POST("/university/apply", handler.ApplyUniversity)

@@ -1,5 +1,5 @@
-import Login from '../../views/Login.vue'
-import Forbidden from '../../views/Forbidden.vue'
+const Login = () => import('../../views/Login.vue')
+const Forbidden = () => import('../../views/Forbidden.vue')
 
 const publicMeta = {
   requiresAuth: false,

@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { ROLE_KEYS, resolveRoleFromPath, useUserStore } from '../stores/user'
+import { resolveRoleFromPath, useUserStore } from '../stores/user'
 import { commonRoutes } from './routes/common'
 import { studentRoutes } from './routes/student'
 import { enterpriseRoutes } from './routes/enterprise'
@@ -31,16 +31,14 @@ const normalizeRole = (role) => {
   return 'student'
 }
 
-const readTokenFromStorageByRole = (role) => {
+const readTokenByRole = (userStore, role) => {
   const safeRole = normalizeRole(role)
-  const key = ROLE_KEYS[safeRole]?.token
-  if (!key) return ''
-  return localStorage.getItem(key) || ''
+  return userStore.getTokenByRole(safeRole)
 }
 
 const findLoggedRole = (userStore) => {
   for (const role of ROLE_NAMES) {
-    const token = readTokenFromStorageByRole(role)
+    const token = readTokenByRole(userStore, role)
     if (token && !userStore.isTokenExpired(token)) {
       return role
     }
@@ -93,7 +91,7 @@ router.beforeEach((to) => {
   }
 
   if (to.path.endsWith('/login')) {
-    const token = readTokenFromStorageByRole(pathRole)
+    const token = readTokenByRole(userStore, pathRole)
     if (token && !userStore.isTokenExpired(token)) {
       const redirectTarget = String(to.query?.redirect || '').trim()
       if (redirectTarget) {
@@ -108,7 +106,7 @@ router.beforeEach((to) => {
     return true
   }
 
-  const token = readTokenFromStorageByRole(pathRole)
+  const token = readTokenByRole(userStore, pathRole)
   if (!token || userStore.isTokenExpired(token)) {
     userStore.logout(pathRole)
 
