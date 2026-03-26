@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, nextTick, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { 
-  Video, VideoOff, Mic, MicOff, ChevronRight, ChevronDown,
+  Mic, MicOff, ChevronRight, ChevronDown,
   BrainCircuit, User, LogOut, Send, Loader2,
   History, MessageSquare, Lightbulb,
   Monitor, Users, Shuffle, UserCheck, Shield, Headphones,
@@ -15,15 +15,17 @@ import { startInterview as apiStartInterview, submitAnswer as apiSubmitAnswer, e
 import { generateReport as apiGenerateReport } from '../api/report'
 import SpeechDashboard from '../components/SpeechDashboard.vue'
 import AlgorithmInterviewPanel from '../components/AlgorithmInterviewPanel.vue'
+import InterviewSetupPreview from '../components/InterviewSetupPreview.vue'
+import InterviewSetupForm from '../components/InterviewSetupForm.vue'
+import HumanInterviewModals from '../components/HumanInterviewModals.vue'
+import InterviewVideoStage from '../components/InterviewVideoStage.vue'
+import InterviewFeedbackSidebar from '../components/InterviewFeedbackSidebar.vue'
 
 const route = useRoute()
 const router = useRouter()
-const positionDropdownRef = ref(null)
 const phase = ref('setup') // setup, interview, summary
 const isCameraOn = ref(true)
 const isMicOn = ref(true)
-const previewVideo = ref(null)
-const interviewVideo = ref(null)
 const stream = ref(null)
 const recordingStatus = ref('idle')
 const recordingUrl = ref('')
@@ -51,7 +53,6 @@ const processingHint = ref('')
 const reportId = ref(null)
 const isGeneratingReport = ref(false)
 const showHistory = ref(false)
-const showModelAnswer = ref(false)
 const pendingNextQuestion = ref(null)
 const pendingEnd = ref(false)
 const isAvatarSpeaking = ref(false)
@@ -97,31 +98,6 @@ const settings = ref({
   interviewMode: 'ai',  // ai, human, random
   presentationMode: route.query.presentationMode || 'video_avatar' // text_voice, video_avatar
 })
-
-const positionOptions = [
-  'Java后端工程师',
-  '前端工程师',
-  '算法工程师',
-  'AI工程师'
-]
-
-const showPositionDropdown = ref(false)
-
-const togglePositionDropdown = () => {
-  showPositionDropdown.value = !showPositionDropdown.value
-}
-
-const selectPosition = (position) => {
-  settings.value.position = position
-  showPositionDropdown.value = false
-}
-
-const closePositionDropdownOnOutsideClick = (event) => {
-  if (!positionDropdownRef.value) return
-  if (!positionDropdownRef.value.contains(event.target)) {
-    showPositionDropdown.value = false
-  }
-}
 
 // Interview Config from server
 const interviewConfig = ref(null)
@@ -719,10 +695,6 @@ const startCamera = async () => {
     stream.value = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
     stream.value.getAudioTracks().forEach(track => { track.enabled = isMicOn.value })
     isCameraOn.value = true
-    nextTick(() => {
-      if (previewVideo.value) previewVideo.value.srcObject = stream.value
-      if (interviewVideo.value) interviewVideo.value.srcObject = stream.value
-    })
   } catch (err) {
     console.error("Camera access denied:", err)
     isCameraOn.value = false
@@ -997,7 +969,6 @@ const startInterview = async () => {
       // Small delay to ensure DOM is ready
       setTimeout(async () => {
         if (!stream.value) await startCamera()
-        else if (interviewVideo.value) interviewVideo.value.srcObject = stream.value
         startInterviewRecording()
       }, 500)
     }
@@ -1801,6 +1772,11 @@ const loadUserInvitations = async () => {
   }
 }
 
+const onOpenBookingsPanel = async () => {
+  showBookingsPanel.value = true
+  await loadUserInvitations()
+}
+
 const useInvitationForInterview = (invitation) => {
   activeInvitationId.value = invitation.id
   activeInvitation.value = invitation
@@ -1842,7 +1818,6 @@ const revealStyle = async () => {
 
 onMounted(() => {
   ensureModelViewerScript()
-  document.addEventListener('click', closePositionDropdownOnOutsideClick)
   if (settings.value.presentationMode === 'video_avatar') {
     startCamera()
   }
@@ -1852,7 +1827,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.body.style.overflow = ''
-  document.removeEventListener('click', closePositionDropdownOnOutsideClick)
   if (interviewMediaRecorder && interviewMediaRecorder.state === 'recording') {
     interviewMediaRecorder.stop()
   }
@@ -1887,446 +1861,40 @@ onUnmounted(() => {
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-8 w-full items-stretch">
         <!-- Preview Area -->
-        <div class="flex flex-col gap-4 min-h-[480px]">
-          <div class="aspect-video rounded-2xl relative overflow-hidden flex items-center justify-center group shadow-xl bg-gradient-to-br from-slate-900 via-slate-800 to-cyan-900/80">
-            <template v-if="settings.presentationMode === 'video_avatar'">
-              <div class="absolute inset-0 interview-room-scene interview-room-scene--compact pointer-events-none"></div>
-              <div class="absolute inset-y-0 left-0 w-20 interview-room-wall interview-room-wall--left interview-room-wall--compact pointer-events-none"></div>
-              <div class="absolute inset-y-0 right-0 w-24 interview-room-wall interview-room-wall--right interview-room-wall--compact pointer-events-none"></div>
-              <div class="absolute left-0 right-0 bottom-0 h-20 interview-room-floor interview-room-floor--compact pointer-events-none"></div>
-              <model-viewer
-                src="/interview3.glb"
-                autoplay
-                environment-image="neutral"
-                interaction-prompt="none"
-                camera-target="auto auto auto"
-                camera-orbit="0deg 78deg auto"
-                field-of-view="28deg"
-                exposure="1.35"
-                shadow-intensity="0.65"
-                class="w-full h-full interviewer-static relative z-20"
-              ></model-viewer>
-
-              <div class="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-slate-950/90 via-slate-900/45 to-transparent pointer-events-none"></div>
-              <div class="absolute bottom-5 left-1/2 -translate-x-1/2 w-[58%] h-10 rounded-t-2xl interview-room-desk"></div>
-
-              <div class="absolute bottom-4 left-4 w-36 h-24 rounded-2xl overflow-hidden border border-white/15 bg-zinc-950/90 shadow-lg">
-                <video ref="previewVideo" class="w-full h-full object-cover transform scale-x-[-1]" autoplay muted v-if="isCameraOn"></video>
-                <div v-else class="w-full h-full flex flex-col items-center justify-center text-zinc-500">
-                  <VideoOff class="h-6 w-6 mb-1" />
-                  <span class="text-[10px]">摄像头关闭</span>
-                </div>
-                <div class="absolute bottom-1 left-1 text-[10px] px-1.5 py-0.5 rounded-full bg-black/55 text-white border border-white/10">面试者</div>
-              </div>
-
-              <div class="absolute bottom-4 right-4 w-28 h-28 rounded-2xl overflow-hidden border border-emerald-200/30 bg-zinc-950/85 backdrop-blur-sm shadow-lg shadow-emerald-900/20">
-                <model-viewer
-                  src="/cute_ghost.glb"
-                  autoplay
-                  auto-rotate
-                  camera-controls
-                  exposure="1.1"
-                  shadow-intensity="0.85"
-                  class="w-full h-full"
-                ></model-viewer>
-                <div class="absolute bottom-1 left-1 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/80 text-white border border-emerald-300/50">影子教练</div>
-              </div>
-
-              <div class="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3">
-                <button 
-                  @click="toggleMic"
-                  class="h-10 w-10 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95"
-                  :class="isMicOn ? 'bg-white/10 text-white backdrop-blur-md hover:bg-white/20' : 'bg-rose-500 text-white'"
-                >
-                  <Mic v-if="isMicOn" class="h-4 w-4" />
-                  <MicOff v-else class="h-4 w-4" />
-                </button>
-                <button 
-                  @click="toggleCamera"
-                  class="h-10 w-10 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95"
-                  :class="isCameraOn ? 'bg-white/10 text-white backdrop-blur-md hover:bg-white/20' : 'bg-rose-500 text-white'"
-                >
-                  <Video v-if="isCameraOn" class="h-4 w-4" />
-                  <VideoOff v-else class="h-4 w-4" />
-                </button>
-              </div>
-            </template>
-            <template v-else>
-              <div class="w-full h-full p-6 flex flex-col justify-between bg-gradient-to-br from-zinc-900 via-slate-900 to-zinc-800">
-                <div>
-                  <p class="text-zinc-200 font-semibold">文字 + 语音模式</p>
-                  <p class="text-zinc-400 text-xs mt-1">专注内容质量与语言表达，适合长回答连续训练。</p>
-                </div>
-                <div class="grid grid-cols-3 gap-2">
-                  <div class="rounded-xl border border-white/10 bg-white/5 p-2">
-                    <p class="text-[10px] text-zinc-400">环节</p>
-                    <p class="text-xs text-zinc-100 mt-1">提问</p>
-                  </div>
-                  <div class="rounded-xl border border-white/10 bg-white/5 p-2">
-                    <p class="text-[10px] text-zinc-400">环节</p>
-                    <p class="text-xs text-zinc-100 mt-1">作答</p>
-                  </div>
-                  <div class="rounded-xl border border-white/10 bg-white/5 p-2">
-                    <p class="text-[10px] text-zinc-400">环节</p>
-                    <p class="text-xs text-zinc-100 mt-1">复盘</p>
-                  </div>
-                </div>
-                <div class="rounded-2xl bg-white/5 border border-white/10 p-3">
-                  <p class="text-zinc-200 text-xs">该模式下将保持当前高效流程：AI提问 -> 语音/文字回答 -> AI评估追问。</p>
-                  <div class="mt-3 h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
-                    <div class="h-full w-2/3 bg-gradient-to-r from-cyan-400 to-emerald-400 rounded-full"></div>
-                  </div>
-                </div>
-              </div>
-            </template>
-          </div>
-
-          <div class="flex-1 rounded-2xl border border-zinc-200 bg-gradient-to-br from-sky-50 via-white to-indigo-50 p-5 shadow-sm">
-            <div class="grid grid-cols-2 gap-3 h-full">
-              <div class="rounded-xl bg-white border border-sky-100 p-3">
-                <p class="text-[11px] text-zinc-500">推荐模式</p>
-                <p class="text-sm font-bold text-zinc-800 mt-1">视频模式（默认）</p>
-                <p class="text-[11px] text-zinc-500 mt-2">更接近真实压力场景，结合表情与语音节奏反馈。</p>
-              </div>
-              <div class="rounded-xl bg-white border border-emerald-100 p-3">
-                <p class="text-[11px] text-zinc-500">语音策略</p>
-                <p class="text-sm font-bold text-zinc-800 mt-1">当前为无限制模式</p>
-                <p class="text-[11px] text-zinc-500 mt-2">本地配置暂不限制单轮语音和TTS长度，后续可按需调整。</p>
-              </div>
-              <div class="rounded-xl bg-white border border-zinc-200 p-3 col-span-2">
-                <div class="flex items-center justify-between">
-                  <p class="text-[11px] text-zinc-500">当前流程</p>
-                  <span class="text-[10px] px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-medium">实时追问</span>
-                </div>
-                <p class="text-sm text-zinc-700 mt-1">AI 提问 -> 语音回答 -> 结束语音并分析 -> 下一题。追问实时生成，不读取题库缓存。</p>
-              </div>
-            </div>
-          </div>
-        </div>
+        <InterviewSetupPreview
+          :presentation-mode="settings.presentationMode"
+          :is-camera-on="isCameraOn"
+          :is-mic-on="isMicOn"
+          :stream="stream"
+          @toggle-mic="toggleMic"
+          @toggle-camera="toggleCamera"
+        />
 
         <!-- Settings Area -->
-        <div class="space-y-5 bg-white p-6 rounded-2xl border border-zinc-100 shadow-sm overflow-y-auto max-h-[480px]">
-          <div class="space-y-2">
-            <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider">目标岗位</label>
-            <div ref="positionDropdownRef" class="relative" @click.stop>
-              <button
-                type="button"
-                @click="togglePositionDropdown"
-                class="interview-position-select w-full bg-gradient-to-b from-white to-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm font-medium text-zinc-700 transition-all flex items-center justify-between hover:border-indigo-300"
-                :class="showPositionDropdown ? 'ring-2 ring-indigo-500 border-indigo-300' : ''"
-              >
-                <span>{{ settings.position }}</span>
-                <ChevronDown class="w-4 h-4 text-zinc-400 transition-transform" :class="showPositionDropdown ? 'rotate-180' : ''" />
-              </button>
-
-              <transition name="dropdown-fade">
-                <div
-                  v-if="showPositionDropdown"
-                  class="absolute z-30 mt-2 w-full rounded-2xl border border-zinc-200 bg-white shadow-[0_14px_30px_rgba(15,23,42,0.12)] p-2 max-h-64 overflow-y-auto custom-scrollbar"
-                >
-                  <button
-                    v-for="position in positionOptions"
-                    :key="position"
-                    type="button"
-                    @click="selectPosition(position)"
-                    class="w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all"
-                    :class="settings.position === position ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-zinc-700 hover:bg-zinc-50'"
-                  >
-                    {{ position }}
-                  </button>
-                </div>
-              </transition>
-            </div>
-          </div>
-
-          <div class="space-y-2">
-            <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider">对话呈现模式</label>
-            <div class="grid grid-cols-2 gap-2">
-              <button
-                @click="setPresentationMode('video_avatar')"
-                class="flex flex-col items-center gap-1 px-3 py-3 rounded-xl text-xs font-medium border transition-all text-center"
-                :class="settings.presentationMode === 'video_avatar' ? 'bg-sky-50 border-sky-300 text-sky-700 ring-1 ring-sky-200' : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
-              >
-                <span class="text-lg">🎥</span>
-                <span class="font-bold">视频模式</span>
-                <span class="text-[10px] text-zinc-400">3D 面试官 + 语音播报</span>
-              </button>
-              <button
-                @click="setPresentationMode('text_voice')"
-                class="flex flex-col items-center gap-1 px-3 py-3 rounded-xl text-xs font-medium border transition-all text-center"
-                :class="settings.presentationMode === 'text_voice' ? 'bg-emerald-50 border-emerald-300 text-emerald-700 ring-1 ring-emerald-200' : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
-              >
-                <span class="text-lg">🎙️</span>
-                <span class="font-bold">文字语音模式</span>
-                <span class="text-[10px] text-zinc-400">低成本高效率训练</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- ===== 1. Interview Type (面试类型) ===== -->
-          <div class="space-y-2">
-            <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider">面试类型</label>
-            <div class="grid grid-cols-3 gap-2">
-              <button 
-                v-for="m in [
-                  { key: 'technical', label: '技术面', icon: Monitor, desc: '编程/算法/系统设计' },
-                  { key: 'hr', label: 'HR面', icon: UserCheck, desc: '沟通/职业规划/软技能' },
-                  { key: 'comprehensive', label: '综合面', icon: BrainCircuit, desc: '技术+HR联合面试' }
-                ]"
-                :key="m.key"
-                @click="settings.mode = m.key"
-                class="flex flex-col items-center gap-1 px-3 py-3 rounded-xl text-sm font-medium border transition-all text-center relative group"
-                :class="settings.mode === m.key 
-                  ? 'bg-indigo-50 border-indigo-200 text-indigo-600 ring-1 ring-indigo-200'
-                  : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
-              >
-                <component :is="m.icon" class="h-5 w-5 shrink-0" />
-                <span class="font-bold text-xs">{{ m.label }}</span>
-                <span class="text-[10px] text-zinc-400 leading-tight">{{ m.desc }}</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- ===== 2. Interviewer Style (面试官风格) ===== -->
-          <div class="space-y-2">
-            <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider">面试官风格</label>
-            <div class="grid grid-cols-3 gap-2">
-              <button 
-                v-for="s in [
-                  { key: 'gentle', label: '温和型', icon: Heart, color: 'emerald' },
-                  { key: 'stress', label: '压力型', icon: Flame, color: 'rose' },
-                  { key: 'deep', label: '技术深挖', icon: Search, color: 'violet' },
-                  { key: 'practical', label: '项目实战', icon: Briefcase, color: 'amber' },
-                  { key: 'algorithm', label: '算法考察', icon: Code, color: 'cyan' }
-                ]" 
-                :key="s.key"
-                @click="settings.style = s.key"
-                class="flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium border transition-all"
-                :class="settings.style === s.key ? 'bg-indigo-50 border-indigo-200 text-indigo-600 ring-1 ring-indigo-200' : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
-              >
-                <component :is="s.icon" class="h-3.5 w-3.5 shrink-0" />
-                {{ s.label }}
-              </button>
-            </div>
-          </div>
-
-          <!-- ===== Company Style (大厂面试风格复刻) ===== -->
-          <div class="space-y-2">
-            <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-              <Building2 class="w-3.5 h-3.5" /> 大厂面试风格（可选）
-            </label>
-            <div class="grid grid-cols-3 gap-2">
-              <button 
-                v-for="c in [
-                  { key: '', label: '不限', emoji: '🌐' },
-                  { key: 'ali', label: '阿里', emoji: '🟠' },
-                  { key: 'bytedance', label: '字节', emoji: '⚡' },
-                  { key: 'tencent', label: '腾讯', emoji: '🐧' },
-                  { key: 'meituan', label: '美团', emoji: '🟡' },
-                  { key: 'baidu', label: '百度', emoji: '🔵' }
-                ]" 
-                :key="c.key"
-                @click="settings.company = c.key"
-                class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all"
-                :class="settings.company === c.key ? 'bg-orange-50 border-orange-200 text-orange-700 ring-1 ring-orange-200' : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
-              >
-                <span>{{ c.emoji }}</span>
-                {{ c.label }}
-              </button>
-            </div>
-          </div>
-          
-          <!-- ===== 3. Difficulty Level (难度等级) ===== -->
-          <div class="space-y-2">
-            <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-              <GraduationCap class="w-3.5 h-3.5" /> 难度等级
-            </label>
-            <div class="grid grid-cols-3 gap-2">
-              <button 
-                v-for="d in [
-                  { key: 'campus_intern', label: '校招实习', desc: '在校实习生' },
-                  { key: 'campus_graduate', label: '校招应届', desc: '应届毕业生' },
-                  { key: 'social_junior', label: '社招初级', desc: '1-3年经验' }
-                ]" 
-                :key="d.key"
-                @click="settings.difficulty = d.key"
-                class="flex flex-col items-center gap-0.5 px-3 py-2.5 rounded-xl text-xs font-medium border transition-all"
-                :class="settings.difficulty === d.key ? 'bg-indigo-50 border-indigo-200 text-indigo-600 ring-1 ring-indigo-200' : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
-              >
-                <span class="font-bold">{{ d.label }}</span>
-                <span class="text-[10px] text-zinc-400">{{ d.desc }}</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- ===== 4. Interview Mode (面试模式: AI/真人/随机) ===== -->
-          <div class="space-y-2">
-            <label class="text-xs font-bold text-zinc-400 uppercase tracking-wider">面试模式</label>
-            <div class="grid grid-cols-3 gap-2">
-              <button 
-                v-for="im in [
-                  { key: 'ai', label: 'AI仿真面试官', icon: '🤖', desc: 'AI模拟真实面试' },
-                  { key: 'human', label: '真人面试', icon: '👤', desc: '邀请高校端/企业端账号' },
-                  { key: 'random', label: '随机模式', icon: '🎲', desc: '风格随机不提前告知' }
-                ]" 
-                :key="im.key"
-                @click="setInterviewMode(im.key)"
-                class="flex flex-col items-center gap-1 px-3 py-3 rounded-xl text-xs font-medium border transition-all text-center"
-                :class="settings.interviewMode === im.key 
-                  ? (im.key === 'random' ? 'bg-violet-50 border-violet-300 text-violet-700 ring-1 ring-violet-200' : im.key === 'human' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 ring-1 ring-emerald-200' : 'bg-indigo-50 border-indigo-200 text-indigo-600 ring-1 ring-indigo-200')
-                  : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
-              >
-                <span class="text-xl">{{ im.icon }}</span>
-                <span class="font-bold">{{ im.label }}</span>
-                <span class="text-[10px] text-zinc-400 leading-tight">{{ im.desc }}</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Random Mode Notice -->
-          <div v-if="settings.interviewMode === 'random'" class="p-3 bg-violet-50 rounded-xl border border-violet-200 animate-in fade-in duration-300">
-            <div class="flex items-start gap-2">
-              <Shuffle class="w-4 h-4 text-violet-600 mt-0.5 shrink-0" />
-              <div>
-                <p class="text-xs font-bold text-violet-700">随机模式说明</p>
-                <p class="text-[11px] text-violet-600 leading-relaxed mt-1">
-                  系统将随机分配面试官风格（温和/压力/深挖等），可能随机匹配大厂面试风格。
-                  面试过程中不会提前告知风格类型，模拟真实企业的"突然压力追问"场景。
-                  面试结束后将揭晓本次的面试官风格。
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <!-- ===== Human Interview Panel ===== -->
-          <div v-if="settings.interviewMode === 'human'" class="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
-            <!-- Interviewer Type Tabs -->
-            <div class="flex gap-2">
-              <button 
-                v-for="t in [{key: '', label: '全部'}, {key: 'campus', label: '🏫 校内老师'}, {key: 'enterprise', label: '🏢 企业专家'}]"
-                :key="t.key"
-                @click="loadInviteCandidates(t.key)"
-                class="px-3 py-1.5 rounded-lg text-xs font-medium border transition-all"
-                :class="'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'"
-              >
-                {{ t.label }}
-              </button>
-            </div>
-
-            <!-- Interviewers List -->
-            <div v-if="inviteCandidatesLoading" class="text-center py-4">
-              <Loader2 class="w-6 h-6 text-zinc-400 animate-spin mx-auto" />
-              <p class="text-xs text-zinc-400 mt-2">加载可邀请用户...</p>
-            </div>
-            <div v-else-if="inviteCandidates.length > 0" class="space-y-2 max-h-[180px] overflow-y-auto custom-scrollbar">
-              <div 
-                v-for="candidate in inviteCandidates" 
-                :key="candidate.id"
-                @click="selectInviteCandidate(candidate)"
-                class="flex items-center gap-3 p-3 rounded-xl border border-zinc-100 hover:border-indigo-200 hover:bg-indigo-50/30 cursor-pointer transition-all group"
-              >
-                <div class="h-10 w-10 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 flex items-center justify-center text-indigo-700 font-bold text-sm shrink-0">
-                  {{ candidate.username?.[0] || '?' }}
-                </div>
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2">
-                    <span class="text-sm font-bold text-zinc-800">{{ candidate.username }}</span>
-                    <span class="text-[10px] px-1.5 py-0.5 rounded-full" 
-                      :class="candidate.role === 'university' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'">
-                      {{ candidate.role === 'university' ? '高校端' : '企业端' }}
-                    </span>
-                  </div>
-                  <p class="text-[11px] text-zinc-500 truncate">{{ candidate.email }}</p>
-                  <div class="flex items-center gap-2 mt-0.5">
-                    <span class="text-[10px] text-zinc-400">{{ normalizeCandidateRole(candidate.role) }}</span>
-                  </div>
-                </div>
-                <Calendar class="w-4 h-4 text-zinc-300 group-hover:text-indigo-500 transition-colors shrink-0" />
-              </div>
-            </div>
-            <div v-else class="p-4 bg-zinc-50 rounded-xl text-center">
-              <p class="text-xs text-zinc-400">暂无可邀请用户，请先在高校端/企业端注册账号。</p>
-            </div>
-
-            <!-- Bookings Button -->
-            <button @click="showBookingsPanel = true; loadUserInvitations()" class="w-full py-2 rounded-xl text-xs font-medium border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-600 transition-all flex items-center justify-center gap-1.5">
-              <Clock class="w-3 h-3" /> 查看我的邀请
-            </button>
-
-            <div v-if="activeInvitation" class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-              已选择邀请：{{ activeInvitation.invitee?.username || activeInvitation.invitee_user_id }}（{{ normalizeCandidateRole(activeInvitation.invitee_role) }}）
-            </div>
-          </div>
-
-          <!-- Blind Box Mode (unchanged) -->
-          <div v-if="settings.mode === 'blindbox'" class="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
-            <div v-if="blindBoxRevealing" class="p-6 bg-gradient-to-br from-violet-100 to-purple-50 rounded-2xl border border-violet-200 flex flex-col items-center justify-center gap-3">
-              <div class="relative">
-                <Package class="h-12 w-12 text-violet-600 animate-bounce" />
-                <div class="absolute -top-1 -right-1 w-4 h-4 bg-yellow-400 rounded-full animate-ping"></div>
-              </div>
-              <p class="text-sm font-bold text-violet-700 animate-pulse">正在抽取面试场景...</p>
-            </div>
-            <div v-else-if="blindBoxRevealed && blindBoxScenario" 
-              class="p-4 rounded-2xl border-2 shadow-md animate-in fade-in zoom-in-95 duration-500 relative overflow-hidden"
-              :class="[pressureColors[pressureLevel]?.bg, pressureColors[pressureLevel]?.border]"
-            >
-              <div class="absolute top-0 right-0 w-20 h-20 bg-gradient-to-bl from-white/40 to-transparent rounded-bl-full pointer-events-none"></div>
-              <div class="flex items-start gap-3">
-                <span class="text-3xl">{{ blindBoxScenario.icon }}</span>
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2 mb-1">
-                    <h4 class="font-bold text-base" :class="pressureColors[pressureLevel]?.text">{{ blindBoxScenario.name }}</h4>
-                    <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" :class="pressureColors[pressureLevel]?.badge">
-                      {{ pressureLabels[pressureLevel] }}
-                    </span>
-                  </div>
-                  <p class="text-xs text-zinc-600 leading-relaxed mb-2">{{ blindBoxScenario.description }}</p>
-                  <div class="flex flex-wrap gap-1.5">
-                    <span v-for="tag in blindBoxScenario.tags" :key="tag" class="text-[10px] px-2 py-0.5 rounded-full bg-white/60 text-zinc-500 border border-zinc-200">{{ tag }}</span>
-                    <span v-if="blindBoxScenario.time_limit" class="text-[10px] px-2 py-0.5 rounded-full bg-white/60 text-zinc-500 border border-zinc-200 flex items-center gap-1">
-                      <Timer class="w-2.5 h-2.5" /> {{ blindBoxScenario.time_limit }}s/题
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <button @click="reDrawBlindBox" class="mt-3 w-full py-2 rounded-xl text-xs font-medium border border-zinc-200 bg-white/80 hover:bg-white text-zinc-600 transition-all flex items-center justify-center gap-1.5">
-                <Shuffle class="w-3 h-3" /> 换一个场景
-              </button>
-            </div>
-            <div v-else class="p-4 bg-zinc-50 rounded-2xl border border-dashed border-zinc-300 text-center">
-              <button @click="drawBlindBox" class="px-4 py-2 rounded-xl bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 transition-all flex items-center gap-2 mx-auto">
-                <Package class="w-4 h-4" /> 抽取盲盒场景
-              </button>
-            </div>
-          </div>
-
-          <!-- AI Shadow Coach Toggle -->
-          <div class="flex items-center justify-between p-3 bg-zinc-50 rounded-xl">
-            <div class="flex items-center gap-2">
-              <Headphones class="h-4 w-4 text-indigo-600" />
-              <span class="text-sm font-medium text-zinc-700">AI 影子教练 (实时耳返)</span>
-            </div>
-            <button
-              @click="shadowCoachEnabled = !shadowCoachEnabled"
-              class="w-10 h-5 rounded-full transition-colors relative"
-              :class="shadowCoachEnabled ? 'bg-indigo-600' : 'bg-zinc-300'"
-            >
-              <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform" :class="shadowCoachEnabled ? 'translate-x-5' : ''"></div>
-            </button>
-          </div>
-
-          <button 
-            @click="startInterview"
-            :disabled="isProcessing || (settings.interviewMode === 'human' && !activeInvitationId)"
-            class="w-full mt-2 py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Loader2 v-if="isProcessing" class="h-5 w-5 animate-spin" />
-            <span v-else-if="settings.interviewMode === 'human' && !activeInvitationId">请先选择一个邀请</span>
-            <span v-else>开始面试</span>
-            <ChevronRight v-if="!isProcessing && (settings.interviewMode !== 'human' || activeInvitationId)" class="h-5 w-5" />
-          </button>
-        </div>
+        <InterviewSetupForm
+          v-model:settings="settings"
+          v-model:shadow-coach-enabled="shadowCoachEnabled"
+          :is-processing="isProcessing"
+          :active-invitation-id="activeInvitationId"
+          :invite-candidates="inviteCandidates"
+          :invite-candidates-loading="inviteCandidatesLoading"
+          :active-invitation="activeInvitation"
+          :blind-box-revealing="blindBoxRevealing"
+          :blind-box-revealed="blindBoxRevealed"
+          :blind-box-scenario="blindBoxScenario"
+          :pressure-colors="pressureColors"
+          :pressure-level="pressureLevel"
+          :pressure-labels="pressureLabels"
+          :normalize-candidate-role="normalizeCandidateRole"
+          @change-presentation-mode="setPresentationMode"
+          @change-interview-mode="setInterviewMode"
+          @load-invite-candidates="loadInviteCandidates"
+          @select-invite-candidate="selectInviteCandidate"
+          @open-bookings="onOpenBookingsPanel"
+          @draw-blind-box="drawBlindBox"
+          @redraw-blind-box="reDrawBlindBox"
+          @start-interview="startInterview"
+        />
       </div>
     </div>
 
@@ -2336,140 +1904,24 @@ onUnmounted(() => {
       <!-- Left Main Column (Video + Input) -->
       <div class="flex-1 flex flex-col gap-6 min-w-0">
         <!-- Video Section (Top) -->
-        <div v-if="settings.presentationMode === 'video_avatar' && settings.interviewMode !== 'human'" class="flex-1 min-h-[320px] lg:min-h-[420px] rounded-3xl relative overflow-hidden shadow-2xl group ring-1 ring-slate-900/10 bg-gradient-to-br from-slate-900 via-slate-800 to-cyan-900/70">
-          <!-- Status Badge -->
-          <div class="absolute top-6 left-6 flex items-center gap-3 z-10 pointer-events-none">
-            <div class="text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-2 shadow-lg"
-              :class="recordingStatus === 'uploaded' ? 'bg-emerald-600 shadow-emerald-900/20' : recordingStatus === 'failed' ? 'bg-amber-600 shadow-amber-900/20' : 'bg-rose-600 shadow-rose-900/20'">
-              <div class="w-2 h-2 bg-white rounded-full animate-pulse"></div>
-              {{ recordingStatus === 'uploaded' ? 'REC OK' : recordingStatus === 'failed' ? 'REC WARN' : 'REC' }}
-            </div>
-            <!-- Blind Box scenario badge -->
-            <div v-if="blindBoxScenario" class="text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-2 backdrop-blur-md border border-white/10 shadow-sm"
-              :class="isHighPressure ? 'bg-rose-600/60' : 'bg-black/40'">
-              <span>{{ blindBoxScenario.icon }}</span>
-              {{ blindBoxScenario.name }}
-            </div>
-            <div v-else class="bg-black/40 text-white/90 text-xs px-3 py-1.5 rounded-full backdrop-blur-md border border-white/10 shadow-sm">
-              多模态情绪监测中...
-            </div>
-          </div>
-
-          <!-- Question Timer (top-right, for timed scenarios) -->
-          <div v-if="questionTimer > 0" class="absolute top-6 right-6 z-10 pointer-events-none">
-            <div class="flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md shadow-lg border"
-              :class="questionTimer <= 10 
-                ? 'bg-rose-600/80 border-rose-400 text-white animate-pulse' 
-                : questionTimer <= 30 
-                  ? 'bg-amber-500/70 border-amber-300 text-white' 
-                  : 'bg-black/40 border-white/10 text-white/90'">
-              <Timer class="w-4 h-4" />
-              <span class="text-lg font-mono font-black tracking-wider">
-                {{ Math.floor(questionTimer / 60) }}:{{ (questionTimer % 60).toString().padStart(2, '0') }}
-              </span>
-            </div>
-          </div>
-
-          <!-- High-pressure overlay vignette -->
-          <div v-if="isHighPressure" class="absolute inset-0 pointer-events-none z-[5]"
-            :class="pressureLevel === 'extreme' 
-              ? 'shadow-[inset_0_0_80px_rgba(220,38,38,0.25)]' 
-              : 'shadow-[inset_0_0_60px_rgba(220,38,38,0.1)]'"
-          ></div>
-          
-          <!-- Main Interviewer Stage -->
-          <div class="absolute inset-0 interview-room-scene pointer-events-none">
-            <div class="absolute inset-y-0 left-0 w-32 interview-room-wall interview-room-wall--left pointer-events-none"></div>
-            <div class="absolute inset-y-0 right-0 w-36 interview-room-wall interview-room-wall--right pointer-events-none"></div>
-            <div class="absolute left-0 right-0 bottom-0 h-28 interview-room-floor pointer-events-none"></div>
-            <model-viewer
-              v-if="modelViewerReady"
-              src="/interview3.glb"
-              autoplay
-              environment-image="neutral"
-              interaction-prompt="none"
-              camera-target="auto auto auto"
-              camera-orbit="0deg 78deg auto"
-              field-of-view="28deg"
-              shadow-intensity="0.65"
-              exposure="1.35"
-              class="w-full h-full interviewer-stage interviewer-static relative z-20"
-              :class="isAvatarSpeaking ? 'interviewer-speaking' : ''"
-            ></model-viewer>
-            <div v-else class="absolute inset-0 z-20 flex items-center justify-center text-center px-6">
-              <div class="rounded-2xl border border-white/20 bg-slate-900/45 text-slate-100 px-5 py-4 backdrop-blur-sm">
-                <p class="text-sm font-semibold">AI 面试官模型加载中</p>
-                <p class="text-xs text-slate-300 mt-1">当前网络较慢时，3D 模型可能延迟出现</p>
-              </div>
-            </div>
-
-            <div class="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-slate-950/95 via-slate-900/45 to-transparent pointer-events-none"></div>
-            <div class="absolute bottom-8 left-1/2 -translate-x-1/2 w-[56%] h-14 rounded-t-2xl interview-room-desk"></div>
-            <div class="absolute top-6 right-6 text-xs px-3 py-1.5 rounded-full border backdrop-blur-sm"
-              :class="settings.style === 'stress' ? 'bg-rose-500/20 text-rose-100 border-rose-300/40' : 'bg-emerald-500/15 text-emerald-100 border-emerald-300/40'">
-              {{ settings.style === 'stress' ? '施压面试状态' : '安抚面试状态' }}
-            </div>
-          </div>
-
-          <!-- Candidate PIP (left-bottom) -->
-          <div class="absolute bottom-5 left-5 w-44 h-28 rounded-2xl overflow-hidden border border-white/20 bg-zinc-950/90 shadow-lg backdrop-blur-sm">
-            <video ref="interviewVideo" class="w-full h-full object-cover transform scale-x-[-1]" autoplay muted v-if="isCameraOn"></video>
-            <div v-else class="w-full h-full flex flex-col items-center justify-center text-zinc-600 bg-zinc-900/70">
-              <User class="h-8 w-8 mb-2 opacity-30" />
-              <p class="text-[11px] tracking-wide opacity-60">面试者画面关闭</p>
-            </div>
-            <div class="absolute bottom-1 left-1 text-[10px] px-2 py-0.5 rounded-full bg-black/55 text-white border border-white/10">面试者</div>
-          </div>
-
-          <!-- Ghost Shadow Coach (right-bottom) -->
-          <div class="absolute bottom-5 right-5 w-36 h-40 rounded-2xl overflow-hidden border border-emerald-200/35 backdrop-blur-sm bg-zinc-950/90"
-            :class="shadowCoachHintPending ? 'ring-2 ring-emerald-300/80 shadow-[0_0_24px_rgba(16,185,129,0.35)]' : ''">
-            <model-viewer
-              v-if="modelViewerReady"
-              src="/cute_ghost.glb"
-              autoplay
-              auto-rotate
-              camera-controls
-              exposure="1.05"
-              shadow-intensity="1"
-              class="w-full h-full bg-gradient-to-b from-zinc-900 to-zinc-800"
-            ></model-viewer>
-            <div v-else class="w-full h-full flex items-center justify-center text-[11px] text-emerald-100 bg-zinc-900/70">影子教练加载中</div>
-            <div class="absolute bottom-2 left-2 text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/85 text-white border border-emerald-300/60">
-              影子教练
-            </div>
-          </div>
-
-          <transition name="coach-bubble">
-            <div
-              v-if="shadowCoachBubbleVisible && shadowCoachBubbleText"
-              class="absolute z-[70] right-44 bottom-28 max-w-[250px] rounded-2xl border border-emerald-200 bg-white/95 px-4 py-3 text-xs leading-relaxed text-zinc-700 shadow-lg shadow-emerald-100"
-            >
-              <p class="font-semibold text-emerald-700 mb-1">小幽灵提示</p>
-              <p class="whitespace-pre-wrap">{{ shadowCoachBubbleText }}</p>
-            </div>
-          </transition>
-
-          <!-- Controls (Bottom Center - Auto hide) -->
-          <div class="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-4 transition-all duration-500 translate-y-4 opacity-0 group-hover:translate-y-0 group-hover:opacity-100">
-            <button 
-              @click="toggleMic"
-              class="h-12 w-12 rounded-full flex items-center justify-center backdrop-blur-md transition-all hover:scale-110 shadow-lg border border-white/10"
-              :class="isMicOn ? 'bg-white/20 text-white hover:bg-white/30' : 'bg-rose-500 text-white'"
-            >
-              <Mic v-if="isMicOn" class="h-5 w-5" />
-              <MicOff v-else class="h-5 w-5" />
-            </button>
-            <button 
-              @click="toggleCamera"
-              class="h-12 w-12 rounded-full flex items-center justify-center backdrop-blur-md transition-all hover:scale-110 shadow-lg border border-white/10"
-              :class="isCameraOn ? 'bg-white/20 text-white hover:bg-white/30' : 'bg-rose-500 text-white'"
-            >
-              <Video v-if="isCameraOn" class="h-5 w-5" />
-              <VideoOff v-else class="h-5 w-5" />
-            </button>
-          </div>
-        </div>
+        <InterviewVideoStage
+          v-if="settings.presentationMode === 'video_avatar' && settings.interviewMode !== 'human'"
+          :is-camera-on="isCameraOn"
+          :is-mic-on="isMicOn"
+          :is-avatar-speaking="isAvatarSpeaking"
+          :model-viewer-ready="modelViewerReady"
+          :recording-status="recordingStatus"
+          :blind-box-scenario="blindBoxScenario"
+          :question-timer="questionTimer"
+          :pressure-level="pressureLevel"
+          :interview-style="settings.style"
+          :shadow-coach-hint-pending="shadowCoachHintPending"
+          :shadow-coach-bubble-visible="shadowCoachBubbleVisible"
+          :shadow-coach-bubble-text="shadowCoachBubbleText"
+          :stream="stream"
+          @toggle-mic="toggleMic"
+          @toggle-camera="toggleCamera"
+        />
         <div v-else class="flex-1 rounded-3xl p-6 border border-zinc-200 bg-gradient-to-br from-emerald-50 via-white to-cyan-50 shadow-xl flex flex-col justify-between">
           <div>
             <p class="text-sm font-bold text-emerald-700">文字 + 语音模式进行中</p>
@@ -2566,245 +2018,27 @@ onUnmounted(() => {
 
       <!-- Right Sidebar -->
       <div class="w-full lg:w-[400px] flex flex-col gap-4 shrink-0 lg:h-full lg:min-h-0 lg:overflow-y-auto custom-scrollbar">
-        <!-- AI Profile Card -->
-        <div class="bg-white p-4 rounded-3xl border border-white shadow-lg shadow-zinc-200/50 flex items-center gap-4 hover:shadow-xl transition-shadow duration-300 shrink-0">
-          <div class="h-14 w-14 rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30 ring-4 ring-indigo-50">
-            <User v-if="settings.interviewMode === 'human'" class="h-7 w-7" />
-            <BrainCircuit v-else class="h-7 w-7" />
-          </div>
-          <div>
-            <h3 class="font-bold text-zinc-900 text-lg">{{ settings.interviewMode === 'human' ? '真人模拟面试' : '智聘智能引擎' }}</h3>
-            <p class="text-xs text-zinc-500 font-medium flex items-center gap-1">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>
-              <span v-if="settings.interviewMode === 'random'">🎲 随机面试模式</span>
-              <span v-else-if="settings.interviewMode === 'human'">{{ activeInvitation?.invitee?.username || '真人面试官' }} · {{ normalizeCandidateRole(activeInvitation?.invitee_role) }}</span>
-              <span v-else>{{ settings.mode === 'hr' ? 'HR面试官' : settings.mode === 'comprehensive' ? '综合面试官' : 'AI 技术面试官' }} · {{ settings.style === 'gentle' ? '温和型' : settings.style === 'stress' ? '压力型' : settings.style === 'deep' ? '深挖型' : settings.style === 'practical' ? '实战型' : settings.style === 'algorithm' ? '算法型' : '标准' }}</span>
-            </p>
-          </div>
-        </div>
-
-        <!-- Blind Box Scenario Banner (during interview) -->
-        <div v-if="blindBoxScenario" 
-          class="p-3 rounded-2xl border shadow-sm shrink-0 flex items-center gap-3 animate-in fade-in duration-500"
-          :class="[pressureColors[pressureLevel]?.bg, pressureColors[pressureLevel]?.border]">
-          <span class="text-2xl">{{ blindBoxScenario.icon }}</span>
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-bold" :class="pressureColors[pressureLevel]?.text">{{ blindBoxScenario.name }}</span>
-              <span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full" :class="pressureColors[pressureLevel]?.badge">
-                {{ pressureLabels[pressureLevel] }}
-              </span>
-            </div>
-            <p class="text-[10px] text-zinc-500 truncate mt-0.5">{{ blindBoxScenario.description }}</p>
-          </div>
-          <div v-if="questionTimer > 0" class="flex items-center gap-1 px-2 py-1 rounded-lg shrink-0"
-            :class="questionTimer <= 10 ? 'bg-rose-200 text-rose-800 animate-pulse' : 'bg-white/60 text-zinc-600'">
-            <Timer class="w-3 h-3" />
-            <span class="text-xs font-mono font-bold">{{ Math.floor(questionTimer / 60) }}:{{ (questionTimer % 60).toString().padStart(2, '0') }}</span>
-          </div>
-        </div>
-
-        <!-- Question / Feedback Card -->
-        <div class="bg-white rounded-3xl border shadow-xl shadow-zinc-200/50 flex-[1.6] min-h-64 flex flex-col relative overflow-hidden group transition-all duration-300 hover:shadow-2xl hover:shadow-zinc-200/60 lg:resizable-panel lg:flex-none lg:h-[46vh]"
-          :class="isHighPressure ? 'border-rose-100' : 'border-white'">
-           <!-- Card Header -->
-           <div class="px-6 py-5 border-b flex justify-between items-center backdrop-blur-sm z-10"
-             :class="isHighPressure ? 'border-rose-50 bg-rose-50/30' : 'border-zinc-50 bg-zinc-50/50'">
-            <div class="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-full border"
-               :class="isHighPressure ? 'bg-rose-50 text-rose-700 border-rose-100/50' : 'bg-indigo-50 text-indigo-700 border-indigo-100/50'">
-               <span class="w-1.5 h-1.5 rounded-full" :class="isHighPressure ? 'bg-rose-600' : 'bg-indigo-600'"></span>
-              {{ isAlgorithmStyle ? '语音播报引导' : ('当前题目 · 第 ' + (currentQuestionIndex + 1) + ' 题') }}
-             </div>
-            <div v-if="isProcessing" class="flex items-center gap-2 text-indigo-600 animate-pulse">
-               <Loader2 class="w-4 h-4 animate-spin" />
-               <span class="text-xs font-medium">{{ processingHint || '面试官正在评估...' }}</span>
-            </div>
-            <div v-else-if="!isAlgorithmStyle && latestAIMessage?.type === 'feedback'" class="flex items-center gap-2 animate-in fade-in slide-in-from-right duration-500">
-                <span class="text-xs text-zinc-400 font-medium">评分</span>
-                <span class="text-xl font-black text-indigo-600 tracking-tight">{{ latestAIMessage.score }}</span>
-             </div>
-           </div>
-           
-           <!-- Content Area -->
-           <div class="flex-1 min-h-0 overflow-y-auto p-6 custom-scrollbar relative">
-             <!-- Loading State -->
-             <div v-if="isProcessing" class="absolute inset-0 flex flex-col items-center justify-center text-zinc-400 gap-3 bg-white/80 backdrop-blur-sm z-20">
-                <div class="relative">
-                  <div class="absolute inset-0 bg-indigo-500/20 blur-xl rounded-full"></div>
-                  <Loader2 class="h-10 w-10 animate-spin text-indigo-600 relative z-10" />
-                </div>
-                <p class="text-sm font-medium animate-pulse">{{ processingHint || '正在生成评估...' }}</p>
-             </div>
-
-             <!-- Content -->
-             <div v-else class="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-               <template v-if="isAlgorithmStyle">
-                 <div class="rounded-2xl border border-cyan-100 bg-gradient-to-br from-cyan-50 to-white p-4">
-                   <p class="text-xs uppercase tracking-wider font-bold text-cyan-700">算法考察提示</p>
-                   <p class="text-base font-semibold text-zinc-900 mt-2 leading-relaxed">{{ algorithmBriefText }}</p>
-                   <div class="mt-4 grid grid-cols-2 gap-2 text-xs">
-                     <div class="rounded-xl border border-zinc-200 bg-white p-2.5">
-                       <p class="text-zinc-400">当前题号</p>
-                       <p class="font-bold text-zinc-800 mt-1">第 {{ algorithmProgress.current }} / {{ algorithmProgress.total || '-' }} 题</p>
-                     </div>
-                     <div class="rounded-xl border border-zinc-200 bg-white p-2.5">
-                       <p class="text-zinc-400">完成进度</p>
-                       <p class="font-bold text-zinc-800 mt-1">{{ algorithmProgress.finished }} 题</p>
-                     </div>
-                     <div class="rounded-xl border border-zinc-200 bg-white p-2.5">
-                       <p class="text-zinc-400">通过</p>
-                       <p class="font-bold text-emerald-700 mt-1">{{ algorithmProgress.passed }}</p>
-                     </div>
-                     <div class="rounded-xl border border-zinc-200 bg-white p-2.5">
-                       <p class="text-zinc-400">跳过</p>
-                       <p class="font-bold text-amber-700 mt-1">{{ algorithmProgress.skipped }}</p>
-                     </div>
-                   </div>
-                 </div>
-               </template>
-
-               <template v-else>
-               <!-- If it's a Question -->
-               <template v-if="latestAIMessage?.type === 'question' || (latestAIMessage?.role === 'ai' && !latestAIMessage?.type)">
-                 <h2 class="text-xl font-bold text-zinc-900 leading-relaxed tracking-wide whitespace-pre-wrap wrap-break-word">
-                   {{ latestAIMessage?.content }}
-                 </h2>
-               </template>
-
-               <!-- If it's Feedback -->
-               <template v-else-if="latestAIMessage?.type === 'feedback'">
-                 <div class="space-y-3">
-                   <!-- 综合评价 -->
-                   <div class="p-4 bg-gradient-to-br from-amber-50 to-orange-50/30 rounded-2xl border border-amber-100/60 shadow-sm">
-                      <h4 class="text-xs font-bold text-amber-600 uppercase mb-2 flex items-center gap-2">
-                        <div class="p-1 bg-amber-100 rounded-md">
-                          <MessageSquare class="w-3.5 h-3.5" />
-                        </div>
-                        综合评价
-                      </h4>
-                      <p class="text-sm text-zinc-800 leading-relaxed text-justify whitespace-pre-wrap wrap-break-word">{{ latestAIMessage.feedbackEvaluation }}</p>
-                    </div>
-
-                    <!-- 维度评分 -->
-                    <div v-if="latestAIMessage.feedbackDimensions" class="p-4 bg-gradient-to-br from-indigo-50/80 to-violet-50/30 rounded-2xl border border-indigo-100/50 shadow-sm">
-                      <h4 class="text-xs font-bold text-indigo-600 uppercase mb-3 flex items-center gap-2">
-                        <div class="p-1 bg-indigo-100 rounded-md">
-                          <BarChart3 class="w-3.5 h-3.5" />
-                        </div>
-                        维度评分
-                      </h4>
-                      <div class="space-y-2.5">
-                        <div v-for="dim in [
-                          { key: 'technical_depth', label: '技术深度', color: 'bg-violet-500' },
-                          { key: 'expression', label: '表达清晰', color: 'bg-blue-500' },
-                          { key: 'logic', label: '逻辑严谨', color: 'bg-cyan-500' },
-                          { key: 'completeness', label: '覆盖完整', color: 'bg-emerald-500' }
-                        ]" :key="dim.key" class="flex items-center gap-3">
-                          <span class="text-xs text-zinc-500 w-14 shrink-0 text-right font-medium">{{ dim.label }}</span>
-                          <div class="flex-1 h-2 bg-zinc-100 rounded-full overflow-hidden">
-                            <div :class="dim.color" class="h-full rounded-full transition-all duration-700 ease-out" :style="{ width: (latestAIMessage.feedbackDimensions[dim.key] || 0) + '%' }"></div>
-                          </div>
-                          <span class="text-xs font-bold text-zinc-700 w-8 shrink-0">{{ latestAIMessage.feedbackDimensions[dim.key] || 0 }}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- 亮点 & 差距并排 -->
-                    <div v-if="(latestAIMessage.feedbackHighlights?.length || latestAIMessage.feedbackGaps?.length)" class="grid grid-cols-2 gap-2">
-                      <!-- 亮点 -->
-                      <div v-if="latestAIMessage.feedbackHighlights?.length" class="p-3 bg-emerald-50/80 rounded-xl border border-emerald-100/50">
-                        <h4 class="text-[10px] font-bold text-emerald-600 uppercase mb-2 flex items-center gap-1">
-                          <CheckCircle class="w-3 h-3" /> 亮点
-                        </h4>
-                        <ul class="space-y-1">
-                          <li v-for="(h, i) in latestAIMessage.feedbackHighlights" :key="i" class="text-xs text-emerald-800 leading-relaxed flex gap-1.5">
-                            <span class="text-emerald-400 mt-0.5 shrink-0">✦</span>
-                            <span>{{ h }}</span>
-                          </li>
-                        </ul>
-                      </div>
-                      <!-- 差距 -->
-                      <div v-if="latestAIMessage.feedbackGaps?.length" class="p-3 bg-rose-50/80 rounded-xl border border-rose-100/50">
-                        <h4 class="text-[10px] font-bold text-rose-600 uppercase mb-2 flex items-center gap-1">
-                          <AlertTriangle class="w-3 h-3" /> 待补强
-                        </h4>
-                        <ul class="space-y-1">
-                          <li v-for="(g, i) in latestAIMessage.feedbackGaps" :key="i" class="text-xs text-rose-800 leading-relaxed flex gap-1.5">
-                            <span class="text-rose-400 mt-0.5 shrink-0">△</span>
-                            <span>{{ g }}</span>
-                          </li>
-                        </ul>
-                      </div>
-                    </div>
-                    
-                    <!-- 改进建议 -->
-                    <div class="p-4 bg-gradient-to-br from-emerald-50 to-teal-50/30 rounded-2xl border border-emerald-100/60 shadow-sm">
-                      <h4 class="text-xs font-bold text-emerald-600 uppercase mb-2 flex items-center gap-2">
-                        <div class="p-1 bg-emerald-100 rounded-md">
-                          <Lightbulb class="w-3.5 h-3.5" />
-                        </div>
-                        改进建议
-                      </h4>
-                     <ul class="space-y-2">
-                       <li v-for="(s, i) in latestAIMessage.feedbackSuggestions" :key="i" class="text-xs text-emerald-900 flex gap-2.5 leading-relaxed group/item wrap-break-word">
-                         <span class="font-bold text-emerald-600/40 font-mono text-[10px] mt-0.5 group-hover/item:text-emerald-600 transition-colors shrink-0">0{{ i + 1 }}</span>
-                         {{ s }}
-                       </li>
-                     </ul>
-                   </div>
-
-                   <!-- 参考答案思路（可折叠） -->
-                   <div v-if="latestAIMessage.feedbackModelAnswer" class="p-4 bg-gradient-to-br from-sky-50/80 to-blue-50/30 rounded-2xl border border-sky-100/50 shadow-sm">
-                      <h4 class="text-xs font-bold text-sky-600 uppercase mb-2 flex items-center gap-2 cursor-pointer select-none" @click="showModelAnswer = !showModelAnswer">
-                        <div class="p-1 bg-sky-100 rounded-md">
-                          <BookOpen class="w-3.5 h-3.5" />
-                        </div>
-                        参考答案思路
-                        <ChevronDown class="w-3 h-3 ml-auto transition-transform duration-200" :class="showModelAnswer ? 'rotate-180' : ''" />
-                      </h4>
-                      <p v-show="showModelAnswer" class="text-xs text-zinc-700 leading-relaxed whitespace-pre-wrap wrap-break-word mt-1 animate-in fade-in slide-in-from-top-2 duration-300">{{ latestAIMessage.feedbackModelAnswer }}</p>
-                    </div>
-
-                    <!-- 追问方向 -->
-                    <div v-if="latestAIMessage.feedbackFollowUp" class="p-3 bg-zinc-50 rounded-xl border border-zinc-100">
-                      <p class="text-xs text-zinc-500 flex items-start gap-2">
-                        <span class="text-indigo-400 font-bold shrink-0 mt-0.5">💬</span>
-                        <span><span class="font-medium text-zinc-600">面试官可能追问：</span>{{ latestAIMessage.feedbackFollowUp }}</span>
-                      </p>
-                    </div>
-                 </div>
-               </template>
-               
-               <!-- System Message -->
-               <template v-else-if="latestAIMessage?.type === 'system'">
-                  <div class="p-6 bg-zinc-50 rounded-2xl text-center text-zinc-600 text-sm border border-zinc-100">
-                    <p class="mb-4">{{ latestAIMessage.content }}</p>
-                    <div v-if="messages[messages.length-1].content.includes('面试结束')" class="flex justify-center">
-                       <button @click="viewReport" class="px-8 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 hover:shadow-indigo-300 hover:-translate-y-0.5 active:translate-y-0">
-                         查看详细报告
-                       </button>
-                    </div>
-                  </div>
-               </template>
-                </template>
-             </div>
-           </div>
-        </div>
-
-        <!-- Hint Card / Shadow Coach -->
-        <div v-if="shadowCoachEnabled" class="bg-gradient-to-br from-emerald-50/80 to-white p-4 rounded-3xl border border-white shadow-lg shadow-zinc-200/30 backdrop-blur-sm shrink-0 lg:resizable-panel lg:flex-none lg:h-[170px]">
-          <h4 class="text-xs font-bold text-emerald-600 uppercase mb-3 flex items-center gap-2">
-            <Headphones class="w-3.5 h-3.5" />
-            AI 影子教练 · 实时耳返
-          </h4>
-          <div v-if="shadowCoachHints.length > 0" class="space-y-2">
-            <p class="text-sm text-zinc-700 leading-relaxed">{{ shadowCoachHints[0].text }}</p>
-            <p class="text-[11px] text-zinc-400">检测到你思考较久时，会自动给你一小点方向提示。</p>
-          </div>
-          <p v-else class="text-sm text-zinc-500 leading-relaxed">
-            影子教练待命中。当你长时间停顿时，小幽灵会给你一句方向提醒，不会直接给答案。
-          </p>
-        </div>
+        <InterviewFeedbackSidebar
+          :settings="settings"
+          :active-invitation="activeInvitation"
+          :is-algorithm-style="isAlgorithmStyle"
+          :current-question-index="currentQuestionIndex"
+          :current-question="currentQuestion"
+          :latest-ai-message="latestAIMessage"
+          :is-processing="isProcessing"
+          :processing-hint="processingHint"
+          :algorithm-brief-text="algorithmBriefText"
+          :algorithm-progress="algorithmProgress"
+          :shadow-coach-enabled="shadowCoachEnabled"
+          :shadow-coach-hints="shadowCoachHints"
+          :blind-box-scenario="blindBoxScenario"
+          :pressure-colors="pressureColors"
+          :pressure-level="pressureLevel"
+          :pressure-labels="pressureLabels"
+          :question-timer="questionTimer"
+          :normalize-candidate-role="normalizeCandidateRole"
+          @view-report="viewReport"
+        />
 
         <!-- Real-time Speech Dashboard -->
         <div v-if="!isAlgorithmStyle" class="bg-white rounded-3xl p-4 border border-zinc-100 shadow-sm shrink-0 lg:resizable-panel lg:flex-none lg:h-[250px]">
@@ -2913,105 +2147,16 @@ onUnmounted(() => {
 
     </div>
 
-    <!-- ===== Booking Dialog (Overlay) ===== -->
-    <div v-if="showBookingDialog && selectedInvitee" class="fixed inset-0 z-[60] bg-black/30 backdrop-blur-sm flex items-center justify-center" @click.self="showBookingDialog = false">
-      <div class="bg-white rounded-2xl shadow-2xl border border-zinc-100 p-6 w-[420px] max-w-[90vw] animate-in fade-in zoom-in-95 duration-300">
-        <div class="flex items-center justify-between mb-5">
-          <h3 class="font-bold text-lg text-zinc-900">发送真人面试邀请</h3>
-          <button @click="showBookingDialog = false" class="p-2 hover:bg-zinc-100 rounded-lg transition-colors">
-            <X class="w-4 h-4 text-zinc-400" />
-          </button>
-        </div>
-
-        <!-- Interviewer Info -->
-        <div class="flex items-center gap-3 p-3 bg-zinc-50 rounded-xl mb-4">
-          <div class="h-12 w-12 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 flex items-center justify-center text-indigo-700 font-bold shrink-0">
-            {{ selectedInvitee.username?.[0] || '?' }}
-          </div>
-          <div>
-            <p class="font-bold text-zinc-800">{{ selectedInvitee.username }}</p>
-            <p class="text-xs text-zinc-500">{{ selectedInvitee.email }} · {{ normalizeCandidateRole(selectedInvitee.role) }}</p>
-          </div>
-        </div>
-
-        <!-- Booking Form -->
-        <div class="space-y-3">
-          <div>
-            <label class="text-xs font-bold text-zinc-500 mb-1 block">计划开始时间（可选）</label>
-            <input 
-              type="datetime-local" 
-              v-model="bookingForm.scheduledAt" 
-              class="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-          <div>
-            <label class="text-xs font-bold text-zinc-500 mb-1 block">备注（可选）</label>
-            <textarea 
-              v-model="bookingForm.notes" 
-              placeholder="如：希望重点考察微服务架构设计能力，并增加2轮追问"
-              class="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none h-20"
-            ></textarea>
-          </div>
-        </div>
-
-        <button 
-          @click="submitBooking"
-          class="w-full mt-4 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          发送邀请
-        </button>
-      </div>
-    </div>
-
-    <!-- ===== Bookings Panel (Overlay) ===== -->
-    <div v-if="showBookingsPanel" class="fixed inset-0 z-[60] bg-black/30 backdrop-blur-sm flex items-center justify-center" @click.self="showBookingsPanel = false">
-      <div class="bg-white rounded-2xl shadow-2xl border border-zinc-100 p-6 w-[480px] max-w-[90vw] max-h-[70vh] flex flex-col animate-in fade-in zoom-in-95 duration-300">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="font-bold text-lg text-zinc-900 flex items-center gap-2">
-            <Calendar class="w-5 h-5 text-indigo-600" />
-            我的真人面试邀请
-          </h3>
-          <button @click="showBookingsPanel = false" class="p-2 hover:bg-zinc-100 rounded-lg transition-colors">
-            <X class="w-4 h-4 text-zinc-400" />
-          </button>
-        </div>
-
-        <div class="flex-1 overflow-y-auto space-y-3 custom-scrollbar">
-          <div v-if="userInvitations.length === 0" class="text-center py-8">
-            <Calendar class="w-10 h-10 text-zinc-200 mx-auto mb-3" />
-            <p class="text-sm text-zinc-400">暂无邀请记录</p>
-          </div>
-          <div v-for="booking in userInvitations" :key="booking.id" class="p-4 rounded-xl border border-zinc-100 hover:border-zinc-200 transition-all">
-            <div class="flex items-center justify-between mb-2">
-              <span class="text-sm font-bold text-zinc-800">{{ booking.invitee?.username || `用户#${booking.invitee_user_id}` }}</span>
-              <span class="text-[10px] px-2 py-0.5 rounded-full font-bold"
-                :class="{
-                  'bg-amber-100 text-amber-700': booking.status === 'pending',
-                  'bg-sky-100 text-sky-700': booking.status === 'accepted',
-                  'bg-emerald-100 text-emerald-700': booking.status === 'in_progress',
-                  'bg-blue-100 text-blue-700': booking.status === 'completed',
-                  'bg-rose-100 text-rose-700': booking.status === 'rejected',
-                  'bg-zinc-100 text-zinc-500': booking.status === 'cancelled'
-                }">
-                {{ booking.status === 'pending' ? '待对方确认' : booking.status === 'accepted' ? '已接受，可开始' : booking.status === 'in_progress' ? '进行中' : booking.status === 'completed' ? '已完成' : booking.status === 'rejected' ? '已拒绝' : '已取消' }}
-              </span>
-            </div>
-            <div class="text-xs text-zinc-500 space-y-1">
-              <p class="flex items-center gap-1.5" v-if="booking.scheduled_at"><Clock class="w-3 h-3" /> {{ new Date(booking.scheduled_at).toLocaleString('zh-CN') }}</p>
-              <p class="flex items-center gap-1.5"><Briefcase class="w-3 h-3" /> {{ booking.position }} · {{ booking.difficulty }} · {{ normalizeCandidateRole(booking.invitee_role) }}</p>
-              <p v-if="booking.notes" class="flex items-start gap-1.5"><MessageSquare class="w-3 h-3 mt-0.5 shrink-0" /> {{ booking.notes }}</p>
-            </div>
-            <button
-              v-if="booking.status === 'accepted' || booking.status === 'in_progress'"
-              @click="goLiveInterviewRoom(booking); showBookingsPanel = false"
-              class="mt-3 w-full py-2 rounded-xl text-xs font-semibold border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-all"
-            >
-              进入真人视频面试房间
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <HumanInterviewModals
+      v-model:show-booking-dialog="showBookingDialog"
+      v-model:show-bookings-panel="showBookingsPanel"
+      v-model:booking-form="bookingForm"
+      :selected-invitee="selectedInvitee"
+      :user-invitations="userInvitations"
+      :normalize-candidate-role="normalizeCandidateRole"
+      @submit-booking="submitBooking"
+      @go-live-room="goLiveInterviewRoom"
+    />
   </div>
 </template>
 
