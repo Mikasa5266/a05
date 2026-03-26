@@ -132,8 +132,9 @@ const avatarUrl = computed(() => {
 
 const handleLogout = () => {
   showDropdown.value = false
-  userStore.logout()
-  router.push('/')
+  const role = currentPortal.value
+  userStore.logout(role)
+  router.push(`/${role}/login`)
 }
 
 // Close dropdown on outside click

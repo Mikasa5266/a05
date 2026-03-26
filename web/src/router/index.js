@@ -1,230 +1,22 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { useUserStore } from '../stores/user'
-import Login from '../views/Login.vue'
-import PortalSelect from '../views/PortalSelect.vue'
-import Layout from '../components/layout/Layout.vue'
+import { ROLE_KEYS, resolveRoleFromPath, useUserStore } from '../stores/user'
+import { commonRoutes } from './routes/common'
+import { studentRoutes } from './routes/student'
+import { enterpriseRoutes } from './routes/enterprise'
+import { universityRoutes } from './routes/university'
 
-// Student Views
-import Home from '../views/Home.vue'
-import ResumeMatching from '../views/ResumeMatching.vue'
-import MockInterview from '../views/MockInterview.vue'
-import GrowthCenter from '../views/GrowthCenter.vue'
-import History from '../views/History.vue'
-import Report from '../views/Report.vue'
-import Settings from '../views/Settings.vue'
-import Community from '../views/Community.vue'
-import CommunityPostDetail from '../views/CommunityPostDetail.vue'
-import LiveInterviewRoom from '../views/LiveInterviewRoom.vue'
-
-// Enterprise Views
-import EnterpriseDashboard from '../views/enterprise/EnterpriseDashboard.vue'
-import TalentPool from '../views/enterprise/TalentPool.vue'
-import JobManagement from '../views/enterprise/JobManagement.vue'
-import HRPanel from '../views/enterprise/HRPanel.vue'
-import Analytics from '../views/enterprise/Analytics.vue'
-import Standards from '../views/enterprise/Standards.vue'
-
-// University Views
-import UniversityDashboard from '../views/university/UniversityDashboard.vue'
-import StudentTracking from '../views/university/StudentTracking.vue'
-import SupportSystem from '../views/university/SupportSystem.vue'
-import Courses from '../views/university/Courses.vue'
-import Employment from '../views/university/Employment.vue'
-import TalentPush from '../views/university/TalentPush.vue'
+const ROLE_NAMES = ['student', 'enterprise', 'university']
+const ROLE_DASHBOARD = {
+  student: '/student/dashboard',
+  enterprise: '/enterprise/dashboard',
+  university: '/university/dashboard'
+}
 
 const routes = [
-  {
-    path: '/',
-    name: 'PortalSelect',
-    component: PortalSelect
-  },
-  // ====== Student Login ======
-  {
-    path: '/student/login',
-    name: 'StudentLogin',
-    component: Login
-  },
-  // ====== Enterprise Login ======
-  {
-    path: '/enterprise/login',
-    name: 'EnterpriseLogin',
-    component: Login
-  },
-  // ====== University Login ======
-  {
-    path: '/university/login',
-    name: 'UniversityLogin',
-    component: Login
-  },
-  // ====== Student Portal ======
-  {
-    path: '/student',
-    component: Layout,
-    meta: { requiresAuth: true, role: 'student' },
-    children: [
-      {
-        path: '',
-        redirect: '/student/dashboard'
-      },
-      {
-        path: 'dashboard',
-        name: 'StudentDashboard',
-        component: Home
-      },
-      {
-        path: 'resume',
-        name: 'ResumeMatching',
-        component: ResumeMatching
-      },
-      {
-        path: 'interview',
-        name: 'MockInterview',
-        component: MockInterview
-      },
-      {
-        path: 'live-interview',
-        name: 'StudentLiveInterview',
-        component: LiveInterviewRoom
-      },
-      {
-        path: 'growth',
-        name: 'GrowthCenter',
-        component: GrowthCenter
-      },
-      {
-        path: 'history',
-        name: 'History',
-        component: History
-      },
-      {
-        path: 'report/:id',
-        name: 'Report',
-        component: Report
-      },
-      {
-        path: 'community',
-        name: 'Community',
-        component: Community
-      },
-      {
-        path: 'community/posts/:id',
-        name: 'CommunityPostDetail',
-        component: CommunityPostDetail
-      },
-      {
-        path: 'settings',
-        name: 'StudentSettings',
-        component: Settings
-      }
-    ]
-  },
-  // ====== Enterprise Portal ======
-  {
-    path: '/enterprise',
-    component: Layout,
-    meta: { requiresAuth: true, role: 'enterprise' },
-    children: [
-      {
-        path: '',
-        redirect: '/enterprise/dashboard'
-      },
-      {
-        path: 'dashboard',
-        name: 'EnterpriseDashboard',
-        component: EnterpriseDashboard
-      },
-      {
-        path: 'talent',
-        name: 'TalentPool',
-        component: TalentPool
-      },
-      {
-        path: 'jobs',
-        name: 'JobManagement',
-        component: JobManagement
-      },
-      {
-        path: 'hr-panel',
-        name: 'HRPanel',
-        component: HRPanel
-      },
-      {
-        path: 'live-interview',
-        name: 'EnterpriseLiveInterview',
-        component: LiveInterviewRoom
-      },
-      {
-        path: 'analytics',
-        name: 'Analytics',
-        component: Analytics
-      },
-      {
-        path: 'standards',
-        name: 'Standards',
-        component: Standards
-      },
-      {
-        path: 'settings',
-        name: 'EnterpriseSettings',
-        component: Settings
-      }
-    ]
-  },
-  // ====== University Portal ======
-  {
-    path: '/university',
-    component: Layout,
-    meta: { requiresAuth: true, role: 'university' },
-    children: [
-      {
-        path: '',
-        redirect: '/university/dashboard'
-      },
-      {
-        path: 'dashboard',
-        name: 'UniversityDashboard',
-        component: UniversityDashboard
-      },
-      {
-        path: 'tracking',
-        name: 'StudentTracking',
-        component: StudentTracking
-      },
-      {
-        path: 'support',
-        name: 'SupportSystem',
-        component: SupportSystem
-      },
-      {
-        path: 'courses',
-        name: 'Courses',
-        component: Courses
-      },
-      {
-        path: 'employment',
-        name: 'Employment',
-        component: Employment
-      },
-      {
-        path: 'talent-push',
-        name: 'TalentPush',
-        component: TalentPush
-      },
-      {
-        path: 'live-interview',
-        name: 'UniversityLiveInterview',
-        component: LiveInterviewRoom
-      },
-      {
-        path: 'settings',
-        name: 'UniversitySettings',
-        component: Settings
-      }
-    ]
-  },
-  // Legacy redirects for old paths
-  { path: '/login', redirect: '/' },
-  { path: '/dashboard', redirect: '/student/dashboard' }
+  ...commonRoutes,
+  ...studentRoutes,
+  ...enterpriseRoutes,
+  ...universityRoutes
 ]
 
 const router = createRouter({
@@ -232,56 +24,112 @@ const router = createRouter({
   routes
 })
 
+const isKnownRole = (role) => ROLE_NAMES.includes(role)
+
+const normalizeRole = (role) => {
+  if (isKnownRole(role)) return role
+  return 'student'
+}
+
+const readTokenFromStorageByRole = (role) => {
+  const safeRole = normalizeRole(role)
+  const key = ROLE_KEYS[safeRole]?.token
+  if (!key) return ''
+  return localStorage.getItem(key) || ''
+}
+
+const findLoggedRole = (userStore) => {
+  for (const role of ROLE_NAMES) {
+    const token = readTokenFromStorageByRole(role)
+    if (token && !userStore.isTokenExpired(token)) {
+      return role
+    }
+  }
+  return ''
+}
+
+const buildLoginPath = (role, redirectPath) => {
+  const safeRole = normalizeRole(role)
+  const target = String(redirectPath || '/').trim() || '/'
+  return `/${safeRole}/login?redirect=${encodeURIComponent(target)}`
+}
+
+const buildForbiddenLocation = (to, expectedRoles, actualRole) => {
+  return {
+    path: '/403',
+    query: {
+      from: to.fullPath,
+      expected: expectedRoles.join(','),
+      actual: String(actualRole || '')
+    }
+  }
+}
+
+const extractRequiredRoles = (to, fallbackRole) => {
+  const matchedRoles = to.matched
+    .flatMap((record) => {
+      const roles = record.meta?.roles
+      if (!Array.isArray(roles)) return []
+      return roles
+    })
+    .filter(isKnownRole)
+
+  const uniqueRoles = [...new Set(matchedRoles)]
+  if (uniqueRoles.length > 0) return uniqueRoles
+
+  return [normalizeRole(fallbackRole)]
+}
+
 router.beforeEach((to) => {
   const userStore = useUserStore()
+  const pathRole = normalizeRole(resolveRoleFromPath(to.path))
+  const requiresAuth = to.matched.some((record) => record.meta?.requiresAuth === true)
 
-  // If route requires auth
-  if (to.matched.some(record => record.meta.requiresAuth)) {
-    if (!userStore.token) {
-      // Redirect to the appropriate login page based on route
-      const portal = to.path.startsWith('/enterprise') ? 'enterprise'
-                   : to.path.startsWith('/university') ? 'university'
-                   : 'student'
-      return `/${portal}/login`
-    }
-
-    // Check role if specified
-    const requiredRole = to.matched.find(record => record.meta.role)?.meta.role
-    if (requiredRole && userStore.userInfo?.role && userStore.userInfo.role !== requiredRole) {
-      // Add a final level redirect for unknown user roles
-      const userRole = userStore.userInfo.role
-      const targetPath = ['student', 'enterprise', 'university'].includes(userRole)
-        ? `/${userRole}/dashboard`
-        : '/student/dashboard'
-      
-      if (to.path !== targetPath) {
-        return targetPath
-      }
-
-      // If we are already at the target path but role mismatch persists,
-      // it means the user's role is invalid for this route.
-      // To avoid loop, we let it pass and let the page decide whether to show 403.
-      return true
+  if (to.path === '/') {
+    const loggedRole = findLoggedRole(userStore)
+    if (loggedRole) {
+      return ROLE_DASHBOARD[loggedRole]
     }
   }
 
-  // If already logged in and visiting a login page, redirect to their portal
-  if (to.path.endsWith('/login') || (to.path === '/' && userStore.token && userStore.userInfo?.role)) {
-    // Safety check: ensure userInfo exists
-    if (!userStore.userInfo) {
-      userStore.logout()
-      return true
+  if (to.path.endsWith('/login')) {
+    const token = readTokenFromStorageByRole(pathRole)
+    if (token && !userStore.isTokenExpired(token)) {
+      const redirectTarget = String(to.query?.redirect || '').trim()
+      if (redirectTarget) {
+        return redirectTarget
+      }
+      return ROLE_DASHBOARD[pathRole]
     }
-    const role = userStore.userInfo.role
-    const targetPath = ['student', 'enterprise', 'university'].includes(role)
-      ? `/${role}/dashboard`
-      : '/student/dashboard'
-      
-    if (to.path !== targetPath) {
-      return targetPath
+    return true
+  }
+
+  if (!requiresAuth) {
+    return true
+  }
+
+  const token = readTokenFromStorageByRole(pathRole)
+  if (!token || userStore.isTokenExpired(token)) {
+    userStore.logout(pathRole)
+
+    const loggedRole = findLoggedRole(userStore)
+    if (loggedRole && loggedRole !== pathRole) {
+      return ROLE_DASHBOARD[loggedRole]
     }
 
-    return true
+    return buildLoginPath(pathRole, to.fullPath)
+  }
+
+  const requiredRoles = extractRequiredRoles(to, pathRole)
+  const userInfo = userStore.getUserInfoByRole(pathRole)
+  const actualRole = normalizeRole(userInfo?.role || pathRole)
+
+  if (!requiredRoles.includes(actualRole)) {
+    const fallback = ROLE_DASHBOARD[actualRole]
+    if (fallback && fallback !== to.path) {
+      return fallback
+    }
+    return buildForbiddenLocation(to, requiredRoles, actualRole)
   }
 
   return true

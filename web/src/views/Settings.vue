@@ -123,14 +123,15 @@
 
 <script setup>
 import { ref, reactive, computed } from 'vue'
-import { useRouter } from 'vue-router'
-import { useUserStore } from '../stores/user'
+import { useRouter, useRoute } from 'vue-router'
+import { resolveRoleFromPath, useUserStore } from '../stores/user'
 import { getBackendAssetUrl } from '../utils/backend'
 import { User, Settings as SettingsIcon, Shield, LogOut } from 'lucide-vue-next'
 import { updateAvatar, updatePassword } from '../api/auth'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
+const route = useRoute()
 const userStore = useUserStore()
 const isDarkMode = ref(document.documentElement.classList.contains('dark'))
 
@@ -207,8 +208,9 @@ const handleUpdatePassword = async () => {
 
 const handleLogout = () => {
   if (confirm('确定要退出登录吗？')) {
-    userStore.logout()
-    router.push('/')
+    const role = resolveRoleFromPath(route.path)
+    userStore.logout(role)
+    router.push(`/${role}/login`)
   }
 }
 </script>

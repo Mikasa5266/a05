@@ -41,8 +41,30 @@ func Auth() gin.HandlerFunc {
 		}
 
 		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-			userID := uint(claims["user_id"].(float64))
-			c.Set("user_id", userID)
+			userIDRaw, ok := claims["user_id"]
+			if !ok {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token payload"})
+				c.Abort()
+				return
+			}
+
+			userIDFloat, ok := userIDRaw.(float64)
+			if !ok {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token payload"})
+				c.Abort()
+				return
+			}
+
+			roleRaw, ok := claims["role"]
+			role, roleOk := roleRaw.(string)
+			if !ok || !roleOk || role == "" {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token payload"})
+				c.Abort()
+				return
+			}
+
+			c.Set("user_id", uint(userIDFloat))
+			c.Set("role", role)
 			c.Next()
 		} else {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
@@ -51,11 +73,39 @@ func Auth() gin.HandlerFunc {
 	}
 }
 
-func GenerateToken(userID uint) (string, error) {
+func RequireRole(roles ...string) gin.HandlerFunc {
+	allowed := make(map[string]struct{}, len(roles))
+	for _, role := range roles {
+		normalized := strings.TrimSpace(strings.ToLower(role))
+		if normalized != "" {
+			allowed[normalized] = struct{}{}
+		}
+	}
+
+	return func(c *gin.Context) {
+		role := strings.TrimSpace(strings.ToLower(c.GetString("role")))
+		if role == "" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Role required"})
+			c.Abort()
+			return
+		}
+
+		if _, ok := allowed[role]; !ok {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient role permissions"})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
+func GenerateToken(userID uint, role string) (string, error) {
 	config := config.GetConfig()
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"user_id": userID,
+		"role":    role,
 		"exp":     time.Now().Add(time.Hour * time.Duration(config.JWT.ExpireTime)).Unix(),
 	})
 

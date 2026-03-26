@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { useUserStore } from '../stores/user'
+import { useUserStore, resolveRoleFromPath } from '../stores/user'
 import { API_BASE_URL } from './backend'
 
 const normalizeBackendErrorMessage = (msg = '') => {
@@ -19,12 +19,76 @@ const service = axios.create({
   timeout: 60000
 })
 
+const ROLE_AUTH_STRATEGY = new Map([
+  ['enterprise', { loginPath: '/enterprise/login' }],
+  ['university', { loginPath: '/university/login' }],
+  ['student', { loginPath: '/student/login' }]
+])
+
+const resolveRoleContext = (path = '') => {
+  const role = resolveRoleFromPath(path)
+  const strategy = ROLE_AUTH_STRATEGY.get(role) || ROLE_AUTH_STRATEGY.get('student')
+  return {
+    role,
+    loginPath: strategy.loginPath
+  }
+}
+
+const getCurrentPathWithQuery = () => {
+  if (typeof window === 'undefined') return '/'
+  return `${window.location.pathname}${window.location.search || ''}${window.location.hash || ''}`
+}
+
+const normalizeRequestUrl = (url = '') => {
+  const raw = String(url || '').trim()
+  if (!raw) return ''
+  return raw.startsWith('/') ? raw : `/${raw}`
+}
+
+const PUBLIC_ENDPOINTS = new Set(['/login', '/register'])
+
+const isPublicEndpoint = (url = '') => {
+  const path = normalizeRequestUrl(url)
+  return PUBLIC_ENDPOINTS.has(path)
+}
+
+const shouldBypassAuthEnforcement = (config = {}) => {
+  const currentPath = typeof window === 'undefined' ? '/' : window.location.pathname
+  if (currentPath.endsWith('/login') || currentPath === '/') return true
+  if (config?.headers?.['X-Skip-Auth'] === 'true') return true
+  return isPublicEndpoint(config?.url)
+}
+
+const redirectToRoleLogin = (loginPath, fromPath) => {
+  if (typeof window === 'undefined') return
+  const redirect = encodeURIComponent(fromPath || '/')
+  window.location.href = `${loginPath}?redirect=${redirect}`
+}
+
+const enforceRoleLogoutAndRedirect = ({ role, loginPath }) => {
+  const userStore = useUserStore()
+  userStore.logout(role)
+  redirectToRoleLogin(loginPath, getCurrentPathWithQuery())
+}
+
 service.interceptors.request.use(
   config => {
     const userStore = useUserStore()
-    if (userStore.token) {
-      config.headers['Authorization'] = `Bearer ${userStore.token}`
+    const currentPath = typeof window === 'undefined' ? '/' : window.location.pathname
+    const { role, loginPath } = resolveRoleContext(currentPath)
+    const token = userStore.getTokenByRole(role)
+
+    if (token && !userStore.isTokenExpired(token)) {
+      config.headers = config.headers || {}
+      config.headers['Authorization'] = `Bearer ${token}`
+      return config
     }
+
+    if (!shouldBypassAuthEnforcement(config)) {
+      enforceRoleLogoutAndRedirect({ role, loginPath })
+      return Promise.reject(new Error('登录状态已失效，请重新登录'))
+    }
+
     return config
   },
   error => {
@@ -48,15 +112,9 @@ service.interceptors.response.use(
     if (res?.status === 401) {
       const msg = (res.data && res.data.error) || ''
       if (/invalid token/i.test(msg) || /authorization/i.test(msg)) {
-        const userStore = useUserStore()
-        userStore.logout()
-        const currentPath = window.location.pathname
-        const portal = currentPath.startsWith('/enterprise')
-          ? 'enterprise'
-          : currentPath.startsWith('/university')
-          ? 'university'
-          : 'student'
-        window.location.href = `/${portal}/login`
+        const currentPath = typeof window === 'undefined' ? '/' : window.location.pathname
+        const context = resolveRoleContext(currentPath)
+        enforceRoleLogoutAndRedirect(context)
       }
     } else if (error?.code === 'ECONNABORTED') {
       error.message = '请求超时：长语音转写可能超过等待时长。请重试，或将单次语音控制在 30-45 秒内分段提交。'

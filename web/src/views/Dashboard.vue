@@ -35,15 +35,23 @@
 
 <script setup>
 import { useUserStore } from '../stores/user'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { onMounted } from 'vue'
 
 const userStore = useUserStore()
 const router = useRouter()
+const route = useRoute()
+
+const resolveRoleFromPath = (path = '') => {
+  if (path.startsWith('/enterprise')) return 'enterprise'
+  if (path.startsWith('/university')) return 'university'
+  return 'student'
+}
 
 const handleLogout = () => {
-  userStore.logout()
-  router.push('/')
+  const role = resolveRoleFromPath(route.path)
+  userStore.logout(role)
+  router.push(`/${role}/login`)
 }
 
 onMounted(() => {

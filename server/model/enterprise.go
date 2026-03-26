@@ -8,6 +8,23 @@ import (
 
 // ===== Enterprise Models =====
 
+// Enterprise represents B-side enterprise onboarding and audit status.
+type Enterprise struct {
+	ID            uint           `gorm:"primaryKey" json:"id"`
+	UserID        uint           `gorm:"uniqueIndex;not null" json:"user_id"`
+	CompanyName   string         `gorm:"size:200;not null" json:"company_name"`
+	ContactName   string         `gorm:"size:100" json:"contact_name"`
+	ContactPhone  string         `gorm:"size:50" json:"contact_phone"`
+	BusinessScope string         `gorm:"size:255" json:"business_scope"`
+	AuditStatus   string         `gorm:"size:20;default:'pending';index" json:"audit_status"` // pending, approved, rejected
+	AuditRemark   string         `gorm:"size:255" json:"audit_remark"`
+	AuditedBy     *uint          `gorm:"index" json:"audited_by,omitempty"`
+	AuditedAt     *time.Time     `json:"audited_at,omitempty"`
+	CreatedAt     time.Time      `json:"created_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
+	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
 // Job represents a job posting by an enterprise
 type Job struct {
 	ID                uint           `gorm:"primaryKey" json:"id"`

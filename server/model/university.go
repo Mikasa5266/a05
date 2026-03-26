@@ -8,6 +8,23 @@ import (
 
 // ===== University Models =====
 
+// University represents B-side university onboarding and audit status.
+type University struct {
+	ID                 uint           `gorm:"primaryKey" json:"id"`
+	UserID             uint           `gorm:"uniqueIndex;not null" json:"user_id"`
+	UniversityName     string         `gorm:"size:200;not null" json:"university_name"`
+	ContactName        string         `gorm:"size:100" json:"contact_name"`
+	ContactPhone       string         `gorm:"size:50" json:"contact_phone"`
+	Department         string         `gorm:"size:150" json:"department"`
+	AuditStatus        string         `gorm:"size:20;default:'pending';index" json:"audit_status"` // pending, approved, rejected
+	AuditRemark        string         `gorm:"size:255" json:"audit_remark"`
+	AuditedBy          *uint          `gorm:"index" json:"audited_by,omitempty"`
+	AuditedAt          *time.Time     `json:"audited_at,omitempty"`
+	CreatedAt          time.Time      `json:"created_at"`
+	UpdatedAt          time.Time      `json:"updated_at"`
+	DeletedAt          gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
 // StudentRecord represents a student tracked by the university
 type StudentRecord struct {
 	ID               uint           `gorm:"primaryKey" json:"id"`

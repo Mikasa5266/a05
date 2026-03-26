@@ -1,13 +1,16 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"your-project/model"
 	"your-project/repository"
 
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 type UserService struct {
@@ -20,7 +23,7 @@ func NewUserService() *UserService {
 	}
 }
 
-func CreateUser(username, email, password, role string) (*model.User, error) {
+func createUserWithRole(username, email, password, role string) (*model.User, error) {
 	service := NewUserService()
 
 	existingUser, _ := service.userRepo.GetByEmail(email)
@@ -49,6 +52,185 @@ func CreateUser(username, email, password, role string) (*model.User, error) {
 	}
 
 	return user, nil
+}
+
+func createUserWithRoleTx(tx *gorm.DB, username, email, password, role string) (*model.User, error) {
+	var existing model.User
+	err := tx.Where("email = ?", email).First(&existing).Error
+	if err == nil {
+		return nil, fmt.Errorf("email already exists")
+	}
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return nil, err
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	if role == "" {
+		role = "student"
+	}
+
+	user := &model.User{
+		Username: username,
+		Email:    email,
+		Password: string(hashedPassword),
+		Role:     role,
+	}
+
+	if err := tx.Create(user).Error; err != nil {
+		return nil, fmt.Errorf("failed to create user: %w", err)
+	}
+
+	return user, nil
+}
+
+func CreateStudentUser(username, email, password string) (*model.User, error) {
+	return createUserWithRole(username, email, password, "student")
+}
+
+// CreateUser is kept for backward compatibility and now only allows student direct registration.
+func CreateUser(username, email, password, role string) (*model.User, error) {
+	if role != "" && role != "student" {
+		return nil, fmt.Errorf("enterprise/university must use application endpoint")
+	}
+	return CreateStudentUser(username, email, password)
+}
+
+func ApplyEnterprise(username, email, password, companyName, contactName, contactPhone, businessScope string) (*model.User, *model.Enterprise, error) {
+	db := repository.GetDB()
+	if strings.TrimSpace(companyName) == "" {
+		return nil, nil, fmt.Errorf("company_name is required")
+	}
+
+	var createdUser *model.User
+	var createdEnterprise *model.Enterprise
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		user, err := createUserWithRoleTx(tx, username, email, password, "enterprise")
+		if err != nil {
+			return err
+		}
+		createdUser = user
+
+		enterprise := &model.Enterprise{
+			UserID:        user.ID,
+			CompanyName:   companyName,
+			ContactName:   contactName,
+			ContactPhone:  contactPhone,
+			BusinessScope: businessScope,
+			AuditStatus:   "pending",
+		}
+		if err := tx.Create(enterprise).Error; err != nil {
+			return err
+		}
+		createdEnterprise = enterprise
+		return nil
+	}); err != nil {
+		return nil, nil, err
+	}
+
+	return createdUser, createdEnterprise, nil
+}
+
+func ApplyUniversity(username, email, password, universityName, contactName, contactPhone, department string) (*model.User, *model.University, error) {
+	db := repository.GetDB()
+	if strings.TrimSpace(universityName) == "" {
+		return nil, nil, fmt.Errorf("university_name is required")
+	}
+
+	var createdUser *model.User
+	var createdUniversity *model.University
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		user, err := createUserWithRoleTx(tx, username, email, password, "university")
+		if err != nil {
+			return err
+		}
+		createdUser = user
+
+		university := &model.University{
+			UserID:         user.ID,
+			UniversityName: universityName,
+			ContactName:    contactName,
+			ContactPhone:   contactPhone,
+			Department:     department,
+			AuditStatus:    "pending",
+		}
+		if err := tx.Create(university).Error; err != nil {
+			return err
+		}
+		createdUniversity = university
+		return nil
+	}); err != nil {
+		return nil, nil, err
+	}
+
+	return createdUser, createdUniversity, nil
+}
+
+func GetAuditStatusForUser(user *model.User) (string, string, error) {
+	if user == nil {
+		return "", "", fmt.Errorf("user is nil")
+	}
+
+	switch user.Role {
+	case "enterprise":
+		var enterprise model.Enterprise
+		if err := repository.GetDB().Where("user_id = ?", user.ID).First(&enterprise).Error; err != nil {
+			// Backward compatibility: legacy enterprise users may not have onboarding rows.
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return "approved", "", nil
+			}
+			return "", "", err
+		}
+		return enterprise.AuditStatus, enterprise.AuditRemark, nil
+	case "university":
+		var university model.University
+		if err := repository.GetDB().Where("user_id = ?", user.ID).First(&university).Error; err != nil {
+			// Backward compatibility: legacy university users may not have onboarding rows.
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return "approved", "", nil
+			}
+			return "", "", err
+		}
+		return university.AuditStatus, university.AuditRemark, nil
+	default:
+		return "approved", "", nil
+	}
+}
+
+func AuditApplication(role string, applicationID uint, status, remark string, adminID uint) error {
+	status = strings.TrimSpace(strings.ToLower(status))
+	if status != "approved" && status != "rejected" {
+		return fmt.Errorf("status must be approved or rejected")
+	}
+
+	now := time.Now()
+	switch role {
+	case "enterprise":
+		var enterprise model.Enterprise
+		if err := repository.GetDB().First(&enterprise, applicationID).Error; err != nil {
+			return err
+		}
+		enterprise.AuditStatus = status
+		enterprise.AuditRemark = strings.TrimSpace(remark)
+		enterprise.AuditedBy = &adminID
+		enterprise.AuditedAt = &now
+		return repository.GetDB().Save(&enterprise).Error
+	case "university":
+		var university model.University
+		if err := repository.GetDB().First(&university, applicationID).Error; err != nil {
+			return err
+		}
+		university.AuditStatus = status
+		university.AuditRemark = strings.TrimSpace(remark)
+		university.AuditedBy = &adminID
+		university.AuditedAt = &now
+		return repository.GetDB().Save(&university).Error
+	default:
+		return fmt.Errorf("unsupported role")
+	}
 }
 
 func AuthenticateUser(email, password string) (*model.User, error) {

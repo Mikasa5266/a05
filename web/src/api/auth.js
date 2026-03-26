@@ -16,6 +16,22 @@ export function register(data) {
   })
 }
 
+export function applyEnterprise(data) {
+  return request({
+    url: '/enterprise/apply',
+    method: 'post',
+    data
+  })
+}
+
+export function applyUniversity(data) {
+  return request({
+    url: '/university/apply',
+    method: 'post',
+    data
+  })
+}
+
 export function getUserProfile() {
   return request({
     url: '/user/profile',

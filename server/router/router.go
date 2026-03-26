@@ -21,6 +21,8 @@ func SetupRouter() *gin.Engine {
 		public := api.Group("/")
 		{
 			public.POST("/register", handler.Register)
+			public.POST("/enterprise/apply", handler.ApplyEnterprise)
+			public.POST("/university/apply", handler.ApplyUniversity)
 			public.POST("/login", handler.Login)
 			public.GET("/interview/live/ws", handler.InterviewSignalWS)
 		}
@@ -28,6 +30,12 @@ func SetupRouter() *gin.Engine {
 		protected := api.Group("/")
 		protected.Use(middleware.Auth())
 		{
+			admin := protected.Group("/admin")
+			admin.Use(middleware.RequireRole("admin"))
+			{
+				admin.POST("/applications/:role/audit", handler.AuditApplication)
+			}
+
 			protected.GET("/user/profile", handler.GetUserProfile)
 			protected.PUT("/user/profile", handler.UpdateUserProfile)
 			protected.POST("/user/avatar", handler.UpdateAvatar)
@@ -91,6 +99,7 @@ func SetupRouter() *gin.Engine {
 
 			// ===== Enterprise 企业端 =====
 			enterprise := protected.Group("/enterprise")
+			enterprise.Use(middleware.RequireRole("enterprise"))
 			{
 				enterprise.GET("/dashboard", handler.GetEnterpriseDashboard)
 
@@ -124,6 +133,7 @@ func SetupRouter() *gin.Engine {
 
 			// ===== University 高校端 =====
 			university := protected.Group("/university")
+			university.Use(middleware.RequireRole("university"))
 			{
 				university.GET("/dashboard", handler.GetUniversityDashboard)
 
