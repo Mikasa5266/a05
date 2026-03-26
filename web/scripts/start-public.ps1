@@ -100,7 +100,7 @@ if (-not (Get-NgrokPublicUrl -TimeoutSeconds 2)) {
     $ngrokCmd = "Set-Location '$projectRoot'; & '$ngrokExe' start --config '$configPath' interview-web"
     Start-Process powershell -ArgumentList @('-NoExit', '-Command', $ngrokCmd)
   } else {
-    $ngrokCmd = "Set-Location '$projectRoot'; & '$ngrokExe' http https://localhost:5173"
+    $ngrokCmd = "Set-Location '$projectRoot'; & '$ngrokExe' http 5173"
     Start-Process powershell -ArgumentList @('-NoExit', '-Command', $ngrokCmd)
   }
 } else {

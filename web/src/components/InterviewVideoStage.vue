@@ -98,6 +98,7 @@ const syncVideoStream = () => {
     return
   }
   interviewVideo.value.srcObject = props.stream || null
+  interviewVideo.value.play?.().catch(() => {})
 }
 
 watch(
@@ -166,7 +167,7 @@ onUnmounted(() => {
         field-of-view="28deg"
         shadow-intensity="0.65"
         exposure="1.35"
-        class="w-full h-full interviewer-stage interviewer-static relative z-20"
+        class="w-full h-full interviewer-stage interviewer-static relative z-20 pointer-events-none"
         :class="isAvatarSpeaking ? 'interviewer-speaking' : ''"
       ></model-viewer>
       <div v-else class="absolute inset-0 z-20 flex items-center justify-center text-center px-6">
@@ -203,7 +204,7 @@ onUnmounted(() => {
         camera-controls
         exposure="1.05"
         shadow-intensity="1"
-        class="w-full h-full bg-gradient-to-b from-zinc-900 to-zinc-800"
+        class="w-full h-full bg-gradient-to-b from-zinc-900 to-zinc-800 pointer-events-none"
       ></model-viewer>
       <div v-else class="w-full h-full flex items-center justify-center text-[11px] text-emerald-100 bg-zinc-900/70">影子教练加载中</div>
       <div class="absolute bottom-2 left-2 text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/85 text-white border border-emerald-300/60">
@@ -221,7 +222,7 @@ onUnmounted(() => {
       </div>
     </transition>
 
-    <div class="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-4 transition-all duration-500 translate-y-4 opacity-0 group-hover:translate-y-0 group-hover:opacity-100">
+    <div class="absolute z-40 bottom-8 left-1/2 -translate-x-1/2 flex gap-4 transition-all duration-500 translate-y-4 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 pointer-events-auto">
       <button
         @click="emit('toggle-mic')"
         class="h-12 w-12 rounded-full flex items-center justify-center backdrop-blur-md transition-all hover:scale-110 shadow-lg border border-white/10"

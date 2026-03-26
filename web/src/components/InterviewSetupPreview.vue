@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { Video, VideoOff, Mic, MicOff } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -32,6 +32,7 @@ const syncPreviewStream = () => {
     return
   }
   previewVideo.value.srcObject = props.stream || null
+  previewVideo.value.play?.().catch(() => {})
 }
 
 watch(
@@ -39,6 +40,14 @@ watch(
   syncPreviewStream,
   { immediate: true }
 )
+
+watch(previewVideo, () => {
+  syncPreviewStream()
+})
+
+onMounted(() => {
+  syncPreviewStream()
+})
 
 onUnmounted(() => {
   if (previewVideo.value) {
@@ -65,7 +74,7 @@ onUnmounted(() => {
           field-of-view="28deg"
           exposure="1.35"
           shadow-intensity="0.65"
-          class="w-full h-full interviewer-static relative z-20"
+          class="w-full h-full interviewer-static relative z-20 pointer-events-none"
         ></model-viewer>
 
         <div class="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-slate-950/90 via-slate-900/45 to-transparent pointer-events-none"></div>
@@ -93,7 +102,7 @@ onUnmounted(() => {
           <div class="absolute bottom-1 left-1 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/80 text-white border border-emerald-300/50">影子教练</div>
         </div>
 
-        <div class="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3">
+        <div class="absolute z-40 bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 pointer-events-auto">
           <button
             @click="emit('toggle-mic')"
             class="h-10 w-10 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95"

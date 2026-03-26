@@ -36,7 +36,7 @@ const props = defineProps({
     type: Object,
     default: null
   },
-  latestAIMessage: {
+  latestAiMessage: {
     type: Object,
     default: null
   },
@@ -105,13 +105,13 @@ const fallbackQuestionText = computed(() => {
   return (
     props.currentQuestion?.content ||
     props.currentQuestion?.title ||
-    props.latestAIMessage?.content ||
+    props.latestAiMessage?.content ||
     '题目加载中，请稍候...'
   )
 })
 
 const showReportButton = computed(() => {
-  return props.latestAIMessage?.type === 'system' && String(props.latestAIMessage?.content || '').includes('面试结束')
+  return props.latestAiMessage?.type === 'system' && String(props.latestAiMessage?.content || '').includes('面试结束')
 })
 </script>
 
@@ -166,9 +166,9 @@ const showReportButton = computed(() => {
           <Loader2 class="w-4 h-4 animate-spin" />
           <span class="text-xs font-medium">{{ processingHint || '面试官正在评估...' }}</span>
         </div>
-        <div v-else-if="!isAlgorithmStyle && latestAIMessage?.type === 'feedback'" class="flex items-center gap-2 animate-in fade-in slide-in-from-right duration-500">
+        <div v-else-if="!isAlgorithmStyle && latestAiMessage?.type === 'feedback'" class="flex items-center gap-2 animate-in fade-in slide-in-from-right duration-500">
           <span class="text-xs text-zinc-400 font-medium">评分</span>
-          <span class="text-xl font-black text-indigo-600 tracking-tight">{{ latestAIMessage.score }}</span>
+          <span class="text-xl font-black text-indigo-600 tracking-tight">{{ latestAiMessage.score }}</span>
         </div>
       </div>
 
@@ -208,13 +208,13 @@ const showReportButton = computed(() => {
           </template>
 
           <template v-else>
-            <template v-if="latestAIMessage?.type === 'question' || (latestAIMessage?.role === 'ai' && !latestAIMessage?.type)">
+            <template v-if="latestAiMessage?.type === 'question' || (latestAiMessage?.role === 'ai' && !latestAiMessage?.type)">
               <h2 class="text-xl font-bold text-zinc-900 leading-relaxed tracking-wide whitespace-pre-wrap wrap-break-word">
-                {{ latestAIMessage?.content }}
+                {{ latestAiMessage?.content }}
               </h2>
             </template>
 
-            <template v-else-if="latestAIMessage?.type === 'feedback'">
+            <template v-else-if="latestAiMessage?.type === 'feedback'">
               <div class="space-y-3">
                 <div class="p-4 bg-gradient-to-br from-amber-50 to-orange-50/30 rounded-2xl border border-amber-100/60 shadow-sm">
                   <h4 class="text-xs font-bold text-amber-600 uppercase mb-2 flex items-center gap-2">
@@ -223,10 +223,10 @@ const showReportButton = computed(() => {
                     </div>
                     综合评价
                   </h4>
-                  <p class="text-sm text-zinc-800 leading-relaxed text-justify whitespace-pre-wrap wrap-break-word">{{ latestAIMessage.feedbackEvaluation }}</p>
+                  <p class="text-sm text-zinc-800 leading-relaxed text-justify whitespace-pre-wrap wrap-break-word">{{ latestAiMessage.feedbackEvaluation }}</p>
                 </div>
 
-                <div v-if="latestAIMessage.feedbackDimensions" class="p-4 bg-gradient-to-br from-indigo-50/80 to-violet-50/30 rounded-2xl border border-indigo-100/50 shadow-sm">
+                <div v-if="latestAiMessage.feedbackDimensions" class="p-4 bg-gradient-to-br from-indigo-50/80 to-violet-50/30 rounded-2xl border border-indigo-100/50 shadow-sm">
                   <h4 class="text-xs font-bold text-indigo-600 uppercase mb-3 flex items-center gap-2">
                     <div class="p-1 bg-indigo-100 rounded-md">
                       <BarChart3 class="w-3.5 h-3.5" />
@@ -242,31 +242,31 @@ const showReportButton = computed(() => {
                     ]" :key="dim.key" class="flex items-center gap-3">
                       <span class="text-xs text-zinc-500 w-14 shrink-0 text-right font-medium">{{ dim.label }}</span>
                       <div class="flex-1 h-2 bg-zinc-100 rounded-full overflow-hidden">
-                        <div :class="dim.color" class="h-full rounded-full transition-all duration-700 ease-out" :style="{ width: (latestAIMessage.feedbackDimensions[dim.key] || 0) + '%' }"></div>
+                        <div :class="dim.color" class="h-full rounded-full transition-all duration-700 ease-out" :style="{ width: (latestAiMessage.feedbackDimensions[dim.key] || 0) + '%' }"></div>
                       </div>
-                      <span class="text-xs font-bold text-zinc-700 w-8 shrink-0">{{ latestAIMessage.feedbackDimensions[dim.key] || 0 }}</span>
+                      <span class="text-xs font-bold text-zinc-700 w-8 shrink-0">{{ latestAiMessage.feedbackDimensions[dim.key] || 0 }}</span>
                     </div>
                   </div>
                 </div>
 
-                <div v-if="(latestAIMessage.feedbackHighlights?.length || latestAIMessage.feedbackGaps?.length)" class="grid grid-cols-2 gap-2">
-                  <div v-if="latestAIMessage.feedbackHighlights?.length" class="p-3 bg-emerald-50/80 rounded-xl border border-emerald-100/50">
+                <div v-if="(latestAiMessage.feedbackHighlights?.length || latestAiMessage.feedbackGaps?.length)" class="grid grid-cols-2 gap-2">
+                  <div v-if="latestAiMessage.feedbackHighlights?.length" class="p-3 bg-emerald-50/80 rounded-xl border border-emerald-100/50">
                     <h4 class="text-[10px] font-bold text-emerald-600 uppercase mb-2 flex items-center gap-1">
                       <CheckCircle class="w-3 h-3" /> 亮点
                     </h4>
                     <ul class="space-y-1">
-                      <li v-for="(h, i) in latestAIMessage.feedbackHighlights" :key="i" class="text-xs text-emerald-800 leading-relaxed flex gap-1.5">
+                      <li v-for="(h, i) in latestAiMessage.feedbackHighlights" :key="i" class="text-xs text-emerald-800 leading-relaxed flex gap-1.5">
                         <span class="text-emerald-400 mt-0.5 shrink-0">✦</span>
                         <span>{{ h }}</span>
                       </li>
                     </ul>
                   </div>
-                  <div v-if="latestAIMessage.feedbackGaps?.length" class="p-3 bg-rose-50/80 rounded-xl border border-rose-100/50">
+                  <div v-if="latestAiMessage.feedbackGaps?.length" class="p-3 bg-rose-50/80 rounded-xl border border-rose-100/50">
                     <h4 class="text-[10px] font-bold text-rose-600 uppercase mb-2 flex items-center gap-1">
                       <AlertTriangle class="w-3 h-3" /> 待补强
                     </h4>
                     <ul class="space-y-1">
-                      <li v-for="(g, i) in latestAIMessage.feedbackGaps" :key="i" class="text-xs text-rose-800 leading-relaxed flex gap-1.5">
+                      <li v-for="(g, i) in latestAiMessage.feedbackGaps" :key="i" class="text-xs text-rose-800 leading-relaxed flex gap-1.5">
                         <span class="text-rose-400 mt-0.5 shrink-0">△</span>
                         <span>{{ g }}</span>
                       </li>
@@ -282,14 +282,14 @@ const showReportButton = computed(() => {
                     改进建议
                   </h4>
                   <ul class="space-y-2">
-                    <li v-for="(s, i) in latestAIMessage.feedbackSuggestions" :key="i" class="text-xs text-emerald-900 flex gap-2.5 leading-relaxed group/item wrap-break-word">
+                    <li v-for="(s, i) in latestAiMessage.feedbackSuggestions" :key="i" class="text-xs text-emerald-900 flex gap-2.5 leading-relaxed group/item wrap-break-word">
                       <span class="font-bold text-emerald-600/40 font-mono text-[10px] mt-0.5 group-hover/item:text-emerald-600 transition-colors shrink-0">0{{ i + 1 }}</span>
                       {{ s }}
                     </li>
                   </ul>
                 </div>
 
-                <div v-if="latestAIMessage.feedbackModelAnswer" class="p-4 bg-gradient-to-br from-sky-50/80 to-blue-50/30 rounded-2xl border border-sky-100/50 shadow-sm">
+                <div v-if="latestAiMessage.feedbackModelAnswer" class="p-4 bg-gradient-to-br from-sky-50/80 to-blue-50/30 rounded-2xl border border-sky-100/50 shadow-sm">
                   <h4 class="text-xs font-bold text-sky-600 uppercase mb-2 flex items-center gap-2 cursor-pointer select-none" @click="showModelAnswer = !showModelAnswer">
                     <div class="p-1 bg-sky-100 rounded-md">
                       <BookOpen class="w-3.5 h-3.5" />
@@ -297,21 +297,21 @@ const showReportButton = computed(() => {
                     参考答案思路
                     <ChevronDown class="w-3 h-3 ml-auto transition-transform duration-200" :class="showModelAnswer ? 'rotate-180' : ''" />
                   </h4>
-                  <p v-show="showModelAnswer" class="text-xs text-zinc-700 leading-relaxed whitespace-pre-wrap wrap-break-word mt-1 animate-in fade-in slide-in-from-top-2 duration-300">{{ latestAIMessage.feedbackModelAnswer }}</p>
+                  <p v-show="showModelAnswer" class="text-xs text-zinc-700 leading-relaxed whitespace-pre-wrap wrap-break-word mt-1 animate-in fade-in slide-in-from-top-2 duration-300">{{ latestAiMessage.feedbackModelAnswer }}</p>
                 </div>
 
-                <div v-if="latestAIMessage.feedbackFollowUp" class="p-3 bg-zinc-50 rounded-xl border border-zinc-100">
+                <div v-if="latestAiMessage.feedbackFollowUp" class="p-3 bg-zinc-50 rounded-xl border border-zinc-100">
                   <p class="text-xs text-zinc-500 flex items-start gap-2">
                     <span class="text-indigo-400 font-bold shrink-0 mt-0.5">💬</span>
-                    <span><span class="font-medium text-zinc-600">面试官可能追问：</span>{{ latestAIMessage.feedbackFollowUp }}</span>
+                    <span><span class="font-medium text-zinc-600">面试官可能追问：</span>{{ latestAiMessage.feedbackFollowUp }}</span>
                   </p>
                 </div>
               </div>
             </template>
 
-            <template v-else-if="latestAIMessage?.type === 'system'">
+            <template v-else-if="latestAiMessage?.type === 'system'">
               <div class="p-6 bg-zinc-50 rounded-2xl text-center text-zinc-600 text-sm border border-zinc-100">
-                <p class="mb-4">{{ latestAIMessage.content }}</p>
+                <p class="mb-4">{{ latestAiMessage.content }}</p>
                 <div v-if="showReportButton" class="flex justify-center">
                   <button @click="emit('view-report')" class="px-8 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 hover:shadow-indigo-300 hover:-translate-y-0.5 active:translate-y-0">
                     查看详细报告
