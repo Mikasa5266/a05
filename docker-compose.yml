@@ -7,9 +7,8 @@ services:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change_me_root_password}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-interview_ai}
       MYSQL_USER: ${MYSQL_USER:-a05}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change_me_db_password}
+      MYSQL_PASSWORD: lyh985211
     command:
-      - --default-authentication-plugin=mysql_native_password
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
     healthcheck:
@@ -39,7 +38,7 @@ services:
       DB_HOST: ${DB_HOST:-mysql}
       DB_PORT: ${DB_PORT:-3306}
       DB_USERNAME: ${DB_USERNAME:-a05}
-      DB_PASSWORD: ${DB_PASSWORD:-change_me_db_password}
+      DB_PASSWORD: lyh985211
       DB_DATABASE: ${DB_DATABASE:-interview_ai}
       JWT_SECRET: ${JWT_SECRET:-change_me_jwt_secret}
       LLM_PROVIDER: ${LLM_PROVIDER:-zhizengzeng}
@@ -158,7 +157,7 @@ services:
       - a05-network
 
   coturn:
-    image: instrumentisto/coturn:4.6.3-r0
+    image: coturn/coturn:latest
     container_name: a05-coturn
     restart: unless-stopped
     depends_on:
