@@ -1,68 +1,68 @@
 <template>
-  <div class="auth-page relative min-h-screen overflow-hidden bg-slate-950 text-slate-100">
+  <div class="auth-page relative min-h-screen overflow-hidden bg-slate-50 text-slate-900">
     <div class="pointer-events-none absolute inset-0 opacity-80 auth-grid"></div>
-    <div class="pointer-events-none absolute -left-24 -top-24 h-104 w-104 rounded-full bg-cyan-500/20 blur-[110px]"></div>
-    <div class="pointer-events-none absolute -right-24 -bottom-32 h-112 w-md rounded-full bg-emerald-500/20 blur-[120px]"></div>
+    <div class="pointer-events-none absolute -left-24 -top-24 h-104 w-104 rounded-full bg-blue-400/20 blur-[110px]"></div>
+    <div class="pointer-events-none absolute -right-24 -bottom-32 h-112 w-md rounded-full bg-teal-400/20 blur-[120px]"></div>
 
     <div class="relative z-10 mx-auto grid min-h-screen max-w-7xl grid-cols-1 px-4 py-6 lg:grid-cols-2 lg:gap-8 lg:px-8">
       <section class="hidden lg:flex lg:flex-col lg:justify-center lg:pr-4">
         <div class="space-y-6">
-          <p class="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-4 py-1.5 text-xs tracking-[0.18em] text-cyan-200/90">
+          <p class="inline-flex items-center gap-2 rounded-full border border-slate-300/70 bg-white/70 px-4 py-1.5 text-xs tracking-[0.18em] text-cyan-700">
             AI INTERVIEW OS
           </p>
-          <h1 class="mt-8 max-w-xl text-5xl font-bold leading-tight">
+          <h1 class="mt-8 max-w-xl text-5xl font-bold leading-tight text-slate-900">
             让招聘与求职
-            <span class="bg-linear-to-r from-cyan-300 via-teal-300 to-emerald-300 bg-clip-text text-transparent">都更像一次智能协同</span>
+            <span class="bg-linear-to-r from-cyan-600 via-teal-500 to-emerald-600 bg-clip-text text-transparent">都更像一次智能协同</span>
           </h1>
-          <p class="mt-6 max-w-lg text-base leading-7 text-slate-300/85">
+          <p class="mt-6 max-w-lg text-base leading-7 text-slate-600">
             一体化覆盖 AI 模拟面试、简历评估、人才筛选与高校就业管理。用统一平台连接学生、企业与高校三端，让每一次决策有据可依。
           </p>
 
-          <div class="overflow-hidden rounded-3xl border border-white/15 bg-white/5 p-5 backdrop-blur">
+          <div class="overflow-hidden rounded-3xl border border-slate-200/70 bg-white/55 p-5 backdrop-blur">
             <div class="feature-track flex min-w-max gap-4">
-              <article class="w-64 shrink-0 rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4">
-                <p class="text-sm font-semibold text-cyan-200">智能简历解析</p>
-                <p class="mt-2 text-xs leading-6 text-slate-300/90">多维抽取候选人教育、项目与能力图谱，自动生成结构化人才档案。</p>
+              <article class="w-64 shrink-0 rounded-2xl border border-slate-200/60 bg-white/60 p-4">
+                <p class="text-sm font-semibold text-slate-800">智能简历解析</p>
+                <p class="mt-2 text-xs leading-6 text-slate-500">多维抽取候选人教育、项目与能力图谱，自动生成结构化人才档案。</p>
               </article>
-              <article class="w-64 shrink-0 rounded-2xl border border-emerald-300/20 bg-emerald-400/10 p-4">
-                <p class="text-sm font-semibold text-emerald-200">多模态面试评估</p>
-                <p class="mt-2 text-xs leading-6 text-slate-300/90">结合语音、文本与行为指标，输出可解释的岗位匹配度和改进建议。</p>
+              <article class="w-64 shrink-0 rounded-2xl border border-slate-200/60 bg-white/60 p-4">
+                <p class="text-sm font-semibold text-slate-800">多模态面试评估</p>
+                <p class="mt-2 text-xs leading-6 text-slate-500">结合语音、文本与行为指标，输出可解释的岗位匹配度和改进建议。</p>
               </article>
-              <article class="w-64 shrink-0 rounded-2xl border border-amber-300/20 bg-amber-400/10 p-4">
-                <p class="text-sm font-semibold text-amber-200">企业级人才库</p>
-                <p class="mt-2 text-xs leading-6 text-slate-300/90">构建可检索、可复用的候选池，支持岗位画像筛选和校企人才协同。</p>
+              <article class="w-64 shrink-0 rounded-2xl border border-slate-200/60 bg-white/60 p-4">
+                <p class="text-sm font-semibold text-slate-800">企业级人才库</p>
+                <p class="mt-2 text-xs leading-6 text-slate-500">构建可检索、可复用的候选池，支持岗位画像筛选和校企人才协同。</p>
               </article>
-              <article class="w-64 shrink-0 rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4">
-                <p class="text-sm font-semibold text-cyan-200">智能简历解析</p>
-                <p class="mt-2 text-xs leading-6 text-slate-300/90">多维抽取候选人教育、项目与能力图谱，自动生成结构化人才档案。</p>
+              <article class="w-64 shrink-0 rounded-2xl border border-slate-200/60 bg-white/60 p-4">
+                <p class="text-sm font-semibold text-slate-800">智能简历解析</p>
+                <p class="mt-2 text-xs leading-6 text-slate-500">多维抽取候选人教育、项目与能力图谱，自动生成结构化人才档案。</p>
               </article>
-              <article class="w-64 shrink-0 rounded-2xl border border-emerald-300/20 bg-emerald-400/10 p-4">
-                <p class="text-sm font-semibold text-emerald-200">多模态面试评估</p>
-                <p class="mt-2 text-xs leading-6 text-slate-300/90">结合语音、文本与行为指标，输出可解释的岗位匹配度和改进建议。</p>
+              <article class="w-64 shrink-0 rounded-2xl border border-slate-200/60 bg-white/60 p-4">
+                <p class="text-sm font-semibold text-slate-800">多模态面试评估</p>
+                <p class="mt-2 text-xs leading-6 text-slate-500">结合语音、文本与行为指标，输出可解释的岗位匹配度和改进建议。</p>
               </article>
-              <article class="w-64 shrink-0 rounded-2xl border border-amber-300/20 bg-amber-400/10 p-4">
-                <p class="text-sm font-semibold text-amber-200">企业级人才库</p>
-                <p class="mt-2 text-xs leading-6 text-slate-300/90">构建可检索、可复用的候选池，支持岗位画像筛选和校企人才协同。</p>
+              <article class="w-64 shrink-0 rounded-2xl border border-slate-200/60 bg-white/60 p-4">
+                <p class="text-sm font-semibold text-slate-800">企业级人才库</p>
+                <p class="mt-2 text-xs leading-6 text-slate-500">构建可检索、可复用的候选池，支持岗位画像筛选和校企人才协同。</p>
               </article>
             </div>
           </div>
 
-          <div class="rounded-3xl border border-white/15 bg-white/5 p-5 backdrop-blur">
+          <div class="rounded-3xl border border-slate-200/70 bg-white/55 p-5 backdrop-blur">
             <svg viewBox="0 0 520 170" class="h-36 w-full">
               <defs>
                 <linearGradient id="aiLine" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.25" />
-                  <stop offset="50%" stop-color="#2dd4bf" stop-opacity="0.85" />
-                  <stop offset="100%" stop-color="#34d399" stop-opacity="0.25" />
+                  <stop offset="0%" stop-color="#0284c7" stop-opacity="0.35" />
+                  <stop offset="50%" stop-color="#0d9488" stop-opacity="0.9" />
+                  <stop offset="100%" stop-color="#059669" stop-opacity="0.35" />
                 </linearGradient>
               </defs>
-              <rect x="8" y="8" width="504" height="154" rx="18" fill="none" stroke="rgba(255,255,255,0.15)" />
+              <rect x="8" y="8" width="504" height="154" rx="18" fill="none" stroke="rgba(15,23,42,0.14)" />
               <path d="M24 130 Q88 96 142 120 T258 106 T372 116 T496 72" fill="none" stroke="url(#aiLine)" stroke-width="4" />
-              <circle cx="142" cy="120" r="6" fill="#22d3ee" />
-              <circle cx="258" cy="106" r="6" fill="#2dd4bf" />
-              <circle cx="372" cy="116" r="6" fill="#34d399" />
-              <text x="24" y="36" fill="rgba(226,232,240,0.9)" font-size="14">面试过程智能评估流</text>
-              <text x="24" y="56" fill="rgba(148,163,184,0.9)" font-size="12">Resume Parsing → Dialogue Reasoning → Multimodal Scoring</text>
+              <circle cx="142" cy="120" r="6" fill="#0369a1" />
+              <circle cx="258" cy="106" r="6" fill="#0f766e" />
+              <circle cx="372" cy="116" r="6" fill="#047857" />
+              <text x="24" y="36" fill="rgba(15,23,42,0.88)" font-size="14">面试过程智能评估流</text>
+              <text x="24" y="56" fill="rgba(71,85,105,0.9)" font-size="12">Resume Parsing → Dialogue Reasoning → Multimodal Scoring</text>
             </svg>
           </div>
         </div>
@@ -70,7 +70,7 @@
       </section>
 
       <section class="flex items-center justify-center py-6 lg:py-10">
-        <div class="w-full max-w-xl rounded-3xl border border-white/15 bg-white/90 p-6 text-slate-900 shadow-2xl shadow-black/30 backdrop-blur-xl sm:p-8">
+        <div class="w-full max-w-xl rounded-3xl border border-slate-100 bg-white/95 p-6 text-slate-900 shadow-xl shadow-slate-200/50 backdrop-blur-xl sm:p-8">
           <div class="mb-6 flex items-start justify-between gap-4">
             <div>
               <p class="text-xs uppercase tracking-[0.18em] text-slate-500">Welcome back</p>
@@ -82,14 +82,14 @@
             </div>
           </div>
 
-          <div class="rounded-2xl border border-slate-200 bg-slate-100/70 p-1">
+          <div class="rounded-2xl border border-slate-200 bg-slate-100/80 p-1">
             <div class="grid grid-cols-3 gap-1">
               <button
                 v-for="item in roleOptions"
                 :key="item.role"
                 type="button"
                 class="cursor-pointer flex items-center justify-center gap-2 rounded-xl px-2 py-2 text-xs font-semibold transition sm:text-sm"
-                :class="activeRole === item.role ? item.activeClass : 'text-slate-500 hover:text-slate-700'"
+                :class="activeRole === item.role ? item.activeClass : 'text-slate-500 hover:bg-slate-200/50 hover:text-slate-700'"
                 @click="switchRole(item.role)"
               >
                 <component :is="item.icon" class="h-4 w-4" />
@@ -105,7 +105,7 @@
                 :key="item.value"
                 type="button"
                 class="cursor-pointer rounded-xl px-4 py-2.5 text-sm font-semibold transition"
-                :class="mode === item.value ? currentTheme.modeActive : 'text-slate-500 hover:text-slate-800'"
+                :class="mode === item.value ? currentTheme.modeActive : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'"
                 @click="mode = item.value"
               >
                 {{ item.label }}
@@ -330,8 +330,8 @@ const handleOrganizationApply = async (payload, email) => {
 <style scoped>
 .auth-grid {
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
   background-size: 42px 42px;
   mask-image: radial-gradient(circle at center, black 42%, transparent 100%);
 }
