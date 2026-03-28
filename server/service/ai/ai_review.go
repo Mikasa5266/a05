@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 type ReviewResult struct {
@@ -11,10 +12,27 @@ type ReviewResult struct {
 	Comment            string            `json:"comment"`
 	Suggestion         string            `json:"suggestion"`
 	Dimensions         *ReviewDimensions `json:"dimensions,omitempty"`
+	KnowledgeRetrieval []KnowledgeCheck  `json:"knowledge_retrieval,omitempty"`
+	Reasoning          string            `json:"reasoning,omitempty"`
+	Scores             *RubricScores     `json:"scores,omitempty"`
+	FinalScore         int               `json:"final_score,omitempty"`
 	Highlights         []string          `json:"highlights,omitempty"`
 	Gaps               []string          `json:"gaps,omitempty"`
 	ModelAnswerOutline string            `json:"model_answer_outline,omitempty"`
 	FollowUp           string            `json:"follow_up,omitempty"`
+}
+
+type KnowledgeCheck struct {
+	Point    string `json:"point"`
+	Verdict  string `json:"verdict"`
+	Evidence string `json:"evidence"`
+}
+
+type RubricScores struct {
+	TechnicalAccuracy int `json:"technical_accuracy"`
+	LogicalClarity    int `json:"logical_clarity"`
+	Completeness      int `json:"completeness"`
+	Groundedness      int `json:"groundedness"`
 }
 
 type ReviewDimensions struct {
@@ -25,17 +43,11 @@ type ReviewDimensions struct {
 }
 
 func IsInvalidAnswer(answer string) bool {
-	a := strings.TrimSpace(strings.ToLower(answer))
-	if a == "" {
+	normalized := normalizeAnswerForValidation(answer)
+	if len([]rune(normalized)) < 5 {
 		return true
 	}
-	bad := []string{"不会", "不知道", "i don't know", "dont know", "no idea", "随便", "asd", "123"}
-	for _, b := range bad {
-		if strings.Contains(a, b) {
-			return true
-		}
-	}
-	if len([]rune(a)) <= 3 {
+	if isMeaninglessGibberish(normalized) {
 		return true
 	}
 	return false
@@ -84,12 +96,6 @@ func EvaluateCandidateAnswer(question, expectedAnswer, answer string, llmCallFun
 		result.FollowUp = defaultFollowUpQuestion(question)
 	}
 
-	if len([]rune(strings.TrimSpace(answer))) < 12 && keywordOverlap(question+" "+expectedAnswer, answer) < 0.05 {
-		result.Score = 0
-		result.Dimensions = &ReviewDimensions{}
-		result.Gaps = []string{"Answer is too short", "No substantial technical details"}
-	}
-
 	return &result, nil
 }
 
@@ -126,33 +132,46 @@ func defaultFollowUpQuestion(question string) string {
 	return "Can you explain one implementation detail and why you chose it?"
 }
 
-func keywordOverlap(reference, answer string) float64 {
-	refWords := tokenize(reference)
-	ansWords := tokenize(answer)
-	if len(refWords) == 0 || len(ansWords) == 0 {
-		return 0
+func normalizeAnswerForValidation(answer string) string {
+	lower := strings.ToLower(strings.TrimSpace(answer))
+	if lower == "" {
+		return ""
 	}
-	hit := 0
-	for w := range refWords {
-		if _, ok := ansWords[w]; ok {
-			hit++
-		}
-	}
-	return float64(hit) / float64(len(refWords))
-}
-
-func tokenize(s string) map[string]struct{} {
-	s = strings.ToLower(strings.TrimSpace(s))
-	parts := strings.FieldsFunc(s, func(r rune) bool {
-		return r == ' ' || r == '\n' || r == '\t' || r == ',' || r == '.' || r == ';' || r == ':' || r == '，' || r == '。' || r == '；' || r == '：' || r == '(' || r == ')' || r == '（' || r == '）'
-	})
-	out := make(map[string]struct{}, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if len([]rune(p)) < 2 {
+	var builder strings.Builder
+	builder.Grow(len(lower))
+	for _, r := range lower {
+		if unicode.IsSpace(r) || unicode.IsPunct(r) || unicode.IsSymbol(r) {
 			continue
 		}
-		out[p] = struct{}{}
+		builder.WriteRune(r)
 	}
-	return out
+	return builder.String()
+}
+
+func isMeaninglessGibberish(text string) bool {
+	if text == "" {
+		return true
+	}
+	onlyDigits := true
+	semanticCharCount := 0
+	unique := make(map[rune]struct{})
+	for _, r := range text {
+		unique[r] = struct{}{}
+		if !unicode.IsDigit(r) {
+			onlyDigits = false
+		}
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			semanticCharCount++
+		}
+	}
+	if onlyDigits {
+		return true
+	}
+	if semanticCharCount == 0 {
+		return true
+	}
+	if len(unique) <= 1 {
+		return true
+	}
+	return false
 }

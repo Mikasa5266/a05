@@ -1,8 +1,9 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
+import axios from 'axios'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { startStandardInterview as apiStartStandardInterview, startAlgorithmInterview as apiStartAlgorithmInterview, endInterview as apiEndInterview, getShadowCoachHint as apiGetShadowCoachHint, getInterviewConfig as apiGetInterviewConfig, revealRandomStyle as apiRevealRandomStyle, synthesizeInterviewSpeech as apiSynthesizeInterviewSpeech } from '../api/interview'
 import { generateReport as apiGenerateReport } from '../api/report'
 import InterviewContainer from '../components/InterviewContainer.vue'
@@ -186,11 +187,32 @@ const mockInterviewRootRef = ref(null)
 const managedTimeouts = new Set()
 let modelViewerScript = null
 let modelViewerLoadListener = null
+let initLoadingStageTimer = null
+let initLoadingElapsedTimer = null
+
+const interviewInitStageTexts = [
+  '正在分析您的岗位需求...',
+  '正在从题库匹配核心考察点...',
+  'AI 面试官正在生成专属考题...'
+]
+const interviewInitReadyText = '准备就绪！'
+const initLoadingStageText = ref('')
+const initLoadingStageIndex = ref(0)
+const initLoadingElapsedSeconds = ref(0)
 
 const registerManagedTimeout = (callback, delay) => {
   const timer = window.setTimeout(() => {
     managedTimeouts.delete(timer)
-    callback()
+    try {
+      const maybePromise = callback()
+      if (maybePromise && typeof maybePromise.then === 'function') {
+        maybePromise.catch((err) => {
+          console.error('Delayed task failed:', err)
+        })
+      }
+    } catch (err) {
+      console.error('Delayed task failed:', err)
+    }
   }, delay)
   managedTimeouts.add(timer)
   return timer
@@ -268,6 +290,83 @@ const stopAISpeech = () => {
   isAvatarSpeaking.value = false
 }
 
+const clearInitLoadingTimers = () => {
+  if (initLoadingStageTimer) {
+    window.clearInterval(initLoadingStageTimer)
+    initLoadingStageTimer = null
+  }
+  if (initLoadingElapsedTimer) {
+    window.clearInterval(initLoadingElapsedTimer)
+    initLoadingElapsedTimer = null
+  }
+}
+
+const startInterviewInitLoadingFlow = () => {
+  clearInitLoadingTimers()
+  initLoadingStageIndex.value = 0
+  initLoadingElapsedSeconds.value = 0
+  initLoadingStageText.value = interviewInitStageTexts[0]
+  processingHint.value = interviewInitStageTexts[0]
+
+  initLoadingElapsedTimer = window.setInterval(() => {
+    initLoadingElapsedSeconds.value += 1
+  }, 1000)
+
+  initLoadingStageTimer = window.setInterval(() => {
+    if (!isProcessing.value) return
+    initLoadingStageIndex.value = (initLoadingStageIndex.value + 1) % interviewInitStageTexts.length
+    const nextStage = interviewInitStageTexts[initLoadingStageIndex.value]
+    initLoadingStageText.value = nextStage
+    processingHint.value = nextStage
+  }, 4000)
+}
+
+const stopInterviewInitLoadingFlow = () => {
+  clearInitLoadingTimers()
+  initLoadingStageText.value = ''
+  initLoadingStageIndex.value = 0
+  initLoadingElapsedSeconds.value = 0
+}
+
+const markInterviewInitReady = async () => {
+  clearInitLoadingTimers()
+  initLoadingStageIndex.value = interviewInitStageTexts.length
+  initLoadingStageText.value = interviewInitReadyText
+  processingHint.value = interviewInitReadyText
+  await new Promise((resolve) => {
+    registerManagedTimeout(resolve, 520)
+  })
+}
+
+const isInterviewInitTimeoutError = (error) => {
+  if (!axios.isAxiosError(error)) {
+    return false
+  }
+  const status = Number(error?.response?.status || 0)
+  const code = String(error?.code || '').toUpperCase()
+  const message = String(error?.message || '').toLowerCase()
+  return status === 504 || code === 'ECONNABORTED' || code === 'ETIMEDOUT' || message.includes('timeout') || message.includes('超时')
+}
+
+const showInterviewInitTimeoutDialog = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '当前面试初始化耗时较长，可能是 AI 服务排队或网络波动。你可以立即重试，系统会保留刚才的配置。',
+      '启动超时',
+      {
+        type: 'warning',
+        confirmButtonText: '立即重试',
+        cancelButtonText: '稍后再试',
+        closeOnClickModal: false,
+        distinguishCancelAndClose: true
+      }
+    )
+    return true
+  } catch {
+    return false
+  }
+}
+
 const speakAIText = async (text) => {
   if (settings.value.interviewMode === 'human') return
   if (settings.value.presentationMode !== 'video_avatar') return
@@ -326,8 +425,10 @@ const setInterviewMode = (mode) => {
 
 // Interview Logic
 const beginInterview = async (setupContext = {}) => {
+  let shouldRetry = false
+  let shouldShowTimeoutDialog = false
   isProcessing.value = true
-  processingHint.value = '正在初始化面试场景...'
+  startInterviewInitLoadingFlow()
   answerVoiceStatus.value = 'idle'
   answerVoiceError.value = ''
   answerVoiceSeconds.value = 0
@@ -405,10 +506,11 @@ const beginInterview = async (setupContext = {}) => {
     questions.value = mapInterviewQuestions(interview.questions || [])
     
     if (questions.value.length === 0) {
-      alert("未获取到面试题目，请重试")
-      isProcessing.value = false
+      ElMessage.warning('未获取到面试题目，请稍后重试')
       return
     }
+
+    await markInterviewInitReady()
 
     // Switch to interview phase
     enterInterviewPhase()
@@ -471,10 +573,24 @@ const beginInterview = async (setupContext = {}) => {
 
   } catch (error) {
     console.error('Failed to start interview:', error)
-    alert('启动面试失败: ' + (error.response?.data?.error || error.message))
+    if (isInterviewInitTimeoutError(error)) {
+      shouldShowTimeoutDialog = true
+      return
+    }
+    const errMsg = error?.response?.data?.error || error?.message || '未知错误'
+    ElMessage.error(`启动面试失败：${errMsg}`)
   } finally {
     isProcessing.value = false
     processingHint.value = ''
+    stopInterviewInitLoadingFlow()
+    if (shouldShowTimeoutDialog) {
+      shouldRetry = await showInterviewInitTimeoutDialog()
+    }
+    if (shouldRetry) {
+      registerManagedTimeout(() => {
+        beginInterview(setupContext)
+      }, 120)
+    }
   }
 }
 
@@ -696,7 +812,11 @@ const setupProps = computed(() => ({
   isCameraOn: isCameraOn.value,
   isMicOn: isMicOn.value,
   stream: stream.value,
-  isProcessing: isProcessing.value
+  isProcessing: isProcessing.value,
+  initLoadingStageText: initLoadingStageText.value,
+  initLoadingStageIndex: initLoadingStageIndex.value,
+  initLoadingStageTotal: interviewInitStageTexts.length + 1,
+  initLoadingElapsedSeconds: initLoadingElapsedSeconds.value
 }))
 
 const algorithmProps = computed(() => ({
@@ -765,6 +885,7 @@ const onSettingsUpdate = (nextSettings) => {
 
 const cleanupInterviewPageSideEffects = () => {
   clearManagedTimeouts()
+  clearInitLoadingTimers()
   detachModelViewerLoadListener()
   destroyModelViewerInstances()
 

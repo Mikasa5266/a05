@@ -5,7 +5,10 @@ export function startInterview(data) {
     url: '/interview/start',
     method: 'post',
     data,
-    timeout: 15000
+    headers: {
+      'X-Skip-Error-Toast': 'true'
+    },
+    timeout: 12000
   })
 }
 
@@ -20,7 +23,10 @@ export async function startStandardInterview(data) {
       url: '/interview/start/standard',
       method: 'post',
       data,
-      timeout: 15000
+      headers: {
+        'X-Skip-Error-Toast': 'true'
+      },
+      timeout: 12000
     })
   } catch (error) {
     if (!shouldFallbackToLegacyStart(error)) {
@@ -36,7 +42,10 @@ export async function startAlgorithmInterview(data) {
       url: '/interview/start/algorithm',
       method: 'post',
       data,
-      timeout: 15000
+      headers: {
+        'X-Skip-Error-Toast': 'true'
+      },
+      timeout: 12000
     })
   } catch (error) {
     if (!shouldFallbackToLegacyStart(error)) {

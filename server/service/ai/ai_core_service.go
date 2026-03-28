@@ -12,10 +12,14 @@ import (
 )
 
 type AIService struct {
-	config        *config.LLMConfig
-	llmClient     llm.LLMClient
-	promptManager *promptpkg.PromptManager
+	config               *config.LLMConfig
+	llmClient            llm.LLMClient
+	promptManager        *promptpkg.PromptManager
+	groundTruthRetriever GroundTruthRetriever
 }
+
+// GroundTruthRetriever fetches reference snippets for evaluation grounding.
+type GroundTruthRetriever func(ctx context.Context, query string, limit int) ([]string, error)
 
 func NewAIService(llmClient llm.LLMClient) *AIService {
 	pm, err := promptpkg.NewPromptManager()
@@ -28,6 +32,10 @@ func NewAIService(llmClient llm.LLMClient) *AIService {
 		llmClient:     llmClient,
 		promptManager: pm,
 	}
+}
+
+func (s *AIService) SetGroundTruthRetriever(retriever GroundTruthRetriever) {
+	s.groundTruthRetriever = retriever
 }
 
 type EvaluationResult struct {

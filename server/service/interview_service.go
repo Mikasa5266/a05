@@ -4,10 +4,19 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"your-project/model"
 	"your-project/repository"
+)
+
+const (
+	fastInitAIFillMaxAttempts = 1
+	fastInitAIFillConcurrency = 1
+	fastInitAITaskTimeout     = 1200 * time.Millisecond
 )
 
 type InterviewService struct {
@@ -46,8 +55,12 @@ func normalizeInterviewPosition(position string) string {
 
 // StartInterview now accepts mode, style, company, and interviewMode. It uses AI to generate questions based on these parameters.
 func (s *InterviewService) StartInterview(userID uint, position, difficulty, mode, style, company, interviewMode string, invitationID *uint) (*model.Interview, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	return s.StartInterviewWithContext(ctx, userID, position, difficulty, mode, style, company, interviewMode, invitationID)
+}
+
+func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID uint, position, difficulty, mode, style, company, interviewMode string, invitationID *uint) (*model.Interview, error) {
 	var questions []*model.Question
 	var scenarioJSON string
 	var revealedStyle string
@@ -110,8 +123,45 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 		}
 	}
 
-	if style == "algorithm" && interviewMode == "ai" {
+	isAlgorithmStyle := style == "algorithm" && mode != "blindbox"
+	if isAlgorithmStyle {
+		// 算法开场题固定 3 题，避免沿用难度档位导致额外补题并触发超时。
+		topicCount = 3
 		questions = s.buildAlgorithmOpeningQuestions(position, difficulty)
+
+		// 预设题不足时，优先从本地算法题库补齐，避免触发耗时 AI 生成。
+		if len(questions) < topicCount {
+			localAlgorithmBank, err := s.questionRepo.GetQuestionsForInterviewInit(position, difficulty, "algorithm", topicCount*4)
+			if err == nil {
+				for _, q := range localAlgorithmBank {
+					if len(questions) >= topicCount {
+						break
+					}
+					normalized := s.normalizeOpeningQuestionForInit(q)
+					if normalized == nil || s.isDuplicateOpeningQuestion(questions, normalized) {
+						continue
+					}
+					questions = append(questions, normalized)
+				}
+			}
+		}
+
+		// 若算法分类题仍不足，再使用本地通用题库兜底，不走 AI 强制补题。
+		if len(questions) < topicCount {
+			localFallback, err := s.questionRepo.GetQuestionsForInterviewInit(position, difficulty, "", topicCount*4)
+			if err == nil {
+				for _, q := range localFallback {
+					if len(questions) >= topicCount {
+						break
+					}
+					normalized := s.normalizeOpeningQuestionForInit(q)
+					if normalized == nil || s.isDuplicateOpeningQuestion(questions, normalized) {
+						continue
+					}
+					questions = append(questions, normalized)
+				}
+			}
+		}
 	} else if mode == "blindbox" {
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("面试初始化超时，请稍后重试")
@@ -133,7 +183,7 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 			q.Difficulty = difficulty
 			q.Source = "ai_opening"
 			q.RAGEligible = true
-			s.normalizeOpeningQuestion(ctx, q)
+			s.normalizeOpeningQuestionForInit(q)
 			if err := s.questionRepo.Create(q); err != nil {
 				return nil, fmt.Errorf("failed to save blindbox question: %w", err)
 			}
@@ -144,7 +194,7 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 			return nil, fmt.Errorf("面试初始化超时，请稍后重试")
 		}
 
-		// Standard mode: build topic-opening questions via RAG
+		// 速度优先：启动阶段不做 RAG->AI 开场题生成，优先题库与本地兜底，确保 10 秒内可进入。
 		dummyInterview := &model.Interview{
 			Position:   position,
 			Difficulty: difficulty,
@@ -153,32 +203,9 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 			Company:    company,
 		}
 
-		if s.ragService != nil {
-			query := fmt.Sprintf("%s %s 面试 题目", position, difficulty)
-			chunks, err := s.ragService.SearchKnowledgeChunksWithLimit(query, topicCount)
-			if err == nil {
-				for _, chunk := range chunks {
-					if ctx.Err() != nil {
-						return nil, fmt.Errorf("面试初始化超时，请稍后重试")
-					}
-					q, qErr := s.aiService.GenerateTopicQuestionFromContext(ctx, dummyInterview, chunk.Content, chunk.Category)
-					if qErr == nil && q != nil {
-						q.Source = "ai_opening"
-						q.RAGEligible = true
-						if normalized := s.normalizeOpeningQuestion(ctx, q); normalized != nil {
-							if err := s.questionRepo.Create(normalized); err != nil {
-								continue
-							}
-							questions = append(questions, q)
-						}
-					}
-				}
-			}
-		}
-
 		// Fill from question bank if needed
 		if len(questions) < topicCount {
-			fallback, err := s.questionRepo.GetQuestionsByPositionAndDifficulty(position, difficulty)
+			fallback, err := s.questionRepo.GetQuestionsForInterviewInit(position, difficulty, "", topicCount*4)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get questions: %w", err)
 			}
@@ -190,93 +217,43 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 					s.quarantineQuestionAsFollowUp(q)
 					continue
 				}
-				if normalized := s.normalizeOpeningQuestion(ctx, q); normalized != nil {
+				if normalized := s.normalizeOpeningQuestionForInit(q); normalized != nil {
 					questions = append(questions, normalized)
 				}
 			}
 		}
 
-		// Final fallback: generate topic questions if still short
+		// 先走本地模板兜底，保证优先可进入。
+		if len(questions) < topicCount {
+			questions = s.fillWithLocalFallbackQuestions(ctx, questions, topicCount, position, difficulty, mode, style)
+		}
+
+		// 本地仍不足时再做极少量 AI 补题，避免启动阶段长时间阻塞。
 		if len(questions) < topicCount {
 			needed := topicCount - len(questions)
-			maxAttempts := needed * 3
-			for i := 0; i < maxAttempts && len(questions) < topicCount; i++ {
-				if ctx.Err() != nil {
-					return nil, fmt.Errorf("面试初始化超时，请稍后重试")
-				}
-				q, err := s.aiService.GenerateNextQuestionWithWeights(ctx, dummyInterview, nil, capabilityGraph)
-				if err != nil {
-					q, err = s.aiService.GenerateNextQuestion(ctx, dummyInterview, nil)
-					if err != nil {
-						continue
-					}
-				}
-				q.Position = position
-				q.Difficulty = difficulty
-				q.Source = "ai_opening"
-				q.RAGEligible = true
-				if normalized := s.normalizeOpeningQuestion(ctx, q); normalized == nil {
-					continue
-				}
-				if err := s.questionRepo.Create(q); err == nil {
-					questions = append(questions, q)
-				}
+			maxAttempts := needed
+			if maxAttempts > fastInitAIFillMaxAttempts {
+				maxAttempts = fastInitAIFillMaxAttempts
 			}
-		}
-	}
-
-	if style == "algorithm" && interviewMode == "ai" && len(questions) == 0 {
-		fallback, err := s.questionRepo.GetQuestionsByPositionAndDifficulty(position, difficulty)
-		if err == nil {
-			for _, q := range fallback {
-				if len(questions) >= topicCount {
-					break
-				}
-				if normalized := s.normalizeOpeningQuestion(ctx, q); normalized != nil {
-					questions = append(questions, normalized)
-				}
-			}
+			questions = s.fillOpeningQuestionsConcurrently(ctx, questions, topicCount, dummyInterview, capabilityGraph, position, difficulty, maxAttempts)
 		}
 	}
 
 	questions = s.prioritizeTopicVariety(questions, topicCount)
 
+	if len(questions) < topicCount && !isAlgorithmStyle {
+		questions = s.fillWithLocalFallbackQuestions(ctx, questions, topicCount, position, difficulty, mode, style)
+		questions = s.prioritizeTopicVariety(questions, topicCount)
+	}
+
+	// 最后兜底：即使 AI 和题库都不足，也保证至少能拿到可用开场题，避免前端无法进入面试。
 	if len(questions) < topicCount {
-		dummyInterview := &model.Interview{
-			Position:   position,
-			Difficulty: difficulty,
-			Mode:       mode,
-			Style:      style,
-			Company:    company,
-		}
-		maxAttempts := (topicCount - len(questions)) * 4
-		for i := 0; i < maxAttempts && len(questions) < topicCount; i++ {
-			if ctx.Err() != nil {
-				return nil, fmt.Errorf("面试初始化超时，请稍后重试")
-			}
-			q, genErr := s.aiService.GenerateNextQuestionWithWeights(ctx, dummyInterview, nil, capabilityGraph)
-			if genErr != nil {
-				q, genErr = s.aiService.GenerateNextQuestion(ctx, dummyInterview, nil)
-				if genErr != nil {
-					continue
-				}
-			}
-			q.Position = position
-			q.Difficulty = difficulty
-			q.Source = "ai_opening"
-			q.RAGEligible = true
-			normalized := s.normalizeOpeningQuestion(ctx, q)
-			if normalized == nil {
-				continue
-			}
-			if s.isDuplicateOpeningQuestion(questions, normalized) {
-				continue
-			}
-			if err := s.questionRepo.Create(normalized); err != nil {
-				continue
-			}
-			questions = append(questions, normalized)
-		}
+		questions = s.fillWithLocalFallbackQuestions(ctx, questions, topicCount, position, difficulty, mode, style)
+		questions = s.prioritizeTopicVariety(questions, topicCount)
+	}
+
+	if len(questions) == 0 {
+		return nil, fmt.Errorf("面试初始化失败：未获取到可用题目，请稍后重试")
 	}
 
 	if len(questions) > topicCount {
@@ -287,7 +264,7 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("面试初始化超时，请稍后重试")
 		}
-		s.normalizeOpeningQuestion(ctx, q)
+		s.normalizeOpeningQuestionForInit(q)
 	}
 
 	// Style could be overridden by random/blindbox mode, so compute strategy at the end.
@@ -356,6 +333,278 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 	}
 
 	return interviewWithQuestions, nil
+}
+
+func (s *InterviewService) fillOpeningQuestionsConcurrently(
+	ctx context.Context,
+	questions []*model.Question,
+	target int,
+	dummyInterview *model.Interview,
+	capabilityGraph *model.JobCapabilityDimension,
+	position, difficulty string,
+	maxAttempts int,
+) []*model.Question {
+	if target <= len(questions) || maxAttempts <= 0 {
+		return questions
+	}
+	if ctx.Err() != nil {
+		return questions
+	}
+	needed := target - len(questions)
+	if needed <= 0 {
+		return questions
+	}
+	if maxAttempts > needed {
+		maxAttempts = needed
+	}
+
+	fillCtx, fillCancel := context.WithCancel(ctx)
+	defer fillCancel()
+
+	eg, egCtx := errgroup.WithContext(fillCtx)
+	eg.SetLimit(fastInitAIFillConcurrency)
+
+	generated := make([]*model.Question, 0, maxAttempts)
+	var mu sync.Mutex
+
+	for i := 0; i < maxAttempts; i++ {
+		eg.Go(func() error {
+			if egCtx.Err() != nil {
+				return nil
+			}
+			taskCtx, taskCancel := context.WithTimeout(egCtx, fastInitAITaskTimeout)
+			defer taskCancel()
+
+			q, err := s.aiService.GenerateNextQuestionWithWeights(taskCtx, dummyInterview, nil, capabilityGraph)
+			if err != nil {
+				q, err = s.aiService.GenerateNextQuestion(taskCtx, dummyInterview, nil)
+				if err != nil || q == nil {
+					// 单次生成失败容错，不中断整体面试创建流程。
+					return nil
+				}
+			}
+
+			q.Position = position
+			q.Difficulty = difficulty
+			q.Source = "ai_opening"
+			q.RAGEligible = true
+
+			normalized := s.normalizeOpeningQuestionForInit(q)
+			if normalized == nil {
+				return nil
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			if len(generated) >= needed {
+				fillCancel()
+				return nil
+			}
+			if s.isDuplicateOpeningQuestion(questions, normalized) || s.isDuplicateOpeningQuestion(generated, normalized) {
+				return nil
+			}
+			generated = append(generated, normalized)
+			if len(generated) >= needed {
+				fillCancel()
+			}
+			return nil
+		})
+	}
+
+	_ = eg.Wait()
+
+	generated = s.prioritizeTopicVariety(generated, needed)
+	for _, q := range generated {
+		if len(questions) >= target {
+			break
+		}
+		if s.isDuplicateOpeningQuestion(questions, q) {
+			continue
+		}
+		if err := s.questionRepo.Create(q); err != nil {
+			continue
+		}
+		questions = append(questions, q)
+	}
+
+	return questions
+}
+
+func (s *InterviewService) fillWithLocalFallbackQuestions(
+	ctx context.Context,
+	questions []*model.Question,
+	target int,
+	position, difficulty, mode, style string,
+) []*model.Question {
+	if target <= 0 || len(questions) >= target {
+		return questions
+	}
+	if ctx.Err() != nil {
+		return questions
+	}
+
+	candidates := s.buildLocalFallbackOpeningQuestions(position, difficulty, mode, style, target*2)
+	for _, candidate := range candidates {
+		if len(questions) >= target {
+			break
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		normalized := s.normalizeOpeningQuestionForInit(candidate)
+		if normalized == nil || s.isDuplicateOpeningQuestion(questions, normalized) {
+			continue
+		}
+		if err := s.questionRepo.Create(normalized); err != nil {
+			continue
+		}
+		questions = append(questions, normalized)
+	}
+
+	return questions
+}
+
+func (s *InterviewService) buildLocalFallbackOpeningQuestions(position, difficulty, mode, style string, maxCount int) []*model.Question {
+	type tpl struct {
+		Title          string
+		Content        string
+		Category       string
+		ExpectedAnswer string
+	}
+
+	technicalTemplates := []tpl{
+		{
+			Title:          "项目开场：核心挑战与价值",
+			Content:        fmt.Sprintf("请结合你应聘的%s岗位，选一个你参与最深的项目，说明业务目标、你的职责、关键技术方案与最终效果。", position),
+			Category:       "technical",
+			ExpectedAnswer: "应包含项目背景、本人职责、方案选型依据、性能或稳定性收益及复盘。",
+		},
+		{
+			Title:          "工程能力：定位与修复线上问题",
+			Content:        "线上出现间歇性超时且日志信息不足时，你会如何进行排查、复现、止损与长期治理？请给出分阶段方案。",
+			Category:       "technical",
+			ExpectedAnswer: "应包含监控告警、日志补齐、链路追踪、灰度止损、根因分析与治理闭环。",
+		},
+		{
+			Title:          "系统设计：高并发场景下的稳定性",
+			Content:        "如果需要设计一个支持高并发访问的核心服务，你会如何从限流、缓存、降级、幂等和可观测性角度进行方案设计？",
+			Category:       "system_design",
+			ExpectedAnswer: "应包含架构分层、容量评估、流量治理、故障演练与监控指标。",
+		},
+		{
+			Title:          "基础能力：复杂度与数据结构选择",
+			Content:        "请举一个你在项目中通过替换数据结构或算法将性能显著提升的案例，并说明优化前后复杂度变化。",
+			Category:       "algorithm",
+			ExpectedAnswer: "应包含瓶颈定位、复杂度分析、实现细节及性能对比数据。",
+		},
+	}
+
+	hrTemplates := []tpl{
+		{
+			Title:          "自我介绍与岗位匹配",
+			Content:        fmt.Sprintf("请做一个 2 分钟自我介绍，并重点说明你与%s岗位最匹配的三项能力。", position),
+			Category:       "hr",
+			ExpectedAnswer: "应包含经历亮点、岗位匹配点与可量化成果。",
+		},
+		{
+			Title:          "沟通协作：冲突处理",
+			Content:        "当你与同事在技术方案上出现明显分歧时，你会如何推动达成共识并保证项目进度？",
+			Category:       "hr",
+			ExpectedAnswer: "应包含事实对齐、方案比较、决策机制与复盘。",
+		},
+		{
+			Title:          "职业规划：短中期成长",
+			Content:        "请说明你未来 1-3 年的职业目标，以及你计划通过哪些具体行动达成这些目标。",
+			Category:       "hr",
+			ExpectedAnswer: "应包含阶段目标、能力补齐计划与可验证里程碑。",
+		},
+	}
+
+	algorithmTemplates := []tpl{
+		{
+			Title:          "算法兜底：数组与哈希",
+			Content:        "给定一个整数数组，请设计 O(n) 复杂度算法找出目标和对应的两个下标，并说明边界处理。",
+			Category:       "algorithm",
+			ExpectedAnswer: "应说明哈希表思路、重复值处理与复杂度。",
+		},
+		{
+			Title:          "算法兜底：滑动窗口",
+			Content:        "请实现无重复字符最长子串问题，并解释窗口扩张、收缩与索引更新策略。",
+			Category:       "algorithm",
+			ExpectedAnswer: "应说明双指针与哈希映射维护，时间复杂度 O(n)。",
+		},
+		{
+			Title:          "算法兜底：区间合并",
+			Content:        "给定一组区间，输出合并后的结果，并解释排序后线性扫描的核心判断逻辑。",
+			Category:       "algorithm",
+			ExpectedAnswer: "应说明排序依据、重叠判定、边界更新与复杂度。",
+		},
+	}
+
+	pick := technicalTemplates
+	if style == "algorithm" {
+		pick = algorithmTemplates
+	} else if mode == "hr" {
+		pick = hrTemplates
+	} else if mode == "comprehensive" {
+		pick = append(append([]tpl{}, technicalTemplates[:2]...), hrTemplates...)
+	}
+
+	if maxCount <= 0 {
+		maxCount = len(pick)
+	}
+
+	questions := make([]*model.Question, 0, len(pick))
+	for i := 0; i < len(pick) && len(questions) < maxCount; i++ {
+		item := pick[i]
+		questions = append(questions, &model.Question{
+			Title:          item.Title,
+			Content:        item.Content,
+			Position:       position,
+			Difficulty:     difficulty,
+			Category:       item.Category,
+			Source:         "local_opening",
+			RAGEligible:    true,
+			ExpectedAnswer: item.ExpectedAnswer,
+		})
+	}
+
+	return questions
+}
+
+func (s *InterviewService) normalizeOpeningQuestionForInit(q *model.Question) *model.Question {
+	if q == nil {
+		return nil
+	}
+	if strings.TrimSpace(q.Source) == "" {
+		q.Source = "standard"
+	}
+	if q.Source == "follow_up" {
+		return nil
+	}
+
+	q.Title = strings.TrimSpace(q.Title)
+	q.Content = strings.TrimSpace(q.Content)
+	q.ExpectedAnswer = strings.TrimSpace(q.ExpectedAnswer)
+
+	if q.Title == "" {
+		q.Title = "技术问题"
+	}
+	if q.Content == "" {
+		q.Content = "请结合岗位要求，说明你的思路、关键实现和工程取舍。"
+	}
+	if q.ExpectedAnswer == "" {
+		q.ExpectedAnswer = "回答应包含核心原理、实现步骤、关键细节与风险边界。"
+	}
+
+	if s.aiService.IsContextDependentOpeningQuestion(q) {
+		s.aiService.NormalizeToSelfContainedOpening(q)
+	}
+
+	q.Title = strings.TrimSpace(q.Title)
+	q.Content = strings.TrimSpace(q.Content)
+	q.ExpectedAnswer = strings.TrimSpace(q.ExpectedAnswer)
+	return q
 }
 
 func (s *InterviewService) normalizeOpeningQuestion(ctx context.Context, q *model.Question) *model.Question {
@@ -438,6 +687,11 @@ func (s *InterviewService) quarantineQuestionAsFollowUp(q *model.Question) {
 func StartInterview(userID uint, position, difficulty, mode, style, company, interviewMode string, invitationID *uint) (*model.Interview, error) {
 	svc := NewInterviewService()
 	return svc.StartInterview(userID, position, difficulty, mode, style, company, interviewMode, invitationID)
+}
+
+func StartInterviewWithContext(ctx context.Context, userID uint, position, difficulty, mode, style, company, interviewMode string, invitationID *uint) (*model.Interview, error) {
+	svc := NewInterviewService()
+	return svc.StartInterviewWithContext(ctx, userID, position, difficulty, mode, style, company, interviewMode, invitationID)
 }
 
 func GetInterviewByID(userID, interviewID uint) (*model.Interview, error) {

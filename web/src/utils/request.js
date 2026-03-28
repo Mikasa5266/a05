@@ -79,6 +79,19 @@ const shouldBypassAuthEnforcement = (config = {}) => {
   return isPublicEndpoint(config?.url)
 }
 
+const readHeaderValue = (headers, key) => {
+  if (!headers) return ''
+  if (typeof headers.get === 'function') {
+    return headers.get(key) || headers.get(String(key).toLowerCase()) || ''
+  }
+  return headers[key] || headers[String(key).toLowerCase()] || ''
+}
+
+const shouldSkipErrorToast = (error) => {
+  const headerValue = readHeaderValue(error?.config?.headers, 'X-Skip-Error-Toast')
+  return String(headerValue || '').toLowerCase() === 'true'
+}
+
 const redirectToRoleLogin = (loginPath, fromPath) => {
   const redirect = encodeURIComponent(fromPath || '/')
   router.replace(`${loginPath}?redirect=${redirect}`).catch(() => {})
@@ -122,6 +135,7 @@ service.interceptors.response.use(
   error => {
     const res = error?.response
     const normalizedMessage = extractNormalizedErrorMessage(error)
+    const skipErrorToast = shouldSkipErrorToast(error)
 
     if (res?.data?.error) {
       res.data.error = normalizeBackendErrorMessage(res.data.error)
@@ -138,11 +152,11 @@ service.interceptors.response.use(
         enforceRoleLogoutAndRedirect(context)
       }
     } else if (error?.code === 'ECONNABORTED') {
-      error.message = '请求超时：服务响应超过 15 秒，请稍后重试。'
+      error.message = '请求超时：服务响应时间较长，请稍后重试。'
     }
 
     const isCanceled = axios.isCancel(error) || error?.code === 'ERR_CANCELED'
-    if (res?.status !== 401 && !isCanceled) {
+    if (res?.status !== 401 && !isCanceled && !skipErrorToast) {
       ElMessage.error(error?.message || '请求失败，请稍后重试')
     }
 

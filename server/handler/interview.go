@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -19,7 +20,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-const coreRequestTimeout = 15 * time.Second
+const coreRequestTimeout = 10 * time.Second
 
 type liveTokenIdentity struct {
 	UserID   uint
@@ -222,25 +223,29 @@ func startInterviewWithDefaults(c *gin.Context, defaultMode, defaultStyle, defau
 		interview interface{}
 		err       error
 	}
+	serviceCtx, cancel := context.WithTimeout(c.Request.Context(), coreRequestTimeout)
+	defer cancel()
+
 	resultCh := make(chan interviewResult, 1)
 	go func() {
-		interview, err := service.StartInterview(userID, req.Position, req.Difficulty, req.Mode, req.Style, req.Company, req.InterviewMode, req.InvitationID)
-		resultCh <- interviewResult{
-			interview: interview,
-			err:       err,
+		interview, err := service.StartInterviewWithContext(serviceCtx, userID, req.Position, req.Difficulty, req.Mode, req.Style, req.Company, req.InterviewMode, req.InvitationID)
+		select {
+		case resultCh <- interviewResult{interview: interview, err: err}:
+		case <-serviceCtx.Done():
 		}
 	}()
 
 	select {
-	case <-time.After(coreRequestTimeout):
-		c.JSON(http.StatusGatewayTimeout, gin.H{"error": "请求超时，请稍后重试"})
-		return
-	case <-c.Request.Context().Done():
+	case <-serviceCtx.Done():
+		if errors.Is(serviceCtx.Err(), context.DeadlineExceeded) {
+			c.JSON(http.StatusGatewayTimeout, gin.H{"error": "启动超时：初始化耗时较长，请重试"})
+			return
+		}
 		c.JSON(http.StatusGatewayTimeout, gin.H{"error": "请求已取消"})
 		return
 	case result := <-resultCh:
 		if result.err != nil {
-			if context.DeadlineExceeded == result.err || strings.Contains(strings.ToLower(result.err.Error()), "timeout") || strings.Contains(result.err.Error(), "超时") {
+			if errors.Is(result.err, context.DeadlineExceeded) || strings.Contains(strings.ToLower(result.err.Error()), "timeout") || strings.Contains(result.err.Error(), "超时") {
 				c.JSON(http.StatusGatewayTimeout, gin.H{"error": "请求超时，请稍后重试"})
 				return
 			}

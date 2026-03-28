@@ -45,7 +45,12 @@ func (r *QuestionRepository) GetQuestions(position, difficulty, category string)
 		}
 	}
 	if difficulty != "" {
-		query = query.Where("difficulty = ?", difficulty)
+		candidates := buildDifficultyCandidates(difficulty)
+		if len(candidates) > 0 {
+			query = query.Where("difficulty IN ?", candidates)
+		} else {
+			query = query.Where("difficulty = ?", difficulty)
+		}
 	}
 	if category != "" {
 		query = query.Where("category = ?", category)
@@ -74,10 +79,53 @@ func (r *QuestionRepository) GetQuestionsByPositionAndDifficulty(position, diffi
 		}
 	}
 	if difficulty != "" {
-		query = query.Where("difficulty = ?", difficulty)
+		candidates := buildDifficultyCandidates(difficulty)
+		if len(candidates) > 0 {
+			query = query.Where("difficulty IN ?", candidates)
+		} else {
+			query = query.Where("difficulty = ?", difficulty)
+		}
 	}
 
 	err := query.Order("RAND()").Limit(10).Find(&questions).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return questions, nil
+}
+
+// GetQuestionsForInterviewInit fetches a bounded, deterministic set of questions for fast startup.
+func (r *QuestionRepository) GetQuestionsForInterviewInit(position, difficulty, category string, limit int) ([]*model.Question, error) {
+	if limit <= 0 {
+		limit = 12
+	}
+
+	query := r.db.Model(&model.Question{}).
+		Where("(source IS NULL OR source <> ?) AND (rag_eligible IS NULL OR rag_eligible = ?)", "follow_up", true)
+
+	if position != "" {
+		candidates := buildPositionCandidates(position)
+		if len(candidates) > 0 {
+			query = query.Where("position IN ?", candidates)
+		} else {
+			query = query.Where("position = ?", position)
+		}
+	}
+	if difficulty != "" {
+		candidates := buildDifficultyCandidates(difficulty)
+		if len(candidates) > 0 {
+			query = query.Where("difficulty IN ?", candidates)
+		} else {
+			query = query.Where("difficulty = ?", difficulty)
+		}
+	}
+	if category != "" {
+		query = query.Where("category = ?", category)
+	}
+
+	var questions []*model.Question
+	err := query.Order("id DESC").Limit(limit).Find(&questions).Error
 	if err != nil {
 		return nil, err
 	}
@@ -191,4 +239,42 @@ func buildPositionCandidates(position string) []string {
 	default:
 		return []string{position}
 	}
+}
+
+func buildDifficultyCandidates(difficulty string) []string {
+	d := strings.ToLower(strings.TrimSpace(difficulty))
+	base := []string{difficulty}
+
+	var aliases []string
+	switch d {
+	case "campus_intern", "easy":
+		aliases = []string{"campus_intern", "easy", "junior", "Junior", "初级", "基础"}
+	case "campus_graduate", "medium":
+		aliases = []string{"campus_graduate", "medium", "intermediate", "Intermediate", "junior", "Junior", "中级"}
+	case "social_junior", "hard":
+		aliases = []string{"social_junior", "hard", "senior", "Senior", "intermediate", "Intermediate", "中高级"}
+	case "junior":
+		aliases = []string{"junior", "Junior", "campus_intern", "easy", "初级"}
+	case "intermediate":
+		aliases = []string{"intermediate", "Intermediate", "campus_graduate", "medium", "中级"}
+	case "senior":
+		aliases = []string{"senior", "Senior", "social_junior", "hard", "中高级"}
+	default:
+		aliases = []string{difficulty}
+	}
+
+	seen := map[string]bool{}
+	result := make([]string, 0, len(base)+len(aliases))
+	for _, item := range append(base, aliases...) {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		if seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		result = append(result, trimmed)
+	}
+	return result
 }

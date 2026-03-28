@@ -3,14 +3,15 @@ package service
 import (
 	"context"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
+	"time"
 
+	"your-project/config"
 	"your-project/model"
+	ragpkg "your-project/pkg/rag"
 	"your-project/repository"
 )
 
@@ -23,20 +24,9 @@ type KnowledgeChunk struct {
 
 type RAGService struct {
 	questionRepo *repository.QuestionRepository
-	vectorStore  VectorStore
-}
-
-type VectorStore interface {
-	Search(query string, limit int) ([]SimilarityResult, error)
-	IndexQuestions(questions []*model.Question) error
-	IndexDocuments(docs []KnowledgeChunk) error
-	AddDocument(doc KnowledgeChunk) error
-}
-
-type SimilarityResult struct {
-	Question *model.Question // Optional, if it's a question match
-	Document *KnowledgeChunk // Optional, if it's a doc match
-	Score    float64
+	vectorStore  ragpkg.VectorStore
+	embedder     ragpkg.Embedder
+	splitter     ragpkg.DocumentSplitter
 }
 
 var (
@@ -46,10 +36,8 @@ var (
 
 func GetRAGService() *RAGService {
 	ragOnce.Do(func() {
-		globalRAGService = &RAGService{
-			questionRepo: repository.NewQuestionRepository(),
-			vectorStore:  NewSimpleVectorStore(),
-		}
+		vectorStore, embedder, splitter := buildDefaultRAGBackends()
+		globalRAGService = NewRAGServiceWithBackends(vectorStore, embedder, splitter)
 		// Asynchronously load knowledge base on startup
 		go func() {
 			if err := globalRAGService.LoadKnowledgeBase("knowledge_base"); err != nil {
@@ -68,6 +56,70 @@ func NewRAGService() *RAGService {
 	return GetRAGService()
 }
 
+func buildDefaultRAGBackends() (ragpkg.VectorStore, ragpkg.Embedder, ragpkg.DocumentSplitter) {
+	var vectorStore ragpkg.VectorStore
+	var embedder ragpkg.Embedder
+
+	splitter := ragpkg.NewDefaultSlidingWindowChunker()
+
+	if store, err := ragpkg.NewQdrantStoreFromEnv(); err != nil {
+		fmt.Printf("[RAG] Failed to init Qdrant store: %v\n", err)
+	} else {
+		pingCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := store.Ping(pingCtx); err != nil {
+			fmt.Printf("[RAG] Qdrant unavailable, vector retrieval disabled: %v\n", err)
+		} else {
+			vectorStore = store
+		}
+	}
+
+	if envEmbedder, err := ragpkg.NewOpenAIEmbedderFromEnv(); err == nil {
+		embedder = envEmbedder
+	} else {
+		cfg := config.GetConfig()
+		if cfg != nil {
+			model := strings.TrimSpace(os.Getenv("EMBEDDING_MODEL"))
+			if model == "" {
+				model = strings.TrimSpace(cfg.LLM.Models["embedding"])
+			}
+			emb, buildErr := ragpkg.NewOpenAIEmbedder(ragpkg.OpenAIEmbedderConfig{
+				APIKey:  strings.TrimSpace(cfg.LLM.APIKey),
+				BaseURL: strings.TrimSpace(cfg.LLM.BaseURL),
+				Model:   model,
+			})
+			if buildErr == nil {
+				embedder = emb
+			} else {
+				fmt.Printf("[RAG] Failed to init embedder from config: %v\n", buildErr)
+			}
+		} else {
+			fmt.Printf("[RAG] Config not loaded, embedder unavailable: %v\n", err)
+		}
+	}
+
+	if vectorStore == nil || embedder == nil {
+		fmt.Printf("[RAG] Vector pipeline not fully initialized (vectorStore=%t, embedder=%t)\n", vectorStore != nil, embedder != nil)
+	}
+
+	return vectorStore, embedder, splitter
+}
+
+func NewRAGServiceWithBackends(vectorStore ragpkg.VectorStore, embedder ragpkg.Embedder, splitter ragpkg.DocumentSplitter) *RAGService {
+	return &RAGService{
+		questionRepo: repository.NewQuestionRepository(),
+		vectorStore:  vectorStore,
+		embedder:     embedder,
+		splitter:     splitter,
+	}
+}
+
+func (s *RAGService) SetBackends(vectorStore ragpkg.VectorStore, embedder ragpkg.Embedder, splitter ragpkg.DocumentSplitter) {
+	s.vectorStore = vectorStore
+	s.embedder = embedder
+	s.splitter = splitter
+}
+
 func (s *RAGService) LoadKnowledgeBase(rootPath string) error {
 	var chunks []KnowledgeChunk
 
@@ -81,24 +133,40 @@ func (s *RAGService) LoadKnowledgeBase(rootPath string) error {
 				return err
 			}
 
-			// Simple chunking strategy: split by headers or paragraphs
-			// Here we do a simplified split by double newlines for paragraphs
-			// In a real scenario, use a better markdown parser/splitter
-			text := string(content)
-			parts := strings.Split(text, "\n\n")
-
 			category := filepath.Base(filepath.Dir(path))
+			doc := ragpkg.Document{
+				ID:      info.Name(),
+				Content: string(content),
+				Metadata: map[string]string{
+					"category": category,
+					"source":   path,
+				},
+			}
 
-			for i, part := range parts {
-				trimmed := strings.TrimSpace(part)
-				if len(trimmed) < 20 { // Skip too short segments
+			for i, chunk := range s.splitDocument(context.Background(), doc) {
+				trimmed := strings.TrimSpace(chunk.Content)
+				if len([]rune(trimmed)) < 20 {
 					continue
 				}
+				chunkID := strings.TrimSpace(chunk.ID)
+				if chunkID == "" {
+					chunkID = fmt.Sprintf("%s_%d", info.Name(), i)
+				}
+				chunkCategory := category
+				chunkSource := path
+				if chunk.Metadata != nil {
+					if v := strings.TrimSpace(chunk.Metadata["category"]); v != "" {
+						chunkCategory = v
+					}
+					if v := strings.TrimSpace(chunk.Metadata["source"]); v != "" {
+						chunkSource = v
+					}
+				}
 				chunks = append(chunks, KnowledgeChunk{
-					ID:       fmt.Sprintf("%s_%d", info.Name(), i),
+					ID:       chunkID,
 					Content:  trimmed,
-					Category: category,
-					Source:   path,
+					Category: chunkCategory,
+					Source:   chunkSource,
 				})
 			}
 		}
@@ -109,7 +177,7 @@ func (s *RAGService) LoadKnowledgeBase(rootPath string) error {
 		return err
 	}
 
-	return s.vectorStore.IndexDocuments(chunks)
+	return s.indexKnowledgeChunks(context.Background(), chunks)
 }
 
 func (s *RAGService) LoadCommunityPosts() error {
@@ -139,24 +207,39 @@ func (s *RAGService) SearchKnowledgeChunksWithLimit(query string, limit int) ([]
 	if limit <= 0 {
 		limit = 1
 	}
-	results, err := s.vectorStore.Search(query, limit)
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return []KnowledgeChunk{}, nil
+	}
+	if !s.hasVectorBackends() {
+		return []KnowledgeChunk{}, nil
+	}
+
+	queryVector, err := s.embedder.Embed(context.Background(), query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to embed search query: %w", err)
+	}
+
+	results, err := s.vectorStore.Search(context.Background(), queryVector, limit)
 	if err != nil {
 		return nil, err
 	}
 
-	var chunks []KnowledgeChunk
+	chunks := make([]KnowledgeChunk, 0, len(results))
 	for _, res := range results {
-		if res.Document != nil {
-			chunks = append(chunks, *res.Document)
-		} else if res.Question != nil {
-			// Convert question to chunk if needed, or skip
-			chunks = append(chunks, KnowledgeChunk{
-				ID:       fmt.Sprintf("q_%d", res.Question.ID),
-				Content:  res.Question.Content,
-				Category: "question_bank",
-				Source:   "Interview Question DB",
-			})
+		content := strings.TrimSpace(res.Content)
+		if content == "" {
+			continue
 		}
+		chunk := KnowledgeChunk{
+			ID:      strings.TrimSpace(res.ID),
+			Content: content,
+		}
+		if res.Metadata != nil {
+			chunk.Category = strings.TrimSpace(res.Metadata["category"])
+			chunk.Source = strings.TrimSpace(res.Metadata["source"])
+		}
+		chunks = append(chunks, chunk)
 	}
 	return chunks, nil
 }
@@ -301,7 +384,7 @@ func (s *RAGService) FilterAndIndexPost(post *model.CommunityPost) error {
 		db.Model(&model.CommunityPost{}).Where("id = ?", post.ID).Update("is_indexed", true)
 	}
 
-	return s.vectorStore.AddDocument(chunk)
+	return s.indexKnowledgeChunks(context.Background(), []KnowledgeChunk{chunk})
 }
 
 func (s *RAGService) SearchKnowledgeBase(query string) (string, error) {
@@ -323,28 +406,87 @@ func (s *RAGService) SearchKnowledgeBase(query string) (string, error) {
 }
 
 func (s *RAGService) SearchSimilarQuestions(query string, position, difficulty string, limit int) ([]*model.Question, error) {
+	if limit <= 0 {
+		limit = 1
+	}
+
 	allQuestions, err := s.questionRepo.GetQuestionsByPositionAndDifficulty(position, difficulty)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get questions: %w", err)
 	}
+	if len(allQuestions) == 0 {
+		return nil, nil
+	}
+	if !s.hasVectorBackends() {
+		return limitQuestions(allQuestions, limit), nil
+	}
 
-	if err := s.vectorStore.IndexQuestions(allQuestions); err != nil {
+	points := make([]ragpkg.VectorPoint, 0, len(allQuestions))
+	questionByPointID := make(map[string]*model.Question, len(allQuestions))
+
+	for _, question := range allQuestions {
+		if question == nil {
+			continue
+		}
+		text := strings.TrimSpace(question.Title + "\n" + question.Content)
+		if text == "" {
+			continue
+		}
+		vector, embedErr := s.embedder.Embed(context.Background(), text)
+		if embedErr != nil {
+			continue
+		}
+		pointID := fmt.Sprintf("question_%d", question.ID)
+		questionByPointID[pointID] = question
+		points = append(points, ragpkg.VectorPoint{
+			ID:      pointID,
+			Vector:  vector,
+			Content: text,
+			Metadata: map[string]string{
+				"kind":        "question",
+				"question_id": fmt.Sprintf("%d", question.ID),
+				"position":    question.Position,
+				"difficulty":  question.Difficulty,
+			},
+		})
+	}
+
+	if len(points) == 0 {
+		return limitQuestions(allQuestions, limit), nil
+	}
+
+	if err := s.vectorStore.Upsert(context.Background(), points); err != nil {
 		return nil, fmt.Errorf("failed to index questions: %w", err)
 	}
 
-	similarResults, err := s.vectorStore.Search(query, limit*2)
+	queryVector, err := s.embedder.Embed(context.Background(), query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to embed query: %w", err)
+	}
+
+	similarResults, err := s.vectorStore.Search(context.Background(), queryVector, limit*2)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search similar questions: %w", err)
 	}
 
-	var filteredQuestions []*model.Question
+	filteredQuestions := make([]*model.Question, 0, limit)
+	seen := make(map[uint]struct{}, limit)
 	for _, result := range similarResults {
-		if result.Question != nil && result.Score > 0.3 {
-			filteredQuestions = append(filteredQuestions, result.Question)
+		question := questionByPointID[result.ID]
+		if question == nil {
+			continue
 		}
+		if _, ok := seen[question.ID]; ok {
+			continue
+		}
+		seen[question.ID] = struct{}{}
+		filteredQuestions = append(filteredQuestions, question)
 		if len(filteredQuestions) >= limit {
 			break
 		}
+	}
+	if len(filteredQuestions) == 0 {
+		return limitQuestions(allQuestions, limit), nil
 	}
 
 	return filteredQuestions, nil
@@ -394,121 +536,84 @@ func (s *RAGService) adaptQuestion(original *model.Question, context string) *mo
 	return &adapted
 }
 
-type SimpleVectorStore struct {
-	questions []*model.Question
-	documents []KnowledgeChunk
-	mu        sync.RWMutex
+func (s *RAGService) hasVectorBackends() bool {
+	return s.vectorStore != nil && s.embedder != nil
 }
 
-func NewSimpleVectorStore() *SimpleVectorStore {
-	return &SimpleVectorStore{
-		questions: make([]*model.Question, 0),
-		documents: make([]KnowledgeChunk, 0),
-	}
-}
-
-func (s *SimpleVectorStore) IndexQuestions(questions []*model.Question) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.questions = questions
-	return nil
-}
-
-func (s *SimpleVectorStore) IndexDocuments(docs []KnowledgeChunk) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.documents = docs
-	return nil
-}
-
-func (s *SimpleVectorStore) AddDocument(doc KnowledgeChunk) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.documents = append(s.documents, doc)
-	return nil
-}
-
-func (s *SimpleVectorStore) Search(query string, limit int) ([]SimilarityResult, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var results []SimilarityResult
-
-	// Search Questions
-	for _, question := range s.questions {
-		similarity := s.calculateSimilarity(query, question.Content+" "+question.Title)
-		if similarity > 0 {
-			results = append(results, SimilarityResult{
-				Question: question,
-				Score:    similarity,
-			})
+func (s *RAGService) splitDocument(ctx context.Context, doc ragpkg.Document) []ragpkg.Chunk {
+	if s.splitter != nil {
+		chunks, err := s.splitter.Split(ctx, doc)
+		if err == nil && len(chunks) > 0 {
+			return chunks
 		}
 	}
 
-	// Search Documents
-	for _, doc := range s.documents {
-		similarity := s.calculateSimilarity(query, doc.Content)
-		if similarity > 0 {
-			// Copy loop var
-			d := doc
-			results = append(results, SimilarityResult{
-				Document: &d,
-				Score:    similarity,
-			})
+	parts := strings.Split(doc.Content, "\n\n")
+	chunks := make([]ragpkg.Chunk, 0, len(parts))
+	for i, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
 		}
+		chunks = append(chunks, ragpkg.Chunk{
+			ID:      fmt.Sprintf("%s_%d", doc.ID, i),
+			Content: trimmed,
+			Metadata: map[string]string{
+				"category": strings.TrimSpace(doc.Metadata["category"]),
+				"source":   strings.TrimSpace(doc.Metadata["source"]),
+			},
+		})
 	}
-
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Score > results[j].Score
-	})
-
-	if len(results) > limit {
-		results = results[:limit]
-	}
-
-	return results, nil
+	return chunks
 }
 
-func (s *SimpleVectorStore) calculateSimilarity(query string, targetText string) float64 {
-	queryWords := s.tokenize(query)
-	targetWords := s.tokenize(targetText)
-
-	if len(queryWords) == 0 || len(targetWords) == 0 {
-		return 0
+func (s *RAGService) indexKnowledgeChunks(ctx context.Context, chunks []KnowledgeChunk) error {
+	if len(chunks) == 0 || !s.hasVectorBackends() {
+		return nil
 	}
 
-	commonWords := 0
-	querySet := make(map[string]bool)
-	for _, word := range queryWords {
-		querySet[word] = true
-	}
-
-	for _, word := range targetWords {
-		if querySet[word] {
-			commonWords++
+	points := make([]ragpkg.VectorPoint, 0, len(chunks))
+	for _, chunk := range chunks {
+		content := strings.TrimSpace(chunk.Content)
+		if content == "" {
+			continue
 		}
+		vector, err := s.embedder.Embed(ctx, content)
+		if err != nil {
+			continue
+		}
+		pointID := strings.TrimSpace(chunk.ID)
+		if pointID == "" {
+			pointID = fmt.Sprintf("knowledge_%d", len(points)+1)
+		}
+		metadata := map[string]string{"kind": "knowledge"}
+		if v := strings.TrimSpace(chunk.Category); v != "" {
+			metadata["category"] = v
+		}
+		if v := strings.TrimSpace(chunk.Source); v != "" {
+			metadata["source"] = v
+		}
+		points = append(points, ragpkg.VectorPoint{
+			ID:       pointID,
+			Vector:   vector,
+			Content:  content,
+			Metadata: metadata,
+		})
 	}
 
-	return float64(commonWords) / math.Sqrt(float64(len(queryWords)*len(targetWords)))
+	if len(points) == 0 {
+		return nil
+	}
+
+	return s.vectorStore.Upsert(ctx, points)
 }
 
-func (s *SimpleVectorStore) tokenize(text string) []string {
-	words := strings.Fields(strings.ToLower(text))
-	var filtered []string
-
-	for _, word := range words {
-		if len(word) > 2 && !s.isStopWord(word) {
-			filtered = append(filtered, word)
-		}
+func limitQuestions(questions []*model.Question, limit int) []*model.Question {
+	if limit <= 0 {
+		limit = 1
 	}
-
-	return filtered
-}
-
-func (s *SimpleVectorStore) isStopWord(word string) bool {
-	stopWords := map[string]bool{
-		"the": true, "and": true, "or": true, "but": true, "in": true,
-		"on": true, "at": true, "to": true, "for": true, "of": true,
-		"with": true, "by": true, "is": true, "are": true, "was": true,
+	if len(questions) <= limit {
+		return questions
 	}
-	return stopWords[word]
+	return questions[:limit]
 }
