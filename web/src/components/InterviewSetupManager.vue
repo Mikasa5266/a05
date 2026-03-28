@@ -1,16 +1,17 @@
 <script setup>
 import { computed } from 'vue'
 import InterviewSetupPreview from './InterviewSetupPreview.vue'
-import InterviewSetupForm from './InterviewSetupForm.vue'
+import StandardInterviewSetup from './StandardInterviewSetup.vue'
+import AlgorithmInterviewSetup from './AlgorithmInterviewSetup.vue'
 
 const props = defineProps({
   settings: {
     type: Object,
     required: true
   },
-  shadowCoachEnabled: {
-    type: Boolean,
-    default: true
+  setupType: {
+    type: String,
+    default: 'standard'
   },
   isCameraOn: {
     type: Boolean,
@@ -27,65 +28,13 @@ const props = defineProps({
   isProcessing: {
     type: Boolean,
     default: false
-  },
-  activeInvitationId: {
-    type: [Number, String],
-    default: null
-  },
-  inviteCandidates: {
-    type: Array,
-    default: () => []
-  },
-  inviteCandidatesLoading: {
-    type: Boolean,
-    default: false
-  },
-  activeInvitation: {
-    type: Object,
-    default: null
-  },
-  blindBoxRevealing: {
-    type: Boolean,
-    default: false
-  },
-  blindBoxRevealed: {
-    type: Boolean,
-    default: false
-  },
-  blindBoxScenario: {
-    type: Object,
-    default: null
-  },
-  pressureColors: {
-    type: Object,
-    default: () => ({})
-  },
-  pressureLevel: {
-    type: String,
-    default: 'low'
-  },
-  pressureLabels: {
-    type: Object,
-    default: () => ({})
-  },
-  normalizeCandidateRole: {
-    type: Function,
-    required: true
   }
 })
 
 const emit = defineEmits([
   'update:settings',
-  'update:shadow-coach-enabled',
   'toggle-mic',
   'toggle-camera',
-  'change-presentation-mode',
-  'change-interview-mode',
-  'load-invite-candidates',
-  'select-invite-candidate',
-  'open-bookings',
-  'draw-blind-box',
-  'redraw-blind-box',
   'start-interview'
 ])
 
@@ -94,9 +43,8 @@ const settingsProxy = computed({
   set: (value) => emit('update:settings', value)
 })
 
-const shadowCoachProxy = computed({
-  get: () => props.shadowCoachEnabled,
-  set: (value) => emit('update:shadow-coach-enabled', value)
+const currentSetupComponent = computed(() => {
+  return props.setupType === 'algorithm' ? AlgorithmInterviewSetup : StandardInterviewSetup
 })
 </script>
 
@@ -117,29 +65,11 @@ const shadowCoachProxy = computed({
         @toggle-camera="emit('toggle-camera')"
       />
 
-      <InterviewSetupForm
+      <component
+        :is="currentSetupComponent"
         v-model:settings="settingsProxy"
-        v-model:shadow-coach-enabled="shadowCoachProxy"
         :is-processing="isProcessing"
-        :active-invitation-id="activeInvitationId"
-        :invite-candidates="inviteCandidates"
-        :invite-candidates-loading="inviteCandidatesLoading"
-        :active-invitation="activeInvitation"
-        :blind-box-revealing="blindBoxRevealing"
-        :blind-box-revealed="blindBoxRevealed"
-        :blind-box-scenario="blindBoxScenario"
-        :pressure-colors="pressureColors"
-        :pressure-level="pressureLevel"
-        :pressure-labels="pressureLabels"
-        :normalize-candidate-role="normalizeCandidateRole"
-        @change-presentation-mode="emit('change-presentation-mode', $event)"
-        @change-interview-mode="emit('change-interview-mode', $event)"
-        @load-invite-candidates="emit('load-invite-candidates', $event)"
-        @select-invite-candidate="emit('select-invite-candidate', $event)"
-        @open-bookings="emit('open-bookings')"
-        @draw-blind-box="emit('draw-blind-box')"
-        @redraw-blind-box="emit('redraw-blind-box')"
-        @start-interview="emit('start-interview')"
+        @start-interview="emit('start-interview', $event)"
       />
     </div>
   </div>

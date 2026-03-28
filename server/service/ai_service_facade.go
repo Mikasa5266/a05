@@ -39,3 +39,7 @@ func GenerateRandomStyleForInterview() (style string, company string) {
 func (s *AIService) ChatWithFormat(ctx context.Context, prompt string, taskType string, responseFormat *llm.ResponseFormat) (string, error) {
 	return s.AIService.ChatWithFormat(ctx, prompt, taskType, responseFormat)
 }
+
+func (s *AIService) RenderPrompt(templateName string, data interface{}) (string, error) {
+	return s.AIService.RenderPrompt(templateName, data)
+}

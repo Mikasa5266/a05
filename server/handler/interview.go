@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/base64"
 	"log"
 	"net/http"
@@ -17,6 +18,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
+
+const coreRequestTimeout = 15 * time.Second
 
 func parseUserIDFromToken(tokenString string) (uint, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
@@ -89,6 +92,18 @@ func InterviewSignalWS(c *gin.Context) {
 }
 
 func StartInterview(c *gin.Context) {
+	startInterviewWithDefaults(c, "", "", "")
+}
+
+func StartStandardInterview(c *gin.Context) {
+	startInterviewWithDefaults(c, "technical", "gentle", "ai")
+}
+
+func StartAlgorithmInterview(c *gin.Context) {
+	startInterviewWithDefaults(c, "technical", "algorithm", "ai")
+}
+
+func startInterviewWithDefaults(c *gin.Context, defaultMode, defaultStyle, defaultInterviewMode string) {
 	userID := c.GetUint("user_id")
 
 	var req struct {
@@ -108,10 +123,19 @@ func StartInterview(c *gin.Context) {
 
 	// Set defaults if empty
 	if req.Mode == "" {
+		req.Mode = defaultMode
+	}
+	if req.Mode == "" {
 		req.Mode = "technical"
 	}
 	if req.Style == "" {
+		req.Style = defaultStyle
+	}
+	if req.Style == "" {
 		req.Style = "gentle"
+	}
+	if req.InterviewMode == "" {
+		req.InterviewMode = defaultInterviewMode
 	}
 	if req.InterviewMode == "" {
 		req.InterviewMode = "ai"
@@ -141,16 +165,41 @@ func StartInterview(c *gin.Context) {
 		req.InterviewMode = "ai"
 	}
 
-	interview, err := service.StartInterview(userID, req.Position, req.Difficulty, req.Mode, req.Style, req.Company, req.InterviewMode, req.InvitationID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	type interviewResult struct {
+		interview interface{}
+		err       error
+	}
+	resultCh := make(chan interviewResult, 1)
+	go func() {
+		interview, err := service.StartInterview(userID, req.Position, req.Difficulty, req.Mode, req.Style, req.Company, req.InterviewMode, req.InvitationID)
+		resultCh <- interviewResult{
+			interview: interview,
+			err:       err,
+		}
+	}()
+
+	select {
+	case <-time.After(coreRequestTimeout):
+		c.JSON(http.StatusGatewayTimeout, gin.H{"error": "请求超时，请稍后重试"})
+		return
+	case <-c.Request.Context().Done():
+		c.JSON(http.StatusGatewayTimeout, gin.H{"error": "请求已取消"})
+		return
+	case result := <-resultCh:
+		if result.err != nil {
+			if context.DeadlineExceeded == result.err || strings.Contains(strings.ToLower(result.err.Error()), "timeout") || strings.Contains(result.err.Error(), "超时") {
+				c.JSON(http.StatusGatewayTimeout, gin.H{"error": "请求超时，请稍后重试"})
+				return
+			}
+			c.JSON(http.StatusBadRequest, gin.H{"error": result.err.Error()})
+			return
+		}
+		c.JSON(http.StatusCreated, gin.H{
+			"message":   "Interview started successfully",
+			"interview": result.interview,
+		})
 		return
 	}
-
-	c.JSON(http.StatusCreated, gin.H{
-		"message":   "Interview started successfully",
-		"interview": interview,
-	})
 }
 
 // ListInviteCandidates returns university/enterprise users that can be invited for a mock interview.

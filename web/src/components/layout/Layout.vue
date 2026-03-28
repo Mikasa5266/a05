@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col min-h-screen bg-zinc-50 dark:bg-zinc-900 font-sans transition-colors duration-200">
+  <div class="flex flex-col min-h-screen bg-zinc-50 font-sans">
     <TopNav />
     <SubNav />
     <main class="flex-1 overflow-y-auto">

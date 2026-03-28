@@ -5,13 +5,27 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
+	"time"
 
 	"your-project/model"
+	"your-project/repository"
+
+	"gorm.io/gorm"
 )
 
 type ResumeService struct {
-	aiService *AIService
+	aiService          *AIService
+	lastPipelineResult *ResumePipelineResult
+}
+
+type ResumePipelineResult struct {
+	Validation *model.ResumeValidationResult
+	Extracted  *model.ResumeExtractedData
+	Match      *model.ResumeMatchResult
+	Resume     *model.ResumeData
+	Matches    []*model.JobMatch
 }
 
 func NewResumeService() *ResumeService {
@@ -20,143 +34,297 @@ func NewResumeService() *ResumeService {
 	}
 }
 
-// ParseResume calls the AI service to parse the resume text
 func (s *ResumeService) ParseResume(fileContent string) (*model.ResumeData, error) {
-	log.Printf("Starting resume parsing, content length: %d characters", len(fileContent))
-
-	const MaxContentLength = 50000
-	if len(fileContent) > MaxContentLength {
-		log.Printf("Content too long, truncating from %d to %d characters", len(fileContent), MaxContentLength)
-		fileContent = fileContent[:MaxContentLength] + "\n...(content truncated)..."
-	}
-
-	prompt := fmt.Sprintf(`
-你是一位资深技术面试官和职业规划专家。请仔细阅读以下简历内容，并进行深度解析。
-这是一份 PDF 导出的文本，可能包含排版错乱、换行符丢失或多余空格。请根据上下文智能重建语义。
-
-【解析目标】
-将简历内容转化为结构化的 JSON 数据，以便系统进行岗位匹配。
-
-【重要规则】
-1. **必须使用简体中文**输出。
-2. **严格基于简历内容**，不要编造或猜测未提及的信息。如果某项信息完全缺失，请留空或返回空数组。
-3. **不要输出 Markdown 代码块**，直接返回纯 JSON 字符串。
-4. **技术栈提取**：请提取具体的编程语言、框架、工具（如 Java, Spring Boot, MySQL, Redis, Vue.js 等）。
-5. **项目经验**：请提取项目名称、描述和关键亮点（技术难点、优化成果等）。
-6. **求职意向**：如果简历未明确写明，请根据技术栈和经验推断最可能的职位（如 "后端开发工程师", "全栈工程师"）。
-7. **软技能**：提取简历中体现的非技术能力（如 "团队管理", "沟通协作", "英语读写"）。
-
-简历文本内容:
-"""
-%s
-"""
-
-输出 JSON 格式（请严格遵守此结构）：
-{
-  "techStack": ["技能1", "技能2"],
-  "experience": [
-    { 
-      "title": "项目名称或职位", 
-      "description": "项目简述", 
-      "highlights": ["亮点1", "亮点2"] 
-    }
-  ],
-  "intent": "求职意向",
-  "softSkills": ["软技能1", "软技能2"]
-}
-`, fileContent)
-
-	log.Printf("Sending request to AI service for resume parsing")
-
-	resp, err := s.aiService.ChatWithTask(context.Background(), prompt, "resume")
+	pipelineResult, err := s.AnalyzeResume(fileContent)
 	if err != nil {
-		log.Printf("AI parsing failed: %v", err)
-		return nil, fmt.Errorf("AI parsing failed: %w", err)
+		return nil, err
 	}
-
-	log.Printf("AI response received, length: %d characters", len(resp))
-
-	jsonStr := CleanJSON(resp)
-
-	var data model.ResumeData
-	if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
-		log.Printf("Failed to parse AI response: %v, response: %s", err, jsonStr)
-		return nil, fmt.Errorf("failed to parse AI response: %w, response: %s", err, jsonStr)
-	}
-
-	log.Printf("Resume parsed successfully: techStack=%v, experienceCount=%d", data.TechStack, len(data.Experience))
-
-	return &data, nil
+	s.lastPipelineResult = pipelineResult
+	return pipelineResult.Resume, nil
 }
 
-// MatchJobs generates job recommendations based on resume data
-func (s *ResumeService) MatchJobs(resumeData *model.ResumeData) ([]*model.JobMatch, error) {
-	log.Printf("Starting job matching for resume: techStack=%v", resumeData.TechStack)
+func (s *ResumeService) AnalyzeResume(fileContent string) (*ResumePipelineResult, error) {
+	start := time.Now()
+	log.Printf("resume pipeline started, raw content length=%d", len(fileContent))
 
-	resumeJson, _ := json.Marshal(resumeData)
+	const maxContentLength = 50000
+	if len(fileContent) > maxContentLength {
+		log.Printf("resume pipeline content truncated from %d to %d", len(fileContent), maxContentLength)
+		fileContent = fileContent[:maxContentLength] + "\n...(content truncated)..."
+	}
 
-	// 1. Get RAG context for the resume's tech stack and intent
-	ragSvc := GetRAGService()
-	var ragContext string
-	if ragSvc != nil {
-		query := fmt.Sprintf("%s %s", resumeData.Intent, strings.Join(resumeData.TechStack, " "))
-		context, err := ragSvc.SearchKnowledgeBase(query)
-		if err == nil && context != "" {
-			ragContext = context
+	ctx := context.Background()
+
+	validatorStart := time.Now()
+	validatorPrompt, err := s.aiService.RenderPrompt("resume/01_validator.tmpl", map[string]interface{}{
+		"RawText": fileContent,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("render validator prompt failed: %w", err)
+	}
+	validatorResp, err := s.aiService.ChatWithTask(ctx, validatorPrompt, "resume")
+	if err != nil {
+		return nil, fmt.Errorf("validator llm call failed: %w", err)
+	}
+	validatorJSON := CleanJSON(validatorResp)
+	var validation model.ResumeValidationResult
+	if err := json.Unmarshal([]byte(validatorJSON), &validation); err != nil {
+		log.Printf("validator unmarshal failed, response=%s", validatorJSON)
+		return nil, fmt.Errorf("validator json unmarshal failed: %w", err)
+	}
+	log.Printf("resume validator completed in %s, is_resume=%v, confidence_score=%d", time.Since(validatorStart), validation.IsResume, validation.ConfidenceScore)
+
+	if !validation.IsResume || validation.ConfidenceScore < 60 {
+		rejectReason := strings.TrimSpace(validation.RejectReason)
+		if rejectReason == "" {
+			if !validation.IsResume {
+				rejectReason = "输入内容不是可用于岗位匹配的简历文本"
+			} else {
+				rejectReason = "简历置信度不足，无法继续解析"
+			}
 		}
+		log.Printf("resume pipeline rejected, reason=%s", rejectReason)
+		return nil, fmt.Errorf("%s", rejectReason)
 	}
 
-	prompt := fmt.Sprintf(`
-根据以下简历数据和岗位知识库上下文，推荐 3 个最适合的职位。
-
-【岗位知识库上下文】
-%s
-
-【重要要求】
-1. **必须使用简体中文**输出所有内容。
-2. 职位名称可以是中英文（如 "Go 后端开发" 或 "Backend Engineer"），但描述和理由必须是中文。
-3. **严格根据简历的技术栈和经验推荐职位**，不要推荐与简历内容不符的职位。
-4. 参考知识库中的岗位能力模型，计算匹配度。
-5. 不要输出 Markdown 标记。
-
-简历数据:
-%s
-
-输出格式 (JSON 数组):
-[
-  {
-    "jobTitle": "推荐职位名称",
-    "matchScore": 90, // 0-100 的整数
-    "reason": "详细的推荐理由...",
-    "requirements": ["该职位的核心要求1", "要求2"]
-  }
-]
-`, ragContext, string(resumeJson))
-
-	log.Printf("Sending request to AI service for job matching")
-
-	resp, err := s.aiService.ChatWithTask(context.Background(), prompt, "resume")
+	extractorStart := time.Now()
+	extractorPrompt, err := s.aiService.RenderPrompt("resume/02_extractor.tmpl", map[string]interface{}{
+		"ValidatedResumeText": fileContent,
+	})
 	if err != nil {
-		log.Printf("AI matching failed: %v", err)
-		return nil, fmt.Errorf("AI matching failed: %w", err)
+		return nil, fmt.Errorf("render extractor prompt failed: %w", err)
+	}
+	extractorResp, err := s.aiService.ChatWithTask(ctx, extractorPrompt, "resume")
+	if err != nil {
+		return nil, fmt.Errorf("extractor llm call failed: %w", err)
+	}
+	extractorJSON := CleanJSON(extractorResp)
+	var extracted model.ResumeExtractedData
+	if err := json.Unmarshal([]byte(extractorJSON), &extracted); err != nil {
+		log.Printf("extractor unmarshal failed, response=%s", extractorJSON)
+		return nil, fmt.Errorf("extractor json unmarshal failed: %w", err)
+	}
+	log.Printf("resume extractor completed in %s, skills=%d, projects=%d", time.Since(extractorStart), len(extracted.CoreSkills), len(extracted.ProjectHighlights))
+
+	matcherStart := time.Now()
+	matchResult, err := s.runMatcher(ctx, &extracted)
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("resume matcher completed in %s, matched_roles=%d, question_banks=%d", time.Since(matcherStart), len(matchResult.MatchedRoles), len(matchResult.TargetQuestionBanks))
+
+	resumeData := convertExtractedToResumeData(&extracted)
+	matches := convertMatchResultToJobMatches(matchResult)
+
+	log.Printf("resume pipeline completed in %s, legacy_resume_experience=%d, legacy_matches=%d", time.Since(start), len(resumeData.Experience), len(matches))
+
+	return &ResumePipelineResult{
+		Validation: &validation,
+		Extracted:  &extracted,
+		Match:      matchResult,
+		Resume:     resumeData,
+		Matches:    matches,
+	}, nil
+}
+
+func (s *ResumeService) MatchJobs(resumeData *model.ResumeData) ([]*model.JobMatch, error) {
+	if resumeData == nil {
+		return nil, fmt.Errorf("resume data is required")
 	}
 
-	log.Printf("AI response received, length: %d characters", len(resp))
-
-	jsonStr := CleanJSON(resp)
-
-	var matches []*model.JobMatch
-	if err := json.Unmarshal([]byte(jsonStr), &matches); err != nil {
-		log.Printf("Failed to parse AI response: %v, response: %s", err, jsonStr)
-		return nil, fmt.Errorf("failed to parse AI response: %w, response: %s", err, jsonStr)
+	if s.lastPipelineResult != nil && s.lastPipelineResult.Resume != nil && isSameResumeData(resumeData, s.lastPipelineResult.Resume) {
+		log.Printf("resume matcher returned cached pipeline result, matches=%d", len(s.lastPipelineResult.Matches))
+		return s.lastPipelineResult.Matches, nil
 	}
 
-	log.Printf("Job matching completed: %d matches generated", len(matches))
-	for i, match := range matches {
-		log.Printf("Match %d: %s (score: %d)", i+1, match.JobTitle, match.MatchScore)
+	start := time.Now()
+	log.Printf("resume matcher started from legacy resume input, techStack=%v", resumeData.TechStack)
+	extracted := convertResumeDataToExtracted(resumeData)
+	matchResult, err := s.runMatcher(context.Background(), extracted)
+	if err != nil {
+		return nil, err
 	}
-
+	matches := convertMatchResultToJobMatches(matchResult)
+	log.Printf("resume matcher completed in %s from legacy resume input, matches=%d", time.Since(start), len(matches))
 	return matches, nil
+}
+
+func (s *ResumeService) runMatcher(ctx context.Context, extracted *model.ResumeExtractedData) (*model.ResumeMatchResult, error) {
+	extractedJSONBytes, err := json.Marshal(extracted)
+	if err != nil {
+		return nil, fmt.Errorf("marshal extracted resume failed: %w", err)
+	}
+	roles := s.loadAvailableRoles()
+	questionBanks := s.loadAvailableQuestionBanks()
+	rolesJSONBytes, err := json.Marshal(roles)
+	if err != nil {
+		return nil, fmt.Errorf("marshal available roles failed: %w", err)
+	}
+	questionBanksJSONBytes, err := json.Marshal(questionBanks)
+	if err != nil {
+		return nil, fmt.Errorf("marshal available question banks failed: %w", err)
+	}
+
+	matcherPrompt, err := s.aiService.RenderPrompt("resume/03_matcher.tmpl", map[string]interface{}{
+		"ExtractedResumeJSON":    string(extractedJSONBytes),
+		"AvailableRoles":         string(rolesJSONBytes),
+		"AvailableQuestionBanks": string(questionBanksJSONBytes),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("render matcher prompt failed: %w", err)
+	}
+
+	matcherResp, err := s.aiService.ChatWithTask(ctx, matcherPrompt, "resume")
+	if err != nil {
+		return nil, fmt.Errorf("matcher llm call failed: %w", err)
+	}
+	matcherJSON := CleanJSON(matcherResp)
+	var matchResult model.ResumeMatchResult
+	if err := json.Unmarshal([]byte(matcherJSON), &matchResult); err != nil {
+		log.Printf("matcher unmarshal failed, response=%s", matcherJSON)
+		return nil, fmt.Errorf("matcher json unmarshal failed: %w", err)
+	}
+	return &matchResult, nil
+}
+
+func (s *ResumeService) loadAvailableRoles() []string {
+	roles := make([]string, 0)
+	db := getDBSafe()
+	if db == nil {
+		return roles
+	}
+	if err := db.Model(&model.Question{}).
+		Where("position IS NOT NULL AND position <> ''").
+		Distinct().
+		Pluck("position", &roles).Error; err != nil {
+		log.Printf("load available roles failed: %v", err)
+		return []string{}
+	}
+	return uniqueSortedNonEmpty(roles)
+}
+
+func (s *ResumeService) loadAvailableQuestionBanks() []string {
+	questionBanks := make([]string, 0)
+	db := getDBSafe()
+	if db == nil {
+		return questionBanks
+	}
+	if err := db.Model(&model.Question{}).
+		Where("category IS NOT NULL AND category <> ''").
+		Distinct().
+		Pluck("category", &questionBanks).Error; err != nil {
+		log.Printf("load available question banks failed: %v", err)
+		return []string{}
+	}
+	return uniqueSortedNonEmpty(questionBanks)
+}
+
+func getDBSafe() (db *gorm.DB) {
+	defer func() {
+		if recover() != nil {
+			db = nil
+		}
+	}()
+	return repository.GetDB()
+}
+
+func convertExtractedToResumeData(extracted *model.ResumeExtractedData) *model.ResumeData {
+	if extracted == nil {
+		return &model.ResumeData{}
+	}
+	experience := make([]struct {
+		Title       string   `json:"title"`
+		Description string   `json:"description"`
+		Highlights  []string `json:"highlights"`
+	}, 0, len(extracted.ProjectHighlights))
+	for _, project := range extracted.ProjectHighlights {
+		experience = append(experience, struct {
+			Title       string   `json:"title"`
+			Description string   `json:"description"`
+			Highlights  []string `json:"highlights"`
+		}{
+			Title:       strings.TrimSpace(project.Name),
+			Description: strings.TrimSpace(project.CoreContribution),
+			Highlights:  uniqueSortedNonEmpty(project.TechStack),
+		})
+	}
+	return &model.ResumeData{
+		TechStack:  uniqueSortedNonEmpty(extracted.CoreSkills),
+		Experience: experience,
+		Intent:     strings.TrimSpace(extracted.BasicInfo.TargetDirection),
+		SoftSkills: []string{},
+	}
+}
+
+func convertResumeDataToExtracted(resumeData *model.ResumeData) *model.ResumeExtractedData {
+	if resumeData == nil {
+		return &model.ResumeExtractedData{}
+	}
+	projects := make([]model.ResumeProjectHighlight, 0, len(resumeData.Experience))
+	for _, exp := range resumeData.Experience {
+		projects = append(projects, model.ResumeProjectHighlight{
+			Name:             strings.TrimSpace(exp.Title),
+			TechStack:        uniqueSortedNonEmpty(exp.Highlights),
+			CoreContribution: strings.TrimSpace(exp.Description),
+		})
+	}
+	return &model.ResumeExtractedData{
+		BasicInfo: model.ResumeBasicInfo{
+			TargetDirection: strings.TrimSpace(resumeData.Intent),
+		},
+		CoreSkills:        uniqueSortedNonEmpty(resumeData.TechStack),
+		ProjectHighlights: projects,
+	}
+}
+
+func convertMatchResultToJobMatches(matchResult *model.ResumeMatchResult) []*model.JobMatch {
+	if matchResult == nil {
+		return []*model.JobMatch{}
+	}
+	matches := make([]*model.JobMatch, 0, len(matchResult.MatchedRoles))
+	requirements := uniqueSortedNonEmpty(matchResult.TargetQuestionBanks)
+	for _, role := range matchResult.MatchedRoles {
+		matches = append(matches, &model.JobMatch{
+			JobTitle:     strings.TrimSpace(role.RoleName),
+			MatchScore:   role.MatchDegree,
+			Reason:       strings.TrimSpace(role.Reason),
+			Requirements: requirements,
+		})
+	}
+	return matches
+}
+
+func uniqueSortedNonEmpty(values []string) []string {
+	seen := make(map[string]struct{})
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func isSameResumeData(left, right *model.ResumeData) bool {
+	if left == nil || right == nil {
+		return false
+	}
+	leftJSON, err := json.Marshal(left)
+	if err != nil {
+		return false
+	}
+	rightJSON, err := json.Marshal(right)
+	if err != nil {
+		return false
+	}
+	return string(leftJSON) == string(rightJSON)
 }
 
 // GenerateInterviewQuestions generates personalized questions based on resume and job title

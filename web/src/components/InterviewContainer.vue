@@ -29,16 +29,8 @@ const props = defineProps({
 
 const emit = defineEmits([
   'update:settings',
-  'update:shadow-coach-enabled',
   'toggle-mic',
   'toggle-camera',
-  'change-presentation-mode',
-  'change-interview-mode',
-  'load-invite-candidates',
-  'select-invite-candidate',
-  'open-bookings',
-  'draw-blind-box',
-  'redraw-blind-box',
   'start-interview',
   'view-report',
   'complete-interview',
@@ -64,17 +56,9 @@ const currentInterviewProps = computed(() => {
       v-bind="setupProps"
       :settings="settings"
       @update:settings="emit('update:settings', $event)"
-      @update:shadow-coach-enabled="emit('update:shadow-coach-enabled', $event)"
       @toggle-mic="emit('toggle-mic')"
       @toggle-camera="emit('toggle-camera')"
-      @change-presentation-mode="emit('change-presentation-mode', $event)"
-      @change-interview-mode="emit('change-interview-mode', $event)"
-      @load-invite-candidates="emit('load-invite-candidates', $event)"
-      @select-invite-candidate="emit('select-invite-candidate', $event)"
-      @open-bookings="emit('open-bookings')"
-      @draw-blind-box="emit('draw-blind-box')"
-      @redraw-blind-box="emit('redraw-blind-box')"
-      @start-interview="emit('start-interview')"
+      @start-interview="emit('start-interview', $event)"
     />
 
     <component

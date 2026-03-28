@@ -119,16 +119,43 @@ func GetAlgorithmSession(c *gin.Context) {
 	interviewID := uint(interviewID64)
 
 	svc := service.NewInterviewService()
-	interview, err := svc.GetInterviewByID(userID, interviewID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Interview not found"})
+	type interviewLookupResult struct {
+		difficulty string
+		err        error
+	}
+	resultCh := make(chan interviewLookupResult, 1)
+	go func() {
+		interview, err := svc.GetInterviewByID(userID, interviewID)
+		if err != nil {
+			resultCh <- interviewLookupResult{
+				err: err,
+			}
+			return
+		}
+		resultCh <- interviewLookupResult{
+			difficulty: interview.Difficulty,
+		}
+	}()
+	var interviewDifficulty string
+	select {
+	case <-time.After(coreRequestTimeout):
+		c.JSON(http.StatusGatewayTimeout, gin.H{"error": "请求超时，请稍后重试"})
 		return
+	case <-c.Request.Context().Done():
+		c.JSON(http.StatusGatewayTimeout, gin.H{"error": "请求已取消"})
+		return
+	case result := <-resultCh:
+		if result.err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Interview not found"})
+			return
+		}
+		interviewDifficulty = result.difficulty
 	}
 
 	algorithmSessionStore.Lock()
 	state, exists := algorithmSessionStore.items[interviewID]
 	if !exists {
-		problems := buildAlgorithmProblemsByDifficulty(interview.Difficulty)
+		problems := buildAlgorithmProblemsByDifficulty(interviewDifficulty)
 		state = algorithmSessionState{
 			SessionID: fmt.Sprintf("alg-%d-%d", interviewID, time.Now().Unix()),
 			Problems:  problems,
@@ -154,9 +181,23 @@ func RunAlgorithmCode(c *gin.Context) {
 	interviewID := uint(interviewID64)
 
 	svc := service.NewInterviewService()
-	if _, err := svc.GetInterviewByID(userID, interviewID); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Interview not found"})
+	checkCh := make(chan error, 1)
+	go func() {
+		_, err := svc.GetInterviewByID(userID, interviewID)
+		checkCh <- err
+	}()
+	select {
+	case <-time.After(coreRequestTimeout):
+		c.JSON(http.StatusGatewayTimeout, gin.H{"error": "请求超时，请稍后重试"})
 		return
+	case <-c.Request.Context().Done():
+		c.JSON(http.StatusGatewayTimeout, gin.H{"error": "请求已取消"})
+		return
+	case err := <-checkCh:
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Interview not found"})
+			return
+		}
 	}
 
 	var req struct {
@@ -246,9 +287,23 @@ func SkipAlgorithmProblem(c *gin.Context) {
 	interviewID := uint(interviewID64)
 
 	svc := service.NewInterviewService()
-	if _, err := svc.GetInterviewByID(userID, interviewID); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Interview not found"})
+	checkCh := make(chan error, 1)
+	go func() {
+		_, err := svc.GetInterviewByID(userID, interviewID)
+		checkCh <- err
+	}()
+	select {
+	case <-time.After(coreRequestTimeout):
+		c.JSON(http.StatusGatewayTimeout, gin.H{"error": "请求超时，请稍后重试"})
 		return
+	case <-c.Request.Context().Done():
+		c.JSON(http.StatusGatewayTimeout, gin.H{"error": "请求已取消"})
+		return
+	case err := <-checkCh:
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Interview not found"})
+			return
+		}
 	}
 
 	var req struct {

@@ -1,5 +1,5 @@
 <template>
-  <header class="h-16 bg-white border-b border-zinc-100 sticky top-0 z-50 flex items-center px-6 shadow-sm">
+  <header class="top-nav-surface h-16 border-b sticky top-0 z-50 flex items-center px-6">
     <!-- Logo -->
     <router-link :to="portalHome" class="flex items-center gap-2.5 mr-8">
       <div class="h-9 w-9 rounded-xl flex items-center justify-center text-white shadow-lg" :class="portalConfig.logoBg">
@@ -147,3 +147,12 @@ const handleClickOutside = (e) => {
 onMounted(() => document.addEventListener('click', handleClickOutside))
 onUnmounted(() => document.removeEventListener('click', handleClickOutside))
 </script>
+
+<style scoped>
+.top-nav-surface {
+  background: color-mix(in srgb, var(--el-bg-color) 94%, transparent);
+  border-color: var(--el-border-color-lighter);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+}
+</style>

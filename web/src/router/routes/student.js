@@ -3,6 +3,7 @@ import Layout from '../../components/layout/Layout.vue'
 const Home = () => import('../../views/Home.vue')
 const ResumeMatching = () => import('../../views/ResumeMatching.vue')
 const MockInterview = () => import('../../views/MockInterview.vue')
+const InterviewModeSelect = () => import('../../views/InterviewModeSelect.vue')
 const GrowthCenter = () => import('../../views/GrowthCenter.vue')
 const History = () => import('../../views/History.vue')
 const Report = () => import('../../views/Report.vue')
@@ -41,14 +42,15 @@ export const studentRoutes = [
       },
       {
         path: 'interview',
-        name: 'MockInterview',
-        component: MockInterview,
+        redirect: '/interview/mode-select',
         meta: roleMeta
       },
       {
         path: 'live-interview',
-        name: 'StudentLiveInterview',
-        component: LiveInterviewRoom,
+        redirect: (to) => {
+          const invitationId = String(to.query?.invitation_id || '').trim() || '0'
+          return `/interview/live/room?invitation_id=${invitationId}`
+        },
         meta: roleMeta
       },
       {
@@ -85,6 +87,52 @@ export const studentRoutes = [
         path: 'settings',
         name: 'StudentSettings',
         component: Settings,
+        meta: roleMeta
+      }
+    ]
+  },
+  {
+    path: '/interview',
+    component: Layout,
+    meta: roleMeta,
+    children: [
+      {
+        path: 'mode-select',
+        name: 'InterviewModeSelect',
+        component: InterviewModeSelect,
+        meta: roleMeta
+      },
+      {
+        path: 'standard/setup',
+        name: 'MockInterview',
+        component: MockInterview,
+        meta: roleMeta
+      },
+      {
+        path: 'algorithm/setup',
+        name: 'AlgorithmInterviewSetup',
+        component: MockInterview,
+        beforeEnter: (to) => {
+          const mode = String(to.query?.mode || '').trim()
+          const style = String(to.query?.style || '').trim()
+          if (mode === 'technical' && style === 'algorithm') {
+            return true
+          }
+          return {
+            path: to.path,
+            query: {
+              ...to.query,
+              mode: mode || 'technical',
+              style: style || 'algorithm'
+            }
+          }
+        },
+        meta: roleMeta
+      },
+      {
+        path: 'live/room/:id?',
+        name: 'StudentLiveInterviewRoom',
+        component: LiveInterviewRoom,
         meta: roleMeta
       }
     ]

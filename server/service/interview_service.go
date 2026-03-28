@@ -46,7 +46,8 @@ func normalizeInterviewPosition(position string) string {
 
 // StartInterview now accepts mode, style, company, and interviewMode. It uses AI to generate questions based on these parameters.
 func (s *InterviewService) StartInterview(userID uint, position, difficulty, mode, style, company, interviewMode string, invitationID *uint) (*model.Interview, error) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 	var questions []*model.Question
 	var scenarioJSON string
 	var revealedStyle string
@@ -109,8 +110,12 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 		}
 	}
 
-	// Blindbox mode: draw a random scenario and generate tailored questions
-	if mode == "blindbox" {
+	if style == "algorithm" && interviewMode == "ai" {
+		questions = s.buildAlgorithmOpeningQuestions(position, difficulty)
+	} else if mode == "blindbox" {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("面试初始化超时，请稍后重试")
+		}
 		bbService := NewBlindBoxService()
 		scenario := bbService.DrawScenario()
 		scenarioJSON = ScenarioToJSON(scenario)
@@ -135,6 +140,10 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 			questions = append(questions, q)
 		}
 	} else {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("面试初始化超时，请稍后重试")
+		}
+
 		// Standard mode: build topic-opening questions via RAG
 		dummyInterview := &model.Interview{
 			Position:   position,
@@ -149,6 +158,9 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 			chunks, err := s.ragService.SearchKnowledgeChunksWithLimit(query, topicCount)
 			if err == nil {
 				for _, chunk := range chunks {
+					if ctx.Err() != nil {
+						return nil, fmt.Errorf("面试初始化超时，请稍后重试")
+					}
 					q, qErr := s.aiService.GenerateTopicQuestionFromContext(ctx, dummyInterview, chunk.Content, chunk.Category)
 					if qErr == nil && q != nil {
 						q.Source = "ai_opening"
@@ -189,6 +201,9 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 			needed := topicCount - len(questions)
 			maxAttempts := needed * 3
 			for i := 0; i < maxAttempts && len(questions) < topicCount; i++ {
+				if ctx.Err() != nil {
+					return nil, fmt.Errorf("面试初始化超时，请稍后重试")
+				}
 				q, err := s.aiService.GenerateNextQuestionWithWeights(ctx, dummyInterview, nil, capabilityGraph)
 				if err != nil {
 					q, err = s.aiService.GenerateNextQuestion(ctx, dummyInterview, nil)
@@ -210,6 +225,20 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 		}
 	}
 
+	if style == "algorithm" && interviewMode == "ai" && len(questions) == 0 {
+		fallback, err := s.questionRepo.GetQuestionsByPositionAndDifficulty(position, difficulty)
+		if err == nil {
+			for _, q := range fallback {
+				if len(questions) >= topicCount {
+					break
+				}
+				if normalized := s.normalizeOpeningQuestion(ctx, q); normalized != nil {
+					questions = append(questions, normalized)
+				}
+			}
+		}
+	}
+
 	questions = s.prioritizeTopicVariety(questions, topicCount)
 
 	if len(questions) < topicCount {
@@ -222,6 +251,9 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 		}
 		maxAttempts := (topicCount - len(questions)) * 4
 		for i := 0; i < maxAttempts && len(questions) < topicCount; i++ {
+			if ctx.Err() != nil {
+				return nil, fmt.Errorf("面试初始化超时，请稍后重试")
+			}
 			q, genErr := s.aiService.GenerateNextQuestionWithWeights(ctx, dummyInterview, nil, capabilityGraph)
 			if genErr != nil {
 				q, genErr = s.aiService.GenerateNextQuestion(ctx, dummyInterview, nil)
@@ -252,6 +284,9 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 	}
 
 	for _, q := range questions {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("面试初始化超时，请稍后重试")
+		}
 		s.normalizeOpeningQuestion(ctx, q)
 	}
 
@@ -334,6 +369,50 @@ func (s *InterviewService) normalizeOpeningQuestion(ctx context.Context, q *mode
 		s.aiService.NormalizeToSelfContainedOpening(q)
 	}
 	return q
+}
+
+func (s *InterviewService) buildAlgorithmOpeningQuestions(position, difficulty string) []*model.Question {
+	problems := []struct {
+		Title          string
+		Content        string
+		ExpectedAnswer string
+	}{
+		{
+			Title:          "算法热身：双指针基础",
+			Content:        "给定有序数组 nums 和目标值 target，找出两数之和等于 target 的下标组合，并说明你的时间复杂度。",
+			ExpectedAnswer: "使用双指针从两端收敛，时间复杂度 O(n)，空间复杂度 O(1)。",
+		},
+		{
+			Title:          "算法核心：滑动窗口",
+			Content:        "给定字符串 s，求不含重复字符的最长子串长度，要求说明窗口更新策略和边界处理。",
+			ExpectedAnswer: "使用哈希表记录字符索引，维护左边界，线性扫描，时间复杂度 O(n)。",
+		},
+		{
+			Title:          "算法进阶：区间处理",
+			Content:        "给定若干区间，输出合并后的区间集合，并解释排序后如何进行线性合并。",
+			ExpectedAnswer: "先按起点排序，再比较当前区间与结果尾区间，重叠则扩展右边界，否则追加新区间。",
+		},
+	}
+
+	level := strings.TrimSpace(difficulty)
+	questions := make([]*model.Question, 0, len(problems))
+	for _, item := range problems {
+		q := &model.Question{
+			Title:          item.Title,
+			Content:        item.Content,
+			Position:       position,
+			Difficulty:     level,
+			Category:       "algorithm",
+			Source:         "algorithm_opening",
+			RAGEligible:    true,
+			ExpectedAnswer: item.ExpectedAnswer,
+		}
+		if err := s.questionRepo.Create(q); err != nil {
+			continue
+		}
+		questions = append(questions, q)
+	}
+	return questions
 }
 
 func (s *InterviewService) quarantineQuestionAsFollowUp(q *model.Question) {

@@ -61,6 +61,10 @@ func (s *AIService) ChatWithFormat(ctx context.Context, prompt string, taskType 
 	return s.chat(ctx, prompt, taskType, responseFormat)
 }
 
+func (s *AIService) RenderPrompt(templateName string, data interface{}) (string, error) {
+	return s.renderPrompt(templateName, data)
+}
+
 func jsonObjectResponseFormat() *llm.ResponseFormat {
 	return &llm.ResponseFormat{Type: llm.ResponseFormatJSON}
 }

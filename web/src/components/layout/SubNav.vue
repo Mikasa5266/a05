@@ -1,5 +1,5 @@
 <template>
-  <nav class="bg-white border-b border-zinc-100 px-6">
+  <nav class="sub-nav-surface border-b px-6">
     <div class="max-w-7xl mx-auto flex items-center gap-1 h-12">
       <router-link
         v-for="item in currentNavItems"
@@ -97,3 +97,10 @@ const isActive = (path) => {
   return false
 }
 </script>
+
+<style scoped>
+.sub-nav-surface {
+  background: color-mix(in srgb, var(--el-bg-color) 90%, transparent);
+  border-color: var(--el-border-color-lighter);
+}
+</style>

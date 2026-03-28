@@ -118,7 +118,7 @@ service.interceptors.response.use(
         enforceRoleLogoutAndRedirect(context)
       }
     } else if (error?.code === 'ECONNABORTED') {
-      error.message = '请求超时：长语音转写可能超过等待时长。请重试，或将单次语音控制在 30-45 秒内分段提交。'
+      error.message = '请求超时：服务响应超过 15 秒，请稍后重试。'
     }
 
     const isCanceled = axios.isCancel(error) || error?.code === 'ERR_CANCELED'

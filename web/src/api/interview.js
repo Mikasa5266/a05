@@ -4,8 +4,46 @@ export function startInterview(data) {
   return request({
     url: '/interview/start',
     method: 'post',
-    data
+    data,
+    timeout: 15000
   })
+}
+
+const shouldFallbackToLegacyStart = (error) => {
+  const status = Number(error?.response?.status || 0)
+  return status === 404 || status === 405
+}
+
+export async function startStandardInterview(data) {
+  try {
+    return await request({
+      url: '/interview/start/standard',
+      method: 'post',
+      data,
+      timeout: 15000
+    })
+  } catch (error) {
+    if (!shouldFallbackToLegacyStart(error)) {
+      throw error
+    }
+    return startInterview(data)
+  }
+}
+
+export async function startAlgorithmInterview(data) {
+  try {
+    return await request({
+      url: '/interview/start/algorithm',
+      method: 'post',
+      data,
+      timeout: 15000
+    })
+  } catch (error) {
+    if (!shouldFallbackToLegacyStart(error)) {
+      throw error
+    }
+    return startInterview(data)
+  }
 }
 
 export function getInterview(id) {
@@ -200,7 +238,8 @@ export function getAlgorithmSession(interviewId, params = {}) {
   return request({
     url: `/interview/${interviewId}/algorithm/session`,
     method: 'get',
-    params
+    params,
+    timeout: 15000
   })
 }
 
@@ -209,7 +248,7 @@ export function runAlgorithmCode(interviewId, data) {
     url: `/interview/${interviewId}/algorithm/run`,
     method: 'post',
     data,
-    timeout: 120000
+    timeout: 15000
   })
 }
 
@@ -217,6 +256,7 @@ export function skipAlgorithmProblem(interviewId, data) {
   return request({
     url: `/interview/${interviewId}/algorithm/skip`,
     method: 'post',
-    data
+    data,
+    timeout: 15000
   })
 }

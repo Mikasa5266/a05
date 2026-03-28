@@ -49,3 +49,39 @@ type ResumeTemplate struct {
 	WritingGuides    []string `json:"writingGuides"`
 	CommonMistakes   []string `json:"commonMistakes"`
 }
+
+type ResumeValidationResult struct {
+	IsResume        bool   `json:"is_resume"`
+	ConfidenceScore int    `json:"confidence_score"`
+	RejectReason    string `json:"reject_reason"`
+}
+
+type ResumeBasicInfo struct {
+	Name              string `json:"name"`
+	Education         string `json:"education"`
+	YearsOfExperience string `json:"years_of_experience"`
+	TargetDirection   string `json:"target_direction"`
+}
+
+type ResumeProjectHighlight struct {
+	Name             string   `json:"name"`
+	TechStack        []string `json:"tech_stack"`
+	CoreContribution string   `json:"core_contribution"`
+}
+
+type ResumeExtractedData struct {
+	BasicInfo         ResumeBasicInfo          `json:"basic_info"`
+	CoreSkills        []string                 `json:"core_skills"`
+	ProjectHighlights []ResumeProjectHighlight `json:"project_highlights"`
+}
+
+type ResumeRoleMatch struct {
+	RoleName    string `json:"role_name"`
+	MatchDegree int    `json:"match_degree"`
+	Reason      string `json:"reason"`
+}
+
+type ResumeMatchResult struct {
+	MatchedRoles        []ResumeRoleMatch `json:"matched_roles"`
+	TargetQuestionBanks []string          `json:"target_question_banks"`
+}

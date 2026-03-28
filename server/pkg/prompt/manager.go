@@ -21,27 +21,34 @@ func NewPromptManager() (*PromptManager, error) {
 	}
 
 	templatesDir := filepath.Join(filepath.Dir(currentFile), "templates")
-	entries, err := os.ReadDir(templatesDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read templates dir %q: %w", templatesDir, err)
-	}
-
 	root := template.New("prompts").Option("missingkey=error")
 	loaded := 0
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".tmpl" {
-			continue
+	err := filepath.WalkDir(templatesDir, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() || filepath.Ext(d.Name()) != ".tmpl" {
+			return nil
 		}
 
-		fullPath := filepath.Join(templatesDir, entry.Name())
-		content, readErr := os.ReadFile(fullPath)
-		if readErr != nil {
-			return nil, fmt.Errorf("failed to read template %q: %w", fullPath, readErr)
+		relPath, relErr := filepath.Rel(templatesDir, path)
+		if relErr != nil {
+			return relErr
 		}
-		if _, parseErr := root.New(entry.Name()).Parse(string(content)); parseErr != nil {
-			return nil, fmt.Errorf("failed to parse template %q: %w", fullPath, parseErr)
+		templateName := filepath.ToSlash(relPath)
+
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return fmt.Errorf("failed to read template %q: %w", path, readErr)
+		}
+		if _, parseErr := root.New(templateName).Parse(string(content)); parseErr != nil {
+			return fmt.Errorf("failed to parse template %q: %w", path, parseErr)
 		}
 		loaded++
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to walk templates dir %q: %w", templatesDir, err)
 	}
 
 	if loaded == 0 {

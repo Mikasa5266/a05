@@ -1,12 +1,11 @@
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, computed, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { startInterview as apiStartInterview, endInterview as apiEndInterview, getShadowCoachHint as apiGetShadowCoachHint, getInterviewConfig as apiGetInterviewConfig, revealRandomStyle as apiRevealRandomStyle, synthesizeInterviewSpeech as apiSynthesizeInterviewSpeech, getInviteCandidates as apiGetInviteCandidates, createHumanInvitation as apiCreateHumanInvitation, getHumanInvitations as apiGetHumanInvitations } from '../api/interview'
+import { startStandardInterview as apiStartStandardInterview, startAlgorithmInterview as apiStartAlgorithmInterview, endInterview as apiEndInterview, getShadowCoachHint as apiGetShadowCoachHint, getInterviewConfig as apiGetInterviewConfig, revealRandomStyle as apiRevealRandomStyle, synthesizeInterviewSpeech as apiSynthesizeInterviewSpeech } from '../api/interview'
 import { generateReport as apiGenerateReport } from '../api/report'
 import InterviewContainer from '../components/InterviewContainer.vue'
-import HumanInterviewModals from '../components/HumanInterviewModals.vue'
 import { useMediaDevices } from '../composables/useMediaDevices'
 import { useInterviewConfig } from '../composables/useInterviewConfig'
 import { useInterviewChat } from '../composables/useInterviewChat'
@@ -147,18 +146,32 @@ getChatAdditionalStreams = getAdditionalStreams
 stopChatSpeechAnalysis = stopSpeechAnalysis
 
 const isAlgorithmStyle = computed(() => settings.value.style === 'algorithm')
+const setupType = computed(() => route.path.includes('/interview/algorithm/setup') ? 'algorithm' : 'standard')
+
+const syncSetupDefaultsByRoute = () => {
+  if (setupType.value === 'algorithm') {
+    settings.value = {
+      ...settings.value,
+      interviewMode: 'ai',
+      mode: 'technical',
+      style: 'algorithm'
+    }
+    return
+  }
+  settings.value = {
+    ...settings.value,
+    interviewMode: 'ai',
+    style: settings.value.style === 'algorithm' ? 'gentle' : settings.value.style
+  }
+}
+
+watch(() => route.path, () => {
+  syncSetupDefaultsByRoute()
+}, { immediate: true })
 
 // Interview Config from server
 const interviewConfig = ref(null)
 
-// Human Interview Invitation state
-const inviteCandidates = ref([])
-const inviteCandidatesLoading = ref(false)
-const selectedInvitee = ref(null)
-const showBookingDialog = ref(false)
-const bookingForm = ref({ scheduledAt: '', notes: '' })
-const userInvitations = ref([])
-const showBookingsPanel = ref(false)
 const activeInvitationId = ref(null)
 const activeInvitation = ref(null)
 
@@ -258,19 +271,25 @@ const setInterviewMode = (mode) => {
       stopAISpeech()
       stopCamera()
     }
-    loadInviteCandidates()
-    loadUserInvitations()
   }
 }
 
 // Interview Logic
-const beginInterview = async () => {
+const beginInterview = async (setupContext = {}) => {
   isProcessing.value = true
   processingHint.value = '正在初始化面试场景...'
   answerVoiceStatus.value = 'idle'
   answerVoiceError.value = ''
   answerVoiceSeconds.value = 0
   try {
+    const initType = setupContext?.initType || setupType.value
+    const algorithmConfig = setupContext?.algorithmConfig || {}
+    const algorithmDifficultyMap = {
+      easy: 'campus_intern',
+      medium: 'campus_graduate',
+      hard: 'social_junior'
+    }
+
     const startPayload = {
       position: settings.value.position,
       difficulty: settings.value.difficulty,
@@ -279,6 +298,19 @@ const beginInterview = async () => {
       company: settings.value.company,
       interview_mode: settings.value.interviewMode
     }
+    if (initType === 'algorithm') {
+      startPayload.difficulty = algorithmDifficultyMap[algorithmConfig.difficulty] || settings.value.difficulty
+      startPayload.mode = 'technical'
+      startPayload.style = 'algorithm'
+      startPayload.interview_mode = 'ai'
+      startPayload.algorithm_difficulty = algorithmConfig.difficulty || 'medium'
+      startPayload.algorithm_focus_tags = Array.isArray(algorithmConfig.focusTags) ? algorithmConfig.focusTags : []
+      startPayload.algorithm_language = algorithmConfig.language || ''
+    }
+    if (initType === 'standard') {
+      startPayload.resume_data = setupContext?.resumeData || null
+      startPayload.resume_matches = Array.isArray(setupContext?.matchedRoles) ? setupContext.matchedRoles : []
+    }
     if (settings.value.interviewMode === 'human') {
       if (!activeInvitationId.value) {
         throw new Error('请先选择一个已邀请对象')
@@ -286,9 +318,8 @@ const beginInterview = async () => {
       startPayload.invitation_id = activeInvitationId.value
     }
 
-    const res = await apiStartInterview({
-      ...startPayload
-    })
+    const starter = initType === 'algorithm' ? apiStartAlgorithmInterview : apiStartStandardInterview
+    const res = await starter({ ...startPayload })
     
     // Backend returns { message: "...", interview: { ... } }
     // The interview object contains questions array if loaded correctly
@@ -598,99 +629,6 @@ const normalizeCandidateRole = (role) => {
   return '协作方'
 }
 
-const loadInviteCandidates = async (roleFilter = '') => {
-  inviteCandidatesLoading.value = true
-  try {
-    const role = roleFilter === 'campus' ? 'university' : roleFilter
-    const res = await apiGetInviteCandidates({ role, page: 1, page_size: 50 })
-    inviteCandidates.value = res.users || []
-  } catch (err) {
-    console.warn('Failed to load invite candidates:', err)
-    inviteCandidates.value = []
-  } finally {
-    inviteCandidatesLoading.value = false
-  }
-}
-
-const selectInviteCandidate = (candidate) => {
-  selectedInvitee.value = candidate
-  showBookingDialog.value = true
-}
-
-const submitBooking = async () => {
-  if (!selectedInvitee.value) return
-  try {
-    const payload = {
-      invitee_user_id: selectedInvitee.value.id,
-      position: settings.value.position,
-      difficulty: settings.value.difficulty,
-      mode: settings.value.mode,
-      style: settings.value.style,
-      company: settings.value.company,
-      notes: bookingForm.value.notes
-    }
-    if (bookingForm.value.scheduledAt) {
-      payload.scheduled_at = new Date(bookingForm.value.scheduledAt).toISOString()
-    }
-    await apiCreateHumanInvitation(payload)
-    alert('邀请已发送，已加入你的真人面试列表。')
-    showBookingDialog.value = false
-    bookingForm.value = { scheduledAt: '', notes: '' }
-    selectedInvitee.value = null
-    await loadUserInvitations()
-  } catch (err) {
-    alert('发送邀请失败：' + (err.response?.data?.error || err.message))
-  }
-}
-
-const loadUserInvitations = async () => {
-  try {
-    const res = await apiGetHumanInvitations()
-    userInvitations.value = res.invitations || []
-    if (!activeInvitationId.value && userInvitations.value.length > 0) {
-      const firstAvailable = userInvitations.value.find((i) => i.status === 'accepted' || i.status === 'in_progress')
-      if (firstAvailable) {
-        activeInvitationId.value = firstAvailable.id
-        activeInvitation.value = firstAvailable
-      }
-    }
-  } catch (err) {
-    console.warn('Failed to load invitations:', err)
-  }
-}
-
-const onOpenBookingsPanel = async () => {
-  showBookingsPanel.value = true
-  await loadUserInvitations()
-}
-
-const useInvitationForInterview = (invitation) => {
-  activeInvitationId.value = invitation.id
-  activeInvitation.value = invitation
-  setInterviewMode('human')
-
-  // Keep form selections aligned with the accepted invitation to avoid accidental AI-mode params.
-  if (invitation.mode) settings.value.mode = invitation.mode
-  if (invitation.style) settings.value.style = invitation.style
-  if (invitation.position) settings.value.position = invitation.position
-  if (invitation.difficulty) settings.value.difficulty = invitation.difficulty
-  if (invitation.company) settings.value.company = invitation.company
-
-  ElMessage.success('已切换到真人面试模式，请点击下方“开始面试”。')
-}
-
-const goLiveInterviewRoom = (invitation) => {
-  if (!invitation?.id) {
-    ElMessage.warning('邀请信息无效，请刷新后重试')
-    return
-  }
-  useInvitationForInterview(invitation)
-  router.push({
-    path: '/student/live-interview',
-    query: { invitation_id: String(invitation.id) }
-  })
-}
-
 // ===== Random Mode Reveal =====
 const revealStyle = async () => {
   if (!interviewId.value) return
@@ -704,22 +642,11 @@ const revealStyle = async () => {
 }
 
 const setupProps = computed(() => ({
-  shadowCoachEnabled: shadowCoachEnabled.value,
+  setupType: setupType.value,
   isCameraOn: isCameraOn.value,
   isMicOn: isMicOn.value,
   stream: stream.value,
-  isProcessing: isProcessing.value,
-  activeInvitationId: activeInvitationId.value,
-  inviteCandidates: inviteCandidates.value,
-  inviteCandidatesLoading: inviteCandidatesLoading.value,
-  activeInvitation: activeInvitation.value,
-  blindBoxRevealing: blindBoxRevealing.value,
-  blindBoxRevealed: blindBoxRevealed.value,
-  blindBoxScenario: blindBoxScenario.value,
-  pressureColors,
-  pressureLevel: pressureLevel.value,
-  pressureLabels,
-  normalizeCandidateRole
+  isProcessing: isProcessing.value
 }))
 
 const algorithmProps = computed(() => ({
@@ -786,10 +713,6 @@ const onSettingsUpdate = (nextSettings) => {
   settings.value = nextSettings
 }
 
-const onShadowCoachEnabledUpdate = (enabled) => {
-  shadowCoachEnabled.value = !!enabled
-}
-
 onMounted(() => {
   ensureModelViewerScript()
   if (settings.value.presentationMode === 'video_avatar') {
@@ -814,7 +737,9 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  document.body.style.overflow = ''
+  if (typeof document !== 'undefined' && document.body) {
+    document.body.style.overflow = ''
+  }
   cleanupInterviewRecording()
   cleanupInterviewChat()
   stopQuestionTimer()
@@ -833,16 +758,8 @@ onUnmounted(() => {
       :algorithm-props="algorithmProps"
       :chat-props="chatProps"
       @update:settings="onSettingsUpdate"
-      @update:shadow-coach-enabled="onShadowCoachEnabledUpdate"
       @toggle-mic="toggleMic"
       @toggle-camera="toggleCamera"
-      @change-presentation-mode="setPresentationMode"
-      @change-interview-mode="setInterviewMode"
-      @load-invite-candidates="loadInviteCandidates"
-      @select-invite-candidate="selectInviteCandidate"
-      @open-bookings="onOpenBookingsPanel"
-      @draw-blind-box="drawBlindBox"
-      @redraw-blind-box="reDrawBlindBox"
       @start-interview="beginInterview"
       @view-report="viewReport"
       @complete-interview="onAlgorithmFinished"
@@ -852,16 +769,6 @@ onUnmounted(() => {
       @close-random-reveal="randomStyleRevealed = false"
     />
 
-    <HumanInterviewModals
-      v-model:show-booking-dialog="showBookingDialog"
-      v-model:show-bookings-panel="showBookingsPanel"
-      v-model:booking-form="bookingForm"
-      :selected-invitee="selectedInvitee"
-      :user-invitations="userInvitations"
-      :normalize-candidate-role="normalizeCandidateRole"
-      @submit-booking="submitBooking"
-      @go-live-room="goLiveInterviewRoom"
-    />
   </div>
 </template>
 
