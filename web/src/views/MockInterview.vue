@@ -1,7 +1,7 @@
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick, computed, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { startStandardInterview as apiStartStandardInterview, startAlgorithmInterview as apiStartAlgorithmInterview, endInterview as apiEndInterview, getShadowCoachHint as apiGetShadowCoachHint, getInterviewConfig as apiGetInterviewConfig, revealRandomStyle as apiRevealRandomStyle, synthesizeInterviewSpeech as apiSynthesizeInterviewSpeech } from '../api/interview'
 import { generateReport as apiGenerateReport } from '../api/report'
@@ -181,6 +181,48 @@ const revealedStyleInfo = ref(null)
 
 // AI Shadow Coach
 const modelViewerReady = ref(false)
+const mockInterviewRootRef = ref(null)
+
+const managedTimeouts = new Set()
+let modelViewerScript = null
+let modelViewerLoadListener = null
+
+const registerManagedTimeout = (callback, delay) => {
+  const timer = window.setTimeout(() => {
+    managedTimeouts.delete(timer)
+    callback()
+  }, delay)
+  managedTimeouts.add(timer)
+  return timer
+}
+
+const clearManagedTimeouts = () => {
+  managedTimeouts.forEach((timer) => window.clearTimeout(timer))
+  managedTimeouts.clear()
+}
+
+const detachModelViewerLoadListener = () => {
+  if (modelViewerScript && modelViewerLoadListener) {
+    modelViewerScript.removeEventListener('load', modelViewerLoadListener)
+  }
+  modelViewerScript = null
+  modelViewerLoadListener = null
+}
+
+const destroyModelViewerInstances = () => {
+  const root = mockInterviewRootRef.value
+  if (!root) return
+  const viewers = root.querySelectorAll('model-viewer')
+  viewers.forEach((viewer) => {
+    try {
+      viewer.pause?.()
+      viewer.removeAttribute('src')
+      viewer.load?.()
+    } catch {
+      // ignore model-viewer cleanup errors
+    }
+  })
+}
 
 const ensureModelViewerScript = () => {
   if (window.customElements && window.customElements.get('model-viewer')) {
@@ -188,11 +230,16 @@ const ensureModelViewerScript = () => {
     return
   }
 
+  detachModelViewerLoadListener()
+
   const existing = document.getElementById('model-viewer-script')
   if (existing) {
-    existing.addEventListener('load', () => {
+    modelViewerScript = existing
+    modelViewerLoadListener = () => {
       modelViewerReady.value = !!(window.customElements && window.customElements.get('model-viewer'))
-    }, { once: true })
+      detachModelViewerLoadListener()
+    }
+    existing.addEventListener('load', modelViewerLoadListener)
     return
   }
 
@@ -200,12 +247,15 @@ const ensureModelViewerScript = () => {
   script.id = 'model-viewer-script'
   script.type = 'module'
   script.src = 'https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js'
+  modelViewerScript = script
   script.onload = () => {
     modelViewerReady.value = !!(window.customElements && window.customElements.get('model-viewer'))
+    detachModelViewerLoadListener()
   }
   script.onerror = () => {
     modelViewerReady.value = false
     console.error('model-viewer script failed to load')
+    detachModelViewerLoadListener()
   }
   document.head.appendChild(script)
 }
@@ -400,7 +450,7 @@ const beginInterview = async (setupContext = {}) => {
     // Push first question after a short delay. Algorithm style uses dedicated coding panel, so skip chat question push.
     if (!isAlgorithmStyle.value) {
       processingHint.value = isHuman ? '正在准备真人面试流程首题...' : '面试官正在组织首个话题...'
-      setTimeout(() => {
+      registerManagedTimeout(() => {
         pushAIQuestion(currentQuestion.value)
         // Start question timer if scenario has time limit
         if (blindBoxScenario.value?.time_limit) {
@@ -413,7 +463,7 @@ const beginInterview = async (setupContext = {}) => {
     // Handle video transition
     if (settings.value.presentationMode === 'video_avatar' && isCameraOn.value && settings.value.interviewMode !== 'human') {
       // Small delay to ensure DOM is ready
-      setTimeout(async () => {
+      registerManagedTimeout(async () => {
         if (!stream.value) await startCamera()
         startInterviewRecording()
       }, 500)
@@ -713,6 +763,23 @@ const onSettingsUpdate = (nextSettings) => {
   settings.value = nextSettings
 }
 
+const cleanupInterviewPageSideEffects = () => {
+  clearManagedTimeouts()
+  detachModelViewerLoadListener()
+  destroyModelViewerInstances()
+
+  if (typeof document !== 'undefined' && document.body) {
+    document.body.style.overflow = ''
+  }
+
+  cleanupInterviewRecording()
+  cleanupInterviewChat()
+  stopQuestionTimer()
+  stopAISpeech()
+  stopCamera()
+  cleanupStoreTimers()
+}
+
 onMounted(() => {
   ensureModelViewerScript()
   if (settings.value.presentationMode === 'video_avatar') {
@@ -736,21 +803,18 @@ onMounted(() => {
   })
 })
 
-onUnmounted(() => {
-  if (typeof document !== 'undefined' && document.body) {
-    document.body.style.overflow = ''
-  }
-  cleanupInterviewRecording()
-  cleanupInterviewChat()
-  stopQuestionTimer()
-  stopAISpeech()
-  stopCamera()
-  cleanupStoreTimers()
+onBeforeRouteLeave((_to, _from, next) => {
+  cleanupInterviewPageSideEffects()
+  next()
+})
+
+onBeforeUnmount(() => {
+  cleanupInterviewPageSideEffects()
 })
 </script>
 
 <template>
-  <div class="min-h-[calc(100vh-8rem)] flex flex-col">
+  <div ref="mockInterviewRootRef" class="min-h-[calc(100vh-8rem)] flex flex-col">
     <InterviewContainer
       :phase="phase"
       :settings="settings"

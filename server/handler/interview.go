@@ -21,7 +21,13 @@ import (
 
 const coreRequestTimeout = 15 * time.Second
 
-func parseUserIDFromToken(tokenString string) (uint, error) {
+type liveTokenIdentity struct {
+	UserID   uint
+	Role     string
+	UserUUID string
+}
+
+func parseLiveIdentityFromToken(tokenString string) (*liveTokenIdentity, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, jwt.ErrSignatureInvalid
@@ -29,17 +35,29 @@ func parseUserIDFromToken(tokenString string) (uint, error) {
 		return []byte(config.GetConfig().JWT.Secret), nil
 	})
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok || !token.Valid {
-		return 0, jwt.ErrTokenInvalidClaims
+		return nil, jwt.ErrTokenInvalidClaims
 	}
 	uid, ok := claims["user_id"].(float64)
 	if !ok || uid <= 0 {
-		return 0, jwt.ErrTokenInvalidClaims
+		return nil, jwt.ErrTokenInvalidClaims
 	}
-	return uint(uid), nil
+
+	role, roleOK := claims["role"].(string)
+	if !roleOK || strings.TrimSpace(role) == "" {
+		return nil, jwt.ErrTokenInvalidClaims
+	}
+
+	userUUID, _ := claims["user_uuid"].(string)
+
+	return &liveTokenIdentity{
+		UserID:   uint(uid),
+		Role:     strings.TrimSpace(role),
+		UserUUID: strings.TrimSpace(userUUID),
+	}, nil
 }
 
 // InterviewSignalWS provides a websocket signaling channel for live human interview rooms.
@@ -56,26 +74,21 @@ func InterviewSignalWS(c *gin.Context) {
 		return
 	}
 
-	userID, err := parseUserIDFromToken(tokenString)
+	identity, err := parseLiveIdentityFromToken(tokenString)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 		return
 	}
 
-	// 1. 基础逻辑检查：如果面试已经结束，禁止进入
-	if strings.HasPrefix(roomID, "invitation-") {
-		invIDStr := strings.TrimPrefix(roomID, "invitation-")
-		invID, _ := strconv.ParseUint(invIDStr, 10, 32)
-		invitation, err := service.GetInvitationByID(uint(invID))
-		if err == nil && (invitation.Status == "completed" || invitation.Status == "rejected" || invitation.Status == "cancelled") {
-			c.JSON(http.StatusForbidden, gin.H{"error": "面试已结束或已失效，无法进入"})
-			return
-		}
+	invitationCode := strings.TrimSpace(c.Query("invitation_code"))
+	if _, err := service.ValidateLiveRoomAccess(identity.UserID, identity.Role, identity.UserUUID, roomID, invitationCode); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
 	}
 
-	// 2. 并发检查：检查该用户是否已经在其他房间（防止分身）
+	// 并发检查：允许同一房间重连，但禁止同时进入其他房间。
 	// 注意：这里允许重新进入同一个房间（断线重连），但禁止跨房间
-	activeClients := ws.GetHub().GetClientsByUserID(strconv.FormatUint(uint64(userID), 10))
+	activeClients := ws.GetHub().GetClientsByUserID(strconv.FormatUint(uint64(identity.UserID), 10))
 	for _, client := range activeClients {
 		if client.GetInterviewID() != roomID {
 			c.JSON(http.StatusConflict, gin.H{"error": "您已在其他面试间中，请先退出"})
@@ -84,11 +97,51 @@ func InterviewSignalWS(c *gin.Context) {
 	}
 
 	query := c.Request.URL.Query()
-	query.Set("user_id", strconv.FormatUint(uint64(userID), 10))
+	query.Set("user_id", strconv.FormatUint(uint64(identity.UserID), 10))
 	query.Set("interview_id", roomID)
 	c.Request.URL.RawQuery = query.Encode()
 
 	ws.GetHub().HandleWebSocket(c.Writer, c.Request)
+}
+
+func JoinInterview(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	role := c.GetString("role")
+	userUUID := strings.TrimSpace(c.GetString("user_uuid"))
+
+	var req struct {
+		InvitationID   uint   `json:"invitation_id" binding:"required"`
+		InvitationCode string `json:"invitation_code"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	result, err := service.JoinInterview(userID, role, userUUID, req.InvitationID, req.InvitationCode)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "面试房间校验通过",
+		"session": result,
+	})
+}
+
+func GetLiveInterviewWorkbench(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	role := c.GetString("role")
+
+	workbench, err := service.GetLiveInterviewWorkbench(userID, role)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"workbench": workbench})
 }
 
 func StartInterview(c *gin.Context) {

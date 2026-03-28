@@ -65,6 +65,9 @@ func Auth() gin.HandlerFunc {
 
 			c.Set("user_id", uint(userIDFloat))
 			c.Set("role", role)
+			if userUUID, ok := claims["user_uuid"].(string); ok && strings.TrimSpace(userUUID) != "" {
+				c.Set("user_uuid", strings.TrimSpace(userUUID))
+			}
 			c.Next()
 		} else {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
@@ -100,13 +103,14 @@ func RequireRole(roles ...string) gin.HandlerFunc {
 	}
 }
 
-func GenerateToken(userID uint, role string) (string, error) {
+func GenerateToken(userID uint, role, userUUID string) (string, error) {
 	config := config.GetConfig()
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"user_id": userID,
-		"role":    role,
-		"exp":     time.Now().Add(time.Hour * time.Duration(config.JWT.ExpireTime)).Unix(),
+		"user_id":   userID,
+		"role":      role,
+		"user_uuid": strings.TrimSpace(userUUID),
+		"exp":       time.Now().Add(time.Hour * time.Duration(config.JWT.ExpireTime)).Unix(),
 	})
 
 	return token.SignedString([]byte(config.JWT.Secret))

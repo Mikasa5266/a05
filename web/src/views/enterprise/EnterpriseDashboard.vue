@@ -146,9 +146,9 @@
               <UserCheck class="h-5 w-5" />
               <span class="text-sm font-medium">查看人才池</span>
             </router-link>
-            <router-link to="/enterprise/hr-panel" class="flex items-center gap-3 p-3 bg-white/10 rounded-xl hover:bg-white/20 transition-colors">
+            <router-link to="/enterprise/interview-workbench" class="flex items-center gap-3 p-3 bg-white/10 rounded-xl hover:bg-white/20 transition-colors">
               <Video class="h-5 w-5" />
-              <span class="text-sm font-medium">HR面试台</span>
+              <span class="text-sm font-medium">面试工作台</span>
             </router-link>
             <router-link to="/enterprise/standards" class="flex items-center gap-3 p-3 bg-white/10 rounded-xl hover:bg-white/20 transition-colors">
               <Database class="h-5 w-5" />
@@ -299,7 +299,10 @@ const handleInvitation = async (invitation, action) => {
 const goToInterviewZone = (invitation) => {
   router.push({
     path: '/enterprise/live-interview',
-    query: { invitation_id: String(invitation.id) }
+    query: {
+      invitation_id: String(invitation.id),
+      invitation_code: String(invitation.invitation_code || '')
+    }
   })
 }
 

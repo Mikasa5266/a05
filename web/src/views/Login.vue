@@ -121,6 +121,8 @@
                 :role="activeRole"
                 :loading="loading.login"
                 :initial-email="prefillEmail"
+                :server-error="loginError"
+                @clear-error="loginError = ''"
                 @submit="handleLogin"
               />
 
@@ -187,6 +189,7 @@ const resolveRoleByPath = (path = '') => {
 const activeRole = ref(resolveRoleByPath(route.path))
 const mode = ref('login')
 const prefillEmail = ref('')
+const loginError = ref('')
 
 const loading = reactive({
   login: false,
@@ -197,6 +200,14 @@ watch(
   () => route.path,
   (nextPath) => {
     activeRole.value = resolveRoleByPath(nextPath)
+    loginError.value = ''
+  }
+)
+
+watch(
+  () => mode.value,
+  () => {
+    loginError.value = ''
   }
 )
 
@@ -267,17 +278,34 @@ const switchRole = async (role) => {
   if (role === activeRole.value) return
   activeRole.value = role
   mode.value = 'login'
+  loginError.value = ''
   await router.push({
     path: rolePathMap[role],
     query: route.query
   })
 }
 
+const resolveAuthErrorMessage = (error, fallback = '登录失败，请检查账号信息') => {
+  const message =
+    error?.response?.data?.error ||
+    error?.response?.data?.message ||
+    error?.message ||
+    fallback
+
+  const normalized = String(message || '').trim()
+  return normalized || fallback
+}
+
 const handleLogin = async (payload) => {
   loading.login = true
+  loginError.value = ''
   try {
     await userStore.login({ ...payload, role: activeRole.value })
-    ElMessage.success('登录成功')
+    ElMessage({
+      message: '登录成功',
+      type: 'success',
+      showIcon: false
+    })
 
     const redirectTarget = String(route.query?.redirect || '').trim()
     if (redirectTarget) {
@@ -287,7 +315,9 @@ const handleLogin = async (payload) => {
 
     router.push(roleDashboard[activeRole.value])
   } catch (error) {
-    ElMessage.error(error?.response?.data?.error || '登录失败，请检查账号信息')
+    const message = resolveAuthErrorMessage(error)
+    loginError.value = message
+    ElMessage.error(message)
   } finally {
     loading.login = false
   }

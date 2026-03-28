@@ -24,6 +24,20 @@
   }
 }
 
+.el-message {
+  max-width: min(90vw, 420px);
+}
+
+.el-message .el-message__icon,
+.el-message .el-message__icon .el-icon,
+.el-message .el-message__icon svg {
+  width: 1em;
+  height: 1em;
+  max-width: 20px;
+  max-height: 20px;
+  flex-shrink: 0;
+}
+
 .standard-position-select .el-select__wrapper {
   min-height: 44px;
   padding: 8px 12px;

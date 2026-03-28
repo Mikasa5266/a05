@@ -234,6 +234,21 @@ export function respondHumanInvitation(invitationId, action) {
   })
 }
 
+export function joinLiveInterview(data) {
+  return request({
+    url: '/interview/live/join',
+    method: 'post',
+    data
+  })
+}
+
+export function getLiveInterviewWorkbench() {
+  return request({
+    url: '/interview/live/workbench',
+    method: 'get'
+  })
+}
+
 export function getAlgorithmSession(interviewId, params = {}) {
   return request({
     url: `/interview/${interviewId}/algorithm/session`,

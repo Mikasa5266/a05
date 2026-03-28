@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import InterviewSetupManager from './InterviewSetupManager.vue'
-import StandardAlgorithmInterview from './StandardAlgorithmInterview.vue'
+import AlgorithmSpecificLayout from './AlgorithmSpecificLayout.vue'
 import StandardChatInterview from './StandardChatInterview.vue'
 
 const props = defineProps({
@@ -41,7 +41,7 @@ const emit = defineEmits([
 ])
 
 const currentInterviewComponent = computed(() => {
-  return props.settings?.style === 'algorithm' ? StandardAlgorithmInterview : StandardChatInterview
+  return props.settings?.style === 'algorithm' ? AlgorithmSpecificLayout : StandardChatInterview
 })
 
 const currentInterviewProps = computed(() => {

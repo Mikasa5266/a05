@@ -7,6 +7,15 @@ import { API_BASE_URL } from './backend'
 const normalizeBackendErrorMessage = (msg = '') => {
   const text = String(msg || '')
   if (!text) return text
+  if (/invalid credentials|incorrect password|wrong password|authentication failed/i.test(text)) {
+    return '账号或密码错误，请重新输入'
+  }
+  if (/user not found|account not found/i.test(text)) {
+    return '账号不存在，请检查后重试'
+  }
+  if (/network error/i.test(text)) {
+    return '网络异常，请检查连接后重试'
+  }
   if (/field\s+validation.*answer.*required/i.test(text) || /key:\s*'answer'/i.test(text)) {
     return '您似乎没有做出任何回答'
   }
@@ -14,6 +23,15 @@ const normalizeBackendErrorMessage = (msg = '') => {
     return '未识别到有效语音，请靠近麦克风并清晰作答后重试'
   }
   return text
+}
+
+const extractNormalizedErrorMessage = (error) => {
+  const message =
+    error?.response?.data?.error ||
+    error?.response?.data?.message ||
+    error?.message ||
+    ''
+  return normalizeBackendErrorMessage(message)
 }
 
 const service = axios.create({
@@ -103,15 +121,17 @@ service.interceptors.response.use(
   },
   error => {
     const res = error?.response
+    const normalizedMessage = extractNormalizedErrorMessage(error)
+
     if (res?.data?.error) {
       res.data.error = normalizeBackendErrorMessage(res.data.error)
     }
-    if (error?.message) {
-      error.message = normalizeBackendErrorMessage(error.message)
+    if (normalizedMessage) {
+      error.message = normalizedMessage
     }
 
     if (res?.status === 401) {
-      const msg = (res.data && res.data.error) || ''
+      const msg = (res.data && res.data.error) || normalizedMessage || ''
       if (/invalid token/i.test(msg) || /authorization/i.test(msg)) {
         const currentPath = typeof window === 'undefined' ? '/' : window.location.pathname
         const context = resolveRoleContext(currentPath)

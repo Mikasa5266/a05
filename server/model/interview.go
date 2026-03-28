@@ -11,10 +11,12 @@ type Interview struct {
 	UserID                 uint           `gorm:"index;not null" json:"user_id"`
 	Position               string         `gorm:"not null" json:"position"`
 	Difficulty             string         `gorm:"not null" json:"difficulty"`
-	Mode                   string         `gorm:"default:'technical'" json:"mode"`             // technical, hr, comprehensive
-	Style                  string         `gorm:"default:'gentle'" json:"style"`               // gentle, stress, deep, practical, algorithm
-	Company                string         `gorm:"default:''" json:"company"`                   // ali, bytedance, tencent, meituan, baidu, or empty
-	InterviewMode          string         `gorm:"default:'ai'" json:"interview_mode"`          // ai, human, random
+	Mode                   string         `gorm:"default:'technical'" json:"mode"`    // technical, hr, comprehensive
+	Style                  string         `gorm:"default:'gentle'" json:"style"`      // gentle, stress, deep, practical, algorithm
+	Company                string         `gorm:"default:''" json:"company"`          // ali, bytedance, tencent, meituan, baidu, or empty
+	InterviewMode          string         `gorm:"default:'ai'" json:"interview_mode"` // ai, human, random
+	InvitationCode         *string        `gorm:"size:64;uniqueIndex" json:"invitation_code,omitempty"`
+	Role                   string         `gorm:"size:20;default:'candidate'" json:"role"`     // candidate, interviewer
 	Scenario               string         `gorm:"type:text" json:"scenario,omitempty"`         // blindbox scenario JSON
 	RevealedStyle          string         `gorm:"default:''" json:"revealed_style,omitempty"`  // For random mode: the actual style used (revealed after interview)
 	HumanInterviewerID     *uint          `gorm:"index" json:"human_interviewer_id,omitempty"` // For human interview mode
@@ -27,7 +29,7 @@ type Interview struct {
 	RecordingStatus        string         `gorm:"default:'none';size:20" json:"recording_status,omitempty"`
 	ASRCallCount           int            `gorm:"default:0" json:"asr_call_count,omitempty"`
 	TTSCharCount           int            `gorm:"default:0" json:"tts_char_count,omitempty"`
-	Status                 string         `gorm:"default:in_progress" json:"status"`
+	Status                 string         `gorm:"default:'pending';size:20" json:"status"` // pending, in_progress, completed
 	StartTime              time.Time      `json:"start_time"`
 	EndTime                *time.Time     `json:"end_time,omitempty"`
 	CurrentIndex           int            `gorm:"default:0" json:"current_index"`
@@ -51,21 +53,24 @@ type Interview struct {
 
 // HumanInterviewInvitation is a student-created invitation sent to university/enterprise users.
 type HumanInterviewInvitation struct {
-	ID            uint       `gorm:"primaryKey" json:"id"`
-	StudentID     uint       `gorm:"index;not null" json:"student_id"`
-	InviteeUserID uint       `gorm:"index;not null" json:"invitee_user_id"`
-	InviteeRole   string     `gorm:"size:50;not null" json:"invitee_role"` // university, enterprise
-	Position      string     `gorm:"size:120;not null" json:"position"`
-	Difficulty    string     `gorm:"size:50;not null" json:"difficulty"`
-	Mode          string     `gorm:"size:50;not null" json:"mode"`
-	Style         string     `gorm:"size:50;not null" json:"style"`
-	Company       string     `gorm:"size:50" json:"company,omitempty"`
-	Status        string     `gorm:"size:20;default:'pending'" json:"status"` // pending, accepted, rejected, in_progress, completed, cancelled
-	ScheduledAt   *time.Time `json:"scheduled_at,omitempty"`
-	Notes         string     `gorm:"type:text" json:"notes,omitempty"`
-	InterviewID   *uint      `gorm:"index" json:"interview_id,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	ID             uint       `gorm:"primaryKey" json:"id"`
+	InvitationCode string     `gorm:"size:64;uniqueIndex;not null" json:"invitation_code"`
+	StudentID      uint       `gorm:"index;not null" json:"student_id"`
+	StudentUUID    string     `gorm:"type:char(36);index" json:"student_uuid"`
+	InviteeUserID  uint       `gorm:"index;not null" json:"invitee_user_id"`
+	InviteeUUID    string     `gorm:"type:char(36);index" json:"invitee_uuid"`
+	InviteeRole    string     `gorm:"size:50;not null" json:"invitee_role"` // university, enterprise
+	Position       string     `gorm:"size:120;not null" json:"position"`
+	Difficulty     string     `gorm:"size:50;not null" json:"difficulty"`
+	Mode           string     `gorm:"size:50;not null" json:"mode"`
+	Style          string     `gorm:"size:50;not null" json:"style"`
+	Company        string     `gorm:"size:50" json:"company,omitempty"`
+	Status         string     `gorm:"size:20;default:'pending'" json:"status"` // pending, accepted, rejected, in_progress, completed, cancelled
+	ScheduledAt    *time.Time `json:"scheduled_at,omitempty"`
+	Notes          string     `gorm:"type:text" json:"notes,omitempty"`
+	InterviewID    *uint      `gorm:"index" json:"interview_id,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 
 	Student User `gorm:"foreignKey:StudentID" json:"student,omitempty"`
 	Invitee User `gorm:"foreignKey:InviteeUserID" json:"invitee,omitempty"`

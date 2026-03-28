@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { Video, VideoOff, Mic, MicOff } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -24,6 +24,7 @@ const props = defineProps({
 const emit = defineEmits(['toggle-mic', 'toggle-camera'])
 
 const previewVideo = ref(null)
+const previewRootRef = ref(null)
 
 const syncPreviewStream = () => {
   if (!previewVideo.value) return
@@ -49,15 +50,32 @@ onMounted(() => {
   syncPreviewStream()
 })
 
-onUnmounted(() => {
+const cleanupPreviewMedia = () => {
   if (previewVideo.value) {
     previewVideo.value.srcObject = null
   }
+
+  const root = previewRootRef.value
+  if (!root) return
+  const viewers = root.querySelectorAll('model-viewer')
+  viewers.forEach((viewer) => {
+    try {
+      viewer.pause?.()
+      viewer.removeAttribute('src')
+      viewer.load?.()
+    } catch {
+      // ignore model-viewer cleanup errors
+    }
+  })
+}
+
+onBeforeUnmount(() => {
+  cleanupPreviewMedia()
 })
 </script>
 
 <template>
-  <div class="flex flex-col gap-4 min-h-[480px]">
+  <div ref="previewRootRef" class="flex flex-col gap-4 min-h-[480px]">
     <div class="aspect-video rounded-2xl relative overflow-hidden flex items-center justify-center group shadow-xl bg-gradient-to-br from-slate-900 via-slate-800 to-cyan-900/80">
       <template v-if="presentationMode === 'video_avatar'">
         <div class="absolute inset-0 interview-room-scene interview-room-scene--compact pointer-events-none"></div>

@@ -43,12 +43,27 @@ const loadSettingsFromStorage = (defaults) => {
   }
 }
 
+const applyRouteQueryOverrides = (currentSettings, routeQuery, defaults) => {
+  const next = {
+    ...(currentSettings || {})
+  }
+
+  if (routeQuery.position) next.position = String(routeQuery.position)
+  if (routeQuery.mode) next.mode = String(routeQuery.mode)
+  if (routeQuery.style) next.style = String(routeQuery.style)
+  if (routeQuery.company) next.company = String(routeQuery.company)
+  if (routeQuery.interviewMode) next.interviewMode = String(routeQuery.interviewMode)
+  if (routeQuery.presentationMode) next.presentationMode = String(routeQuery.presentationMode)
+
+  return normalizeSettings(next, defaults)
+}
+
 export function useInterviewConfig(options = {}) {
   const routeQuery = options.routeQuery || {}
   const defaults = buildDefaultSettings(routeQuery)
 
   const phase = ref('setup')
-  const settings = ref(loadSettingsFromStorage(defaults))
+  const settings = ref(applyRouteQueryOverrides(loadSettingsFromStorage(defaults), routeQuery, defaults))
 
   watch(settings, (next) => {
     try {

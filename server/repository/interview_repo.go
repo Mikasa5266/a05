@@ -251,8 +251,44 @@ func (r *InterviewRepository) GetInvitationByIDForInvitee(id, inviteeUserID uint
 	return &invitation, nil
 }
 
+func (r *InterviewRepository) GetInvitationByIDForParticipant(id, userID uint) (*model.HumanInterviewInvitation, error) {
+	var invitation model.HumanInterviewInvitation
+	err := r.db.Preload("Student").Preload("Invitee").
+		Where("id = ? AND (student_id = ? OR invitee_user_id = ?)", id, userID, userID).
+		First(&invitation).Error
+	if err != nil {
+		return nil, err
+	}
+	return &invitation, nil
+}
+
+func (r *InterviewRepository) GetInvitationByInterviewID(interviewID uint) (*model.HumanInterviewInvitation, error) {
+	var invitation model.HumanInterviewInvitation
+	err := r.db.Preload("Student").Preload("Invitee").
+		Where("interview_id = ?", interviewID).
+		First(&invitation).Error
+	if err != nil {
+		return nil, err
+	}
+	return &invitation, nil
+}
+
 func (r *InterviewRepository) UpdateInvitation(invitation *model.HumanInterviewInvitation) error {
 	return r.db.Save(invitation).Error
+}
+
+func (r *InterviewRepository) GetInterviewsByIDs(ids []uint) ([]model.Interview, error) {
+	if len(ids) == 0 {
+		return []model.Interview{}, nil
+	}
+
+	var interviews []model.Interview
+	err := r.db.Where("id IN ?", ids).Find(&interviews).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return interviews, nil
 }
 
 // InsertQuestionAt inserts a question at a specific index and shifts subsequent questions

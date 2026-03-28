@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
 import { Timer, User, Mic, MicOff, Video, VideoOff } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -60,6 +60,7 @@ const props = defineProps({
 const emit = defineEmits(['toggle-mic', 'toggle-camera'])
 
 const interviewVideo = ref(null)
+const stageRootRef = ref(null)
 
 const isHighPressure = computed(() => ['high', 'extreme'].includes(props.pressureLevel))
 
@@ -115,15 +116,32 @@ onMounted(() => {
   syncVideoStream()
 })
 
-onUnmounted(() => {
+const cleanupStageMedia = () => {
   if (interviewVideo.value) {
     interviewVideo.value.srcObject = null
   }
+
+  const root = stageRootRef.value
+  if (!root) return
+  const viewers = root.querySelectorAll('model-viewer')
+  viewers.forEach((viewer) => {
+    try {
+      viewer.pause?.()
+      viewer.removeAttribute('src')
+      viewer.load?.()
+    } catch {
+      // ignore model-viewer cleanup errors
+    }
+  })
+}
+
+onBeforeUnmount(() => {
+  cleanupStageMedia()
 })
 </script>
 
 <template>
-  <div class="flex-1 min-h-[320px] lg:min-h-[420px] rounded-3xl relative overflow-hidden shadow-2xl group ring-1 ring-slate-900/10 bg-gradient-to-br from-slate-900 via-slate-800 to-cyan-900/70">
+  <div ref="stageRootRef" class="flex-1 min-h-[320px] lg:min-h-[420px] rounded-3xl relative overflow-hidden shadow-2xl group ring-1 ring-slate-900/10 bg-gradient-to-br from-slate-900 via-slate-800 to-cyan-900/70">
     <div class="absolute top-6 left-6 flex items-center gap-3 z-10 pointer-events-none">
       <div class="text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-2 shadow-lg" :class="recordingStatusClass">
         <div class="w-2 h-2 bg-white rounded-full animate-pulse"></div>

@@ -1,13 +1,14 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Video, VideoOff, Mic, MicOff, PhoneOff, ArrowLeft, Users, Copy, Link2, Plus, LogIn, Loader2 } from 'lucide-vue-next'
+import { Video, VideoOff, Mic, MicOff, PhoneOff, ArrowLeft, Users, Copy, Link2, Loader2 } from 'lucide-vue-next'
 import { useUserStore } from '../stores/user'
 import {
   endInterview,
   getHumanInvitations,
   getReceivedHumanInvitations,
+  joinLiveInterview,
   startInterview
 } from '../api/interview'
 import { generateReport } from '../api/report'
@@ -24,7 +25,7 @@ const invitation = ref(null)
 const loading = ref(false)
 const statusText = ref('待进入房间')
 const roomId = ref('')
-const roomInput = ref('')
+const invitationCode = ref('')
 const remoteUserId = ref('')
 const interviewId = ref(0)
 
@@ -32,6 +33,7 @@ const cameraOn = ref(true)
 const micOn = ref(true)
 const finishing = ref(false)
 const joining = ref(false)
+const isRouteLeaving = ref(false)
 const messageInput = ref('')
 const questionInput = ref('')
 const sharedCode = ref('')
@@ -50,9 +52,9 @@ const isStudent = computed(() => role.value === 'student')
 const canPublishQuestion = computed(() => role.value === 'enterprise' || role.value === 'university')
 
 const backPath = computed(() => {
-  if (role.value === 'enterprise') return '/enterprise/dashboard'
-  if (role.value === 'university') return '/university/dashboard'
-  return '/interview/mode-select'
+  if (role.value === 'enterprise') return '/enterprise/interview-workbench'
+  if (role.value === 'university') return '/university/interview-workbench'
+  return '/interview/live/workbench'
 })
 
 const hasRoom = computed(() => Boolean(roomId.value))
@@ -68,9 +70,13 @@ const roomMembers = computed(() => {
 })
 
 const inviteLink = computed(() => {
-  if (!hasRoom.value) return ''
+  if (!invitation.value?.id) return ''
   const url = new URL(window.location.href)
-  url.searchParams.set('roomId', roomId.value)
+  url.searchParams.delete('roomId')
+  url.searchParams.set('invitation_id', String(invitation.value.id))
+  if (invitationCode.value) {
+    url.searchParams.set('invitation_code', invitationCode.value)
+  }
   return url.toString()
 })
 
@@ -78,27 +84,14 @@ function goBack() {
   router.push(backPath.value)
 }
 
-function normalizeRoomId(raw) {
-  const value = String(raw || '').trim().replace(/\s+/g, '-')
-  if (!value) return ''
-  if (!/^[a-zA-Z0-9_-]{3,64}$/.test(value)) return ''
-  return value
-}
-
-function resolveRoomIdFromRoute() {
-  const fromQuery = normalizeRoomId(route.query?.roomId)
-  if (fromQuery) return fromQuery
-  return normalizeRoomId(route.params?.id)
-}
-
 function resolveInvitationIdFromRoute() {
   const fromQuery = Number(route.query?.invitation_id || 0)
   if (fromQuery > 0) return fromQuery
-  const fromParam = Number(route.params?.id || 0)
-  if (!Number.isNaN(fromParam) && fromParam > 0 && !String(route.query?.roomId || '').trim()) {
-    return fromParam
-  }
   return 0
+}
+
+function resolveInvitationCodeFromRoute() {
+  return String(route.query?.invitation_code || '').trim()
 }
 
 function getWsSignalUrl() {
@@ -106,6 +99,7 @@ function getWsSignalUrl() {
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   url.pathname = `${url.pathname.replace(/\/$/, '')}/interview/live/ws`
   url.searchParams.set('room_id', roomId.value)
+  url.searchParams.set('invitation_code', invitationCode.value || resolveInvitationCodeFromRoute())
   url.searchParams.set('token', userStore.token || '')
   return url.toString()
 }
@@ -170,6 +164,7 @@ async function loadInvitationByID(invitationID) {
     return
   }
   invitation.value = target
+  invitationCode.value = String(target?.invitation_code || resolveInvitationCodeFromRoute())
   interviewId.value = Number(target.interview_id || 0)
 }
 
@@ -192,8 +187,28 @@ async function ensureInterviewSession() {
   interviewId.value = createdId
   invitation.value = {
     ...invitation.value,
-    interview_id: createdId,
-    status: invitation.value?.status === 'accepted' ? 'in_progress' : invitation.value?.status
+    interview_id: createdId
+  }
+}
+
+async function authorizeJoin(invitationID) {
+  const res = await joinLiveInterview({
+    invitation_id: Number(invitationID || 0),
+    invitation_code: invitationCode.value || resolveInvitationCodeFromRoute()
+  })
+
+  const session = res?.session || {}
+  const authorizedRoomId = String(session?.room_id || '').trim()
+  if (!authorizedRoomId) {
+    throw new Error('房间授权信息无效')
+  }
+
+  roomId.value = authorizedRoomId
+  invitationCode.value = String(session?.invitation_code || invitationCode.value || '')
+
+  const syncedInterviewId = Number(session?.interview_id || 0)
+  if (syncedInterviewId > 0) {
+    interviewId.value = syncedInterviewId
   }
 }
 
@@ -452,22 +467,39 @@ async function finalizeInterviewAndReport() {
 }
 
 function cleanup() {
-  if (signalSocket && signalSocket.readyState === WebSocket.OPEN) {
-    sendSignal('leave', {
-      user_id: selfUserId.value,
-      sender_name: getSelfDisplayName(),
-      role: role.value
-    })
-    signalSocket.close()
+  if (signalSocket) {
+    if (signalSocket.readyState === WebSocket.OPEN) {
+      sendSignal('leave', {
+        user_id: selfUserId.value,
+        sender_name: getSelfDisplayName(),
+        role: role.value
+      })
+    }
+    signalSocket.onopen = null
+    signalSocket.onmessage = null
+    signalSocket.onerror = null
+    signalSocket.onclose = null
+    if (signalSocket.readyState === WebSocket.OPEN || signalSocket.readyState === WebSocket.CONNECTING) {
+      signalSocket.close()
+    }
   }
   signalSocket = null
   if (peer) {
+    peer.onicecandidate = null
+    peer.ontrack = null
+    peer.onconnectionstatechange = null
     peer.close()
     peer = null
   }
   if (localStream) {
     localStream.getTracks().forEach((track) => track.stop())
     localStream = null
+  }
+  if (localVideoRef.value) {
+    localVideoRef.value.srcObject = null
+  }
+  if (remoteVideoRef.value) {
+    remoteVideoRef.value.srcObject = null
   }
   remoteUserId.value = ''
   pendingCandidates = []
@@ -488,19 +520,24 @@ async function leaveRoom() {
   }
 }
 
-async function initAndJoinRoom(targetRoomID, invitationID = 0) {
-  if (joining.value) return
+async function initAndJoinRoom(invitationID = 0) {
+  if (joining.value || isRouteLeaving.value) return
   joining.value = true
   loading.value = true
   statusText.value = '正在准备房间...'
   try {
     cleanup()
-    roomId.value = targetRoomID
     members.value = []
     messages.value = []
     sharedCode.value = ''
+
+    if (invitationID <= 0) {
+      throw new Error('缺少 invitation_id，无法进入真人面试房间')
+    }
+
     await loadInvitationByID(invitationID)
     await ensureInterviewSession()
+    await authorizeJoin(invitationID)
     await initLocalMedia()
     connectSignalSocket()
     await nextTick()
@@ -516,36 +553,6 @@ async function initAndJoinRoom(targetRoomID, invitationID = 0) {
   }
 }
 
-function updateRouteRoom(targetRoomID) {
-  return router.replace({
-    path: route.path,
-    query: {
-      ...route.query,
-      roomId: targetRoomID
-    }
-  })
-}
-
-function generateRoomID() {
-  return `room-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-}
-
-async function createRoom() {
-  const target = generateRoomID()
-  await updateRouteRoom(target)
-  await initAndJoinRoom(target, resolveInvitationIdFromRoute())
-}
-
-async function joinRoom() {
-  const normalized = normalizeRoomId(roomInput.value)
-  if (!normalized) {
-    ElMessage.warning('房间号仅支持 3-64 位字母、数字、-、_')
-    return
-  }
-  await updateRouteRoom(normalized)
-  await initAndJoinRoom(normalized, resolveInvitationIdFromRoute())
-}
-
 async function copyInviteLink() {
   if (!inviteLink.value) return
   try {
@@ -558,28 +565,36 @@ async function copyInviteLink() {
 
 onMounted(async () => {
   const invitationID = resolveInvitationIdFromRoute()
-  const targetRoomID = resolveRoomIdFromRoute() || (invitationID > 0 ? `invitation-${invitationID}` : '')
-  roomInput.value = targetRoomID
-  if (targetRoomID) {
-    await initAndJoinRoom(targetRoomID, invitationID)
-  } else {
-    statusText.value = '请创建房间或输入房间号加入'
+  if (invitationID <= 0) {
+    statusText.value = '仅支持受邀用户进入真人面试房间'
+    ElMessage.warning('请从面试管理工作台进入指定房间')
     loading.value = false
+    goBack()
+    return
   }
+
+  await initAndJoinRoom(invitationID)
 })
 
-watch(() => [route.params?.id, route.query?.roomId], async () => {
-  const resolved = resolveRoomIdFromRoute()
-  if (!resolved || resolved === roomId.value || joining.value) return
-  roomInput.value = resolved
-  await initAndJoinRoom(resolved, resolveInvitationIdFromRoute())
+watch(() => route.query?.invitation_id, async () => {
+  const invitationID = resolveInvitationIdFromRoute()
+  if (invitationID <= 0 || joining.value || isRouteLeaving.value) return
+  if (Number(invitation.value?.id || 0) === invitationID && hasRoom.value) return
+  await initAndJoinRoom(invitationID)
 })
 
 watch(localVideoRef, () => {
   bindLocalStreamToVideo()
 })
 
-onUnmounted(() => {
+onBeforeRouteLeave((_to, _from, next) => {
+  isRouteLeaving.value = true
+  cleanup()
+  next()
+})
+
+onBeforeUnmount(() => {
+  isRouteLeaving.value = true
   cleanup()
 })
 </script>
@@ -601,24 +616,11 @@ onUnmounted(() => {
 
         <div v-if="!hasRoom && !loading" class="h-[calc(100vh-12rem)] flex items-center justify-center">
           <div class="w-full max-w-2xl rounded-3xl border border-slate-700 bg-slate-900/70 backdrop-blur p-8 space-y-6">
-            <h2 class="text-2xl font-bold">创建或加入房间</h2>
-            <p class="text-sm text-slate-300">输入已有 roomId 自动加入，或一键创建新房间并分享邀请链接。</p>
-            <div class="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
-              <input
-                v-model="roomInput"
-                type="text"
-                class="w-full rounded-xl border border-slate-600 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 outline-none focus:border-indigo-400"
-                placeholder="输入 roomId（如 room-abc123）"
-                @keyup.enter="joinRoom"
-              />
-              <button class="px-5 py-3 rounded-xl border border-indigo-300 bg-indigo-500/20 text-indigo-200 font-semibold hover:bg-indigo-500/35 transition-colors inline-flex items-center justify-center gap-2" @click="joinRoom">
-                <LogIn class="w-4 h-4" />
-                加入房间
-              </button>
-            </div>
-            <button class="w-full py-3 rounded-xl border border-emerald-300 bg-emerald-500/20 text-emerald-200 font-semibold hover:bg-emerald-500/35 transition-colors inline-flex items-center justify-center gap-2" @click="createRoom">
-              <Plus class="w-4 h-4" />
-              创建新房间
+            <h2 class="text-2xl font-bold">等待房间授权</h2>
+            <p class="text-sm text-slate-300">真人面试仅允许受邀用户通过 invitation_id + invitation_code 进入。</p>
+            <p class="text-xs text-slate-400">请从企业端/高校端面试管理工作台点击“进入面试房间”。</p>
+            <button class="w-full py-3 rounded-xl border border-slate-500/70 bg-slate-800/70 text-slate-100 font-semibold hover:bg-slate-700 transition-colors" @click="goBack">
+              返回工作台
             </button>
           </div>
         </div>

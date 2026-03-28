@@ -10,6 +10,7 @@
               <template #default>
                 <transition
                   name="page"
+                  mode="out-in"
                   enter-active-class="transition-all duration-200 ease-out"
                   leave-active-class="transition-all duration-200 ease-in"
                   enter-from-class="opacity-0 translate-y-4"

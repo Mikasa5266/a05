@@ -21,6 +21,20 @@ export const useInterviewStore = defineStore('mockInterviewStore', () => {
 
   let shadowBubbleTimer = null
   let thinkingWatchTimer = null
+  let hintDispatchInFlight = false
+
+  const assignNumberRef = (target, nextValue) => {
+    const normalized = Number(nextValue) || 0
+    if (target.value !== normalized) {
+      target.value = normalized
+    }
+  }
+
+  const resetWatchCounters = () => {
+    assignNumberRef(thinkingStreakSeconds, 0)
+    assignNumberRef(silenceStreakSeconds, 0)
+    assignNumberRef(quietSeconds, 0)
+  }
 
   const setInterviewId = (id) => {
     interviewId.value = id
@@ -35,7 +49,7 @@ export const useInterviewStore = defineStore('mockInterviewStore', () => {
   }
 
   const setQuietSeconds = (seconds) => {
-    quietSeconds.value = Number(seconds) || 0
+    assignNumberRef(quietSeconds, seconds)
   }
 
   const hideShadowBubble = () => {
@@ -83,9 +97,7 @@ export const useInterviewStore = defineStore('mockInterviewStore', () => {
   }
 
   const resetShadowHintProgress = () => {
-    silenceStreakSeconds.value = 0
-    thinkingStreakSeconds.value = 0
-    quietSeconds.value = 0
+    resetWatchCounters()
     shadowHintPack.value = []
     shadowHintDelivered.value = [false, false, false]
   }
@@ -140,9 +152,11 @@ export const useInterviewStore = defineStore('mockInterviewStore', () => {
         showShadowBubble(hint)
         shadowCoachHints.value.unshift({ text: hint, at: Date.now(), level: i + 1 })
         if (shadowCoachHints.value.length > 8) {
-          shadowCoachHints.value = shadowCoachHints.value.slice(0, 8)
+          shadowCoachHints.value.splice(8)
         }
-        shadowHintDelivered.value = shadowHintDelivered.value.map((flag, idx) => (idx === i ? true : flag))
+        const delivered = [...shadowHintDelivered.value]
+        delivered[i] = true
+        shadowHintDelivered.value = delivered
         break
       }
     }
@@ -159,42 +173,56 @@ export const useInterviewStore = defineStore('mockInterviewStore', () => {
   }) => {
     if (thinkingWatchTimer) return
 
-    thinkingWatchTimer = setInterval(async () => {
+    thinkingWatchTimer = setInterval(() => {
       if (!shadowCoachEnabled.value || phase?.value !== 'interview') {
-        thinkingStreakSeconds.value = 0
-        silenceStreakSeconds.value = 0
-        quietSeconds.value = 0
+        resetWatchCounters()
         return
       }
 
       if (isProcessing?.value || latestAIMessage?.value?.type !== 'question' || !canAnswerCurrentQuestion?.value) {
-        thinkingStreakSeconds.value = 0
-        silenceStreakSeconds.value = 0
-        quietSeconds.value = 0
+        resetWatchCounters()
         return
       }
 
+      let nextThinking = thinkingStreakSeconds.value
+      let nextSilence = silenceStreakSeconds.value
+      let nextQuiet = quietSeconds.value
+
       if (answerVoiceStatus?.value === 'recording') {
-        thinkingStreakSeconds.value = 0
+        nextThinking = 0
         if ((energyLevel?.value || 0) <= 0.035) {
-          silenceStreakSeconds.value += 1
-          quietSeconds.value += 1
+          nextSilence += 1
+          nextQuiet += 1
         } else {
-          silenceStreakSeconds.value = 0
-          quietSeconds.value = 0
+          nextSilence = 0
+          nextQuiet = 0
         }
       } else {
-        silenceStreakSeconds.value = 0
-        thinkingStreakSeconds.value += 1
-        quietSeconds.value += 1
+        nextSilence = 0
+        nextThinking += 1
+        nextQuiet += 1
       }
 
-      if (typeof onMaybeDispatch === 'function') {
-        await onMaybeDispatch()
+      const allHintsDelivered = shadowHintDelivered.value.every(Boolean)
+      if (!allHintsDelivered && nextQuiet >= 65) {
+        nextQuiet = 60
       }
 
-      if (quietSeconds.value >= 65 || shadowHintDelivered.value.every(Boolean)) {
-        quietSeconds.value = shadowHintDelivered.value.every(Boolean) ? quietSeconds.value : 60
+      const quietChanged = nextQuiet !== quietSeconds.value
+
+      assignNumberRef(thinkingStreakSeconds, nextThinking)
+      assignNumberRef(silenceStreakSeconds, nextSilence)
+      assignNumberRef(quietSeconds, nextQuiet)
+
+      if (typeof onMaybeDispatch === 'function' && quietChanged && nextQuiet >= 20 && !hintDispatchInFlight) {
+        hintDispatchInFlight = true
+        Promise.resolve(onMaybeDispatch())
+          .catch((err) => {
+            console.warn('dispatch tiered hint failed:', err)
+          })
+          .finally(() => {
+            hintDispatchInFlight = false
+          })
       }
     }, 1000)
   }
@@ -203,7 +231,8 @@ export const useInterviewStore = defineStore('mockInterviewStore', () => {
     if (!thinkingWatchTimer) return
     clearInterval(thinkingWatchTimer)
     thinkingWatchTimer = null
-    thinkingStreakSeconds.value = 0
+    hintDispatchInFlight = false
+    resetWatchCounters()
   }
 
   const cleanupStoreTimers = () => {

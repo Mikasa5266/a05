@@ -49,14 +49,21 @@ public:
   python: `class Solution:
     def solve(self, nums):
         # TODO: implement your algorithm here
-        return 0`
+        return 0`,
+  typescript: `function solve(nums: number[]): number {
+  // TODO: implement your algorithm here
+  return 0
+}`
 }
 
 const languageLabels = {
   java: 'Java',
   cpp: 'C++',
-  python: 'Python'
+  python: 'Python',
+  typescript: 'TypeScript'
 }
+
+const languageOrder = ['java', 'cpp', 'python', 'typescript']
 
 const currentProblem = computed(() => {
   const list = session.value?.problems || []
@@ -292,15 +299,15 @@ onMounted(() => {
             <Code2 class="w-4 h-4 text-indigo-500" />
             代码区
           </div>
-          <div class="flex items-center gap-2">
+          <div class="algorithm-language-selector">
             <button
-              v-for="key in ['java', 'cpp', 'python']"
+              v-for="key in languageOrder"
               :key="key"
               @click="language = key"
-              class="px-2.5 py-1.5 text-xs rounded-lg border transition-colors"
+              class="algorithm-lang-btn px-2.5 py-1.5 text-xs rounded-lg border transition-colors"
               :class="language === key ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-100'"
             >
-              {{ languageLabels[key] }}
+              <span class="algorithm-lang-label">{{ languageLabels[key] }}</span>
             </button>
           </div>
         </div>
@@ -360,3 +367,41 @@ onMounted(() => {
     </template>
   </div>
 </template>
+
+<style scoped>
+.algorithm-language-selector {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 280px;
+}
+
+.algorithm-lang-btn {
+  min-width: 0;
+  max-width: 112px;
+  flex: 1 1 calc(50% - 4px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.algorithm-lang-label {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .algorithm-language-selector {
+    max-width: 100%;
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .algorithm-lang-btn {
+    max-width: none;
+  }
+}
+</style>

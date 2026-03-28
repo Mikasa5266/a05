@@ -78,8 +78,8 @@ func ApplyEnterprise(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message":    "企业入驻申请已提交，等待审核",
-		"user":       user,
+		"message":     "企业入驻申请已提交，等待审核",
+		"user":        user,
 		"application": enterprise,
 	})
 }
@@ -115,8 +115,8 @@ func ApplyUniversity(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message":    "高校入驻申请已提交，等待审核",
-		"user":       user,
+		"message":     "高校入驻申请已提交，等待审核",
+		"user":        user,
 		"application": university,
 	})
 }
@@ -200,7 +200,7 @@ func Login(c *gin.Context) {
 		}
 	}
 
-	token, err := middleware.GenerateToken(user.ID, user.Role)
+	token, err := middleware.GenerateToken(user.ID, user.Role, user.UUID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return

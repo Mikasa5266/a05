@@ -31,7 +31,7 @@ import {
   LayoutDashboard, Video, BarChart3, Users,
   FileText, Building2, Target, BookOpen,
   GraduationCap, TrendingUp, UserCheck,
-  Shield, Send, Database, Briefcase
+  Shield, Send, Database, Briefcase, ClipboardList
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -48,6 +48,7 @@ const studentNav = [
   { name: '个人主页', href: '/student/dashboard', icon: LayoutDashboard },
   { name: '简历匹配', href: '/student/resume', icon: FileText },
   { name: '模拟面试', href: '/student/interview', icon: Video },
+  { name: '真人面试', href: '/interview/live/workbench', icon: ClipboardList },
   { name: '复盘报告', href: '/student/history', icon: BarChart3 },
   { name: '成长中心', href: '/student/growth', icon: TrendingUp },
   { name: '校友社区', href: '/student/community', icon: Users },
@@ -55,6 +56,7 @@ const studentNav = [
 
 const enterpriseNav = [
   { name: '企业总览', href: '/enterprise/dashboard', icon: Building2 },
+  { name: '面试工作台', href: '/enterprise/interview-workbench', icon: ClipboardList },
   { name: '人才池', href: '/enterprise/talent', icon: UserCheck },
   { name: '岗位管理', href: '/enterprise/jobs', icon: Briefcase },
   { name: 'HR面试台', href: '/enterprise/hr-panel', icon: Video },
@@ -64,6 +66,7 @@ const enterpriseNav = [
 
 const universityNav = [
   { name: '管理总览', href: '/university/dashboard', icon: GraduationCap },
+  { name: '面试工作台', href: '/university/interview-workbench', icon: ClipboardList },
   { name: '学生跟踪', href: '/university/tracking', icon: Target },
   { name: '帮扶体系', href: '/university/support', icon: Shield },
   { name: '课程资源', href: '/university/courses', icon: BookOpen },

@@ -1,5 +1,7 @@
-const Login = () => import('../../views/Login.vue')
-const Forbidden = () => import('../../views/Forbidden.vue')
+import { defineAsyncComponent } from 'vue'
+
+const Login = defineAsyncComponent(() => import('../../views/Login.vue'))
+const Forbidden = defineAsyncComponent(() => import('../../views/Forbidden.vue'))
 
 const publicMeta = {
   requiresAuth: false,

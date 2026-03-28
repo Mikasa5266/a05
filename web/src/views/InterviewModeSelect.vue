@@ -9,7 +9,7 @@
         <p class="mt-4 text-base md:text-lg text-zinc-500">根据目标场景进入不同流程，开始本次训练与对弈</p>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
         <button
           v-for="item in cards"
           :key="item.title"
@@ -34,38 +34,61 @@
 
 <script setup>
 import { useRouter } from 'vue-router'
-import { ChevronRight, Bot, Binary, Users } from 'lucide-vue-next'
+import { ChevronRight, Bot, Mic, Binary, Users } from 'lucide-vue-next'
 
 const router = useRouter()
 
 const cards = [
   {
-    title: '常规面试',
-    description: '进入 AI 模拟面试配置页，覆盖技术面、HR 面与综合面等常见流程。',
+    title: 'AI 视频模拟',
+    description: '进入 Gemini 驱动的视频模拟面试，激活 3D 面试官与可视化语音交互。',
     icon: Bot,
-    iconWrapClass: 'bg-indigo-100',
+    iconWrapClass: 'bg-violet-100',
     iconClass: 'text-indigo-600',
-    path: '/interview/standard/setup'
+    path: '/interview/video',
+    query: {
+      mode: 'technical',
+      style: 'gentle',
+      interviewMode: 'ai',
+      presentationMode: 'video_avatar'
+    }
   },
   {
-    title: '算法对决',
-    description: '进入硬核算法实战配置，聚焦题解思路、复杂度与代码表达能力。',
+    title: '语音文字模拟',
+    description: '进入轻量语音文字模拟，专注表达结构、回答质量与追问节奏。',
+    icon: Mic,
+    iconWrapClass: 'bg-sky-100',
+    iconClass: 'text-sky-700',
+    path: '/interview/standard/setup',
+    query: {
+      mode: 'technical',
+      style: 'gentle',
+      interviewMode: 'ai',
+      presentationMode: 'text_voice'
+    }
+  },
+  {
+    title: '算法专项',
+    description: '进入算法专项工作台，聚焦题解路径、复杂度控制与代码实现能力。',
     icon: Binary,
     iconWrapClass: 'bg-emerald-100',
     iconClass: 'text-emerald-600',
     path: '/interview/algorithm/setup',
     query: {
       mode: 'technical',
-      style: 'algorithm'
+      style: 'algorithm',
+      interviewMode: 'ai',
+      presentationMode: 'text_voice'
     }
   },
   {
-    title: '真人互面',
-    description: '进入真人模拟对弈房间，适用于已建立邀请关系的实时音视频面试。',
+    title: '真人面试',
+    description: '进入真人面试工作台，发起邀请、追踪状态并进入实时面试房间。',
     icon: Users,
     iconWrapClass: 'bg-amber-100',
-    iconClass: 'text-amber-600',
-    path: '/interview/live/room/0'
+    iconClass: 'text-amber-700',
+    path: '/interview/live/workbench',
+    query: {}
   }
 ]
 

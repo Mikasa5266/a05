@@ -26,6 +26,10 @@
       <p v-if="errors.password" class="text-xs text-rose-500">{{ errors.password }}</p>
     </div>
 
+    <p v-if="serverError" class="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-600">
+      {{ serverError }}
+    </p>
+
     <button
       type="submit"
       :disabled="loading"
@@ -53,10 +57,14 @@ const props = defineProps({
   initialEmail: {
     type: String,
     default: ''
+  },
+  serverError: {
+    type: String,
+    default: ''
   }
 })
 
-const emit = defineEmits(['submit'])
+const emit = defineEmits(['submit', 'clear-error'])
 
 const form = reactive({
   email: props.initialEmail || '',
@@ -72,6 +80,15 @@ watch(
   () => props.initialEmail,
   (next) => {
     if (next) form.email = next
+  }
+)
+
+watch(
+  () => [form.email, form.password],
+  () => {
+    if (props.serverError) {
+      emit('clear-error')
+    }
   }
 )
 

@@ -1,16 +1,20 @@
-import Layout from '../../components/layout/Layout.vue'
+import { defineAsyncComponent } from 'vue'
 
-const Home = () => import('../../views/Home.vue')
-const ResumeMatching = () => import('../../views/ResumeMatching.vue')
-const MockInterview = () => import('../../views/MockInterview.vue')
-const InterviewModeSelect = () => import('../../views/InterviewModeSelect.vue')
-const GrowthCenter = () => import('../../views/GrowthCenter.vue')
-const History = () => import('../../views/History.vue')
-const Report = () => import('../../views/Report.vue')
-const Settings = () => import('../../views/Settings.vue')
-const Community = () => import('../../views/Community.vue')
-const CommunityPostDetail = () => import('../../views/CommunityPostDetail.vue')
-const LiveInterviewRoom = () => import('../../views/LiveInterviewRoom.vue')
+const Layout = defineAsyncComponent(() => import('../../components/layout/Layout.vue'))
+
+const Home = defineAsyncComponent(() => import('../../views/Home.vue'))
+const ResumeMatching = defineAsyncComponent(() => import('../../views/ResumeMatching.vue'))
+const Interview = defineAsyncComponent(() => import('../../views/Interview.vue'))
+const MockInterview = defineAsyncComponent(() => import('../../views/MockInterview.vue'))
+const InterviewModeSelect = defineAsyncComponent(() => import('../../views/InterviewModeSelect.vue'))
+const GrowthCenter = defineAsyncComponent(() => import('../../views/GrowthCenter.vue'))
+const History = defineAsyncComponent(() => import('../../views/History.vue'))
+const Report = defineAsyncComponent(() => import('../../views/Report.vue'))
+const Settings = defineAsyncComponent(() => import('../../views/Settings.vue'))
+const Community = defineAsyncComponent(() => import('../../views/Community.vue'))
+const CommunityPostDetail = defineAsyncComponent(() => import('../../views/CommunityPostDetail.vue'))
+const StudentLiveInterviewWorkbench = defineAsyncComponent(() => import('../../views/student/LiveInterviewWorkbench.vue'))
+const LiveInterviewRoom = defineAsyncComponent(() => import('../../views/LiveInterviewRoom.vue'))
 
 const roleMeta = {
   requiresAuth: true,
@@ -48,8 +52,15 @@ export const studentRoutes = [
       {
         path: 'live-interview',
         redirect: (to) => {
-          const invitationId = String(to.query?.invitation_id || '').trim() || '0'
-          return `/interview/live/room?invitation_id=${invitationId}`
+          const invitationId = String(to.query?.invitation_id || '').trim()
+          if (!invitationId) {
+            return '/interview/live/workbench'
+          }
+          const invitationCode = String(to.query?.invitation_code || '').trim()
+          if (!invitationCode) {
+            return `/interview/live/room?invitation_id=${invitationId}`
+          }
+          return `/interview/live/room?invitation_id=${invitationId}&invitation_code=${encodeURIComponent(invitationCode)}`
         },
         meta: roleMeta
       },
@@ -109,6 +120,35 @@ export const studentRoutes = [
         meta: roleMeta
       },
       {
+        path: 'video',
+        name: 'InterviewVideoMode',
+        component: Interview,
+        beforeEnter: (to) => {
+          const normalized = {
+            ...to.query,
+            mode: String(to.query?.mode || 'technical'),
+            style: String(to.query?.style || 'gentle'),
+            interviewMode: String(to.query?.interviewMode || 'ai'),
+            presentationMode: String(to.query?.presentationMode || 'video_avatar')
+          }
+
+          const sameMode = String(to.query?.mode || '') === normalized.mode
+          const sameStyle = String(to.query?.style || '') === normalized.style
+          const sameInterviewMode = String(to.query?.interviewMode || '') === normalized.interviewMode
+          const samePresentation = String(to.query?.presentationMode || '') === normalized.presentationMode
+
+          if (sameMode && sameStyle && sameInterviewMode && samePresentation) {
+            return true
+          }
+
+          return {
+            path: to.path,
+            query: normalized
+          }
+        },
+        meta: roleMeta
+      },
+      {
         path: 'algorithm/setup',
         name: 'AlgorithmInterviewSetup',
         component: MockInterview,
@@ -127,6 +167,12 @@ export const studentRoutes = [
             }
           }
         },
+        meta: roleMeta
+      },
+      {
+        path: 'live/workbench',
+        name: 'StudentLiveInterviewWorkbench',
+        component: StudentLiveInterviewWorkbench,
         meta: roleMeta
       },
       {

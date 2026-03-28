@@ -1,13 +1,16 @@
-import Layout from '../../components/layout/Layout.vue'
+import { defineAsyncComponent } from 'vue'
 
-const UniversityDashboard = () => import('../../views/university/UniversityDashboard.vue')
-const StudentTracking = () => import('../../views/university/StudentTracking.vue')
-const SupportSystem = () => import('../../views/university/SupportSystem.vue')
-const Courses = () => import('../../views/university/Courses.vue')
-const Employment = () => import('../../views/university/Employment.vue')
-const TalentPush = () => import('../../views/university/TalentPush.vue')
-const LiveInterviewRoom = () => import('../../views/LiveInterviewRoom.vue')
-const Settings = () => import('../../views/Settings.vue')
+const Layout = defineAsyncComponent(() => import('../../components/layout/Layout.vue'))
+
+const UniversityDashboard = defineAsyncComponent(() => import('../../views/university/UniversityDashboard.vue'))
+const StudentTracking = defineAsyncComponent(() => import('../../views/university/StudentTracking.vue'))
+const SupportSystem = defineAsyncComponent(() => import('../../views/university/SupportSystem.vue'))
+const Courses = defineAsyncComponent(() => import('../../views/university/Courses.vue'))
+const InterviewWorkbench = defineAsyncComponent(() => import('../../views/university/InterviewWorkbench.vue'))
+const Employment = defineAsyncComponent(() => import('../../views/university/Employment.vue'))
+const TalentPush = defineAsyncComponent(() => import('../../views/university/TalentPush.vue'))
+const LiveInterviewRoom = defineAsyncComponent(() => import('../../views/LiveInterviewRoom.vue'))
+const Settings = defineAsyncComponent(() => import('../../views/Settings.vue'))
 
 const roleMeta = {
   requiresAuth: true,
@@ -59,6 +62,12 @@ export const universityRoutes = [
         path: 'talent-push',
         name: 'TalentPush',
         component: TalentPush,
+        meta: roleMeta
+      },
+      {
+        path: 'interview-workbench',
+        name: 'UniversityInterviewWorkbench',
+        component: InterviewWorkbench,
         meta: roleMeta
       },
       {

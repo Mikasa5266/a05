@@ -303,6 +303,7 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 		InterviewMode:       interviewMode,
 		RevealedStyle:       revealedStyle,
 		Scenario:            scenarioJSON,
+		Role:                "candidate",
 		Status:              "in_progress",
 		StartTime:           time.Now(),
 		CurrentIndex:        0,
@@ -315,9 +316,14 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 	}
 
 	if invitation != nil {
+		interview.Status = "pending"
 		interview.HumanInterviewerUserID = &invitation.InviteeUserID
 		interview.HumanInterviewerName = invitation.Invitee.Username
 		interview.HumanInterviewerRole = invitation.InviteeRole
+		code := strings.TrimSpace(invitation.InvitationCode)
+		if code != "" {
+			interview.InvitationCode = &code
+		}
 	}
 
 	if err := s.interviewRepo.Create(interview); err != nil {
@@ -325,7 +331,6 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 	}
 
 	if invitation != nil {
-		invitation.Status = "in_progress"
 		invitation.InterviewID = &interview.ID
 		if err := s.interviewRepo.UpdateInvitation(invitation); err != nil {
 			return nil, fmt.Errorf("failed to update invitation status: %w", err)
@@ -467,6 +472,10 @@ func CreateHumanInvitation(studentID, inviteeUserID uint, scheduledAt *time.Time
 	if err != nil {
 		return nil, fmt.Errorf("用户不存在")
 	}
+	studentUUID, err := ensureUserUUID(svc.userRepo, student)
+	if err != nil {
+		return nil, fmt.Errorf("学生身份标识初始化失败: %w", err)
+	}
 	if student.Role != "student" {
 		return nil, fmt.Errorf("仅学生用户可以发起真人面试邀请")
 	}
@@ -474,26 +483,63 @@ func CreateHumanInvitation(studentID, inviteeUserID uint, scheduledAt *time.Time
 	if err != nil {
 		return nil, fmt.Errorf("被邀请用户不存在")
 	}
+	inviteeUUID, err := ensureUserUUID(svc.userRepo, invitee)
+	if err != nil {
+		return nil, fmt.Errorf("被邀请用户身份标识初始化失败: %w", err)
+	}
 	if invitee.Role != "enterprise" && invitee.Role != "university" {
 		return nil, fmt.Errorf("只能邀请学校端或企业端用户")
 	}
 
+	var invitationCode string
+	for i := 0; i < 5; i++ {
+		code, codeErr := generateInvitationCode()
+		if codeErr != nil {
+			return nil, fmt.Errorf("生成邀请码失败: %w", codeErr)
+		}
+		invitationCode = code
+		if invitationCode != "" {
+			break
+		}
+	}
+	if invitationCode == "" {
+		return nil, fmt.Errorf("生成邀请码失败")
+	}
+
 	inv := &model.HumanInterviewInvitation{
-		StudentID:     studentID,
-		InviteeUserID: inviteeUserID,
-		InviteeRole:   invitee.Role,
-		Position:      strings.TrimSpace(position),
-		Difficulty:    strings.TrimSpace(difficulty),
-		Mode:          strings.TrimSpace(mode),
-		Style:         strings.TrimSpace(style),
-		Company:       strings.TrimSpace(company),
-		Status:        "pending",
-		ScheduledAt:   scheduledAt,
-		Notes:         strings.TrimSpace(notes),
+		InvitationCode: invitationCode,
+		StudentID:      studentID,
+		StudentUUID:    studentUUID,
+		InviteeUserID:  inviteeUserID,
+		InviteeUUID:    inviteeUUID,
+		InviteeRole:    invitee.Role,
+		Position:       strings.TrimSpace(position),
+		Difficulty:     strings.TrimSpace(difficulty),
+		Mode:           strings.TrimSpace(mode),
+		Style:          strings.TrimSpace(style),
+		Company:        strings.TrimSpace(company),
+		Status:         "pending",
+		ScheduledAt:    scheduledAt,
+		Notes:          strings.TrimSpace(notes),
 	}
 
 	if err := svc.interviewRepo.CreateInvitation(inv); err != nil {
-		return nil, fmt.Errorf("创建邀请失败: %w", err)
+		if strings.Contains(strings.ToLower(err.Error()), "duplicate") || strings.Contains(strings.ToLower(err.Error()), "unique") {
+			for i := 0; i < 3; i++ {
+				code, codeErr := generateInvitationCode()
+				if codeErr != nil {
+					break
+				}
+				inv.InvitationCode = code
+				if retryErr := svc.interviewRepo.CreateInvitation(inv); retryErr == nil {
+					err = nil
+					break
+				}
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("创建邀请失败: %w", err)
+		}
 	}
 
 	inv.Invitee = *invitee
@@ -544,6 +590,21 @@ func RespondHumanInvitation(inviteeUserID, invitationID uint, action string) (*m
 
 	if invitation.Status != "pending" {
 		return nil, fmt.Errorf("当前邀请状态为 %s，无法重复处理", invitation.Status)
+	}
+
+	if strings.TrimSpace(invitation.InvitationCode) == "" {
+		code, codeErr := generateInvitationCode()
+		if codeErr != nil {
+			return nil, fmt.Errorf("生成邀请码失败: %w", codeErr)
+		}
+		invitation.InvitationCode = code
+	}
+
+	if strings.TrimSpace(invitation.StudentUUID) == "" && strings.TrimSpace(invitation.Student.UUID) != "" {
+		invitation.StudentUUID = strings.TrimSpace(invitation.Student.UUID)
+	}
+	if strings.TrimSpace(invitation.InviteeUUID) == "" {
+		invitation.InviteeUUID = strings.TrimSpace(user.UUID)
 	}
 
 	if normalizedAction == "accept" {
@@ -1079,16 +1140,10 @@ func (s *InterviewService) EndInterview(userID, interviewID uint) (*model.Interv
 	}
 
 	if interview.InterviewMode == "human" {
-		invitations, err := s.interviewRepo.GetInvitationsByStudentID(userID)
-		if err == nil {
-			for i := range invitations {
-				inv := invitations[i]
-				if inv.InterviewID != nil && *inv.InterviewID == interviewID && inv.Status == "in_progress" {
-					inv.Status = "completed"
-					_ = s.interviewRepo.UpdateInvitation(&inv)
-					break
-				}
-			}
+		inv, invErr := s.interviewRepo.GetInvitationByInterviewID(interviewID)
+		if invErr == nil && inv != nil {
+			inv.Status = "completed"
+			_ = s.interviewRepo.UpdateInvitation(inv)
 		}
 	}
 

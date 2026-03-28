@@ -40,11 +40,17 @@ func createUserWithRole(username, email, password, role string) (*model.User, er
 		role = "student"
 	}
 
+	uuid, err := generateUUIDv4()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate user uuid: %w", err)
+	}
+
 	user := &model.User{
 		Username: username,
 		Email:    email,
 		Password: string(hashedPassword),
 		Role:     role,
+		UUID:     uuid,
 	}
 
 	if err := service.userRepo.Create(user); err != nil {
@@ -73,11 +79,17 @@ func createUserWithRoleTx(tx *gorm.DB, username, email, password, role string) (
 		role = "student"
 	}
 
+	uuid, err := generateUUIDv4()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate user uuid: %w", err)
+	}
+
 	user := &model.User{
 		Username: username,
 		Email:    email,
 		Password: string(hashedPassword),
 		Role:     role,
+		UUID:     uuid,
 	}
 
 	if err := tx.Create(user).Error; err != nil {
@@ -243,6 +255,10 @@ func AuthenticateUser(email, password string) (*model.User, error) {
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
 		return nil, fmt.Errorf("invalid credentials")
+	}
+
+	if _, err := ensureUserUUID(service.userRepo, user); err != nil {
+		return nil, fmt.Errorf("failed to ensure user identity: %w", err)
 	}
 
 	return user, nil

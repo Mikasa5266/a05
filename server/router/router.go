@@ -48,6 +48,8 @@ func SetupRouter(aiService *service.AIService) *gin.Engine {
 			protected.POST("/interview/start", handler.StartInterview)
 			protected.POST("/interview/start/standard", handler.StartStandardInterview)
 			protected.POST("/interview/start/algorithm", handler.StartAlgorithmInterview)
+			protected.POST("/interview/live/join", handler.JoinInterview)
+			protected.GET("/interview/live/workbench", handler.GetLiveInterviewWorkbench)
 			protected.GET("/interview", handler.GetInterviews)
 			protected.GET("/interview/config", handler.GetInterviewConfig)
 			protected.GET("/interview/:id", handler.GetInterview)

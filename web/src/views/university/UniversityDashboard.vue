@@ -142,6 +142,10 @@
         <div class="bg-gradient-to-br from-indigo-600 to-violet-600 rounded-3xl p-6 text-white">
           <h3 class="font-bold mb-4">管理功能</h3>
           <div class="space-y-3">
+            <router-link to="/university/interview-workbench" class="flex items-center gap-3 p-3 bg-white/10 rounded-xl hover:bg-white/20 transition-colors">
+              <BookOpen class="h-5 w-5" />
+              <span class="text-sm font-medium">面试工作台</span>
+            </router-link>
             <router-link to="/university/tracking" class="flex items-center gap-3 p-3 bg-white/10 rounded-xl hover:bg-white/20 transition-colors">
               <Target class="h-5 w-5" />
               <span class="text-sm font-medium">学生跟踪</span>
@@ -291,7 +295,10 @@ const handleInvitation = async (invitation, action) => {
 const goToInterviewZone = (invitation) => {
   router.push({
     path: '/university/live-interview',
-    query: { invitation_id: String(invitation.id) }
+    query: {
+      invitation_id: String(invitation.id),
+      invitation_code: String(invitation.invitation_code || '')
+    }
   })
 }
 
