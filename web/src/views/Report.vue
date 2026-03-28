@@ -100,16 +100,39 @@
       <!-- Answer Comparison -->
       <div class="bg-white rounded-3xl p-8 border border-zinc-100 shadow-sm">
         <h2 class="text-lg font-bold text-zinc-900 mb-4">答案对比优化</h2>
-        <p class="text-sm text-zinc-500 mb-6">对比您的回答与优质标准答案的差异</p>
-        <div class="space-y-4">
-          <div class="p-4 rounded-2xl border border-zinc-100">
-            <div class="text-xs font-bold text-zinc-400 uppercase mb-2">您的回答</div>
-            <p class="text-sm text-zinc-600">{{ report.overall_analysis || '加载中...' }}</p>
-          </div>
-          <div class="p-4 rounded-2xl border border-emerald-100 bg-emerald-50/30">
-            <div class="text-xs font-bold text-emerald-600 uppercase mb-2">标准优秀回答</div>
-            <p class="text-sm text-zinc-600">系统将根据岗位能力图谱生成标准回答范例，包括文字、语音和视频版本。</p>
-          </div>
+        <p class="text-sm text-zinc-500 mb-6">按题目对比您的回答与优化参考答案，快速定位可提升点</p>
+        <div v-if="qaDetails.length > 0" class="space-y-4 max-h-[540px] overflow-y-auto pr-1 custom-scrollbar">
+          <article v-for="(item, idx) in qaDetails" :key="idx" class="rounded-2xl border border-zinc-100 bg-zinc-50/40 p-4">
+            <div class="text-sm font-bold text-zinc-900 leading-relaxed wrap-break-word">
+              Q{{ idx + 1 }} · {{ item.question }}
+            </div>
+
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-3">
+              <div class="rounded-xl border border-rose-200/80 bg-rose-50/70 p-3">
+                <div class="text-[11px] font-bold text-rose-600 uppercase tracking-wide mb-1">候选人回答</div>
+                <p class="text-sm text-zinc-700 leading-relaxed whitespace-pre-wrap wrap-break-word">{{ item.user_answer }}</p>
+              </div>
+              <div class="rounded-xl border border-emerald-200/80 bg-emerald-50/70 p-3">
+                <div class="text-[11px] font-bold text-emerald-700 uppercase tracking-wide mb-1">优化参考回答</div>
+                <p class="text-sm text-zinc-700 leading-relaxed whitespace-pre-wrap wrap-break-word">{{ item.optimized_answer }}</p>
+              </div>
+            </div>
+
+            <div class="mt-3 flex flex-wrap gap-2">
+              <el-tag
+                v-for="(improvement, improvementIdx) in item.key_improvements"
+                :key="`${idx}-${improvementIdx}`"
+                type="success"
+                effect="light"
+                round
+              >
+                {{ improvement }}
+              </el-tag>
+            </div>
+          </article>
+        </div>
+        <div v-else class="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-500">
+          详细题目回顾尚在生成中，请稍后刷新页面查看。
         </div>
       </div>
 
@@ -238,6 +261,48 @@ const resolvedReplayUrl = computed(() => {
   }
   return raw
 })
+
+const normalizeQADetails = (raw) => {
+  let source = raw
+  if (typeof source === 'string') {
+    const trimmed = source.trim()
+    if (!trimmed) return []
+    try {
+      source = JSON.parse(trimmed)
+    } catch (_) {
+      return []
+    }
+  }
+
+  if (!Array.isArray(source)) return []
+
+  return source
+    .map((item) => {
+      const question = String(item?.question || '').trim()
+      const userAnswer = String(item?.user_answer || '').trim()
+      const optimizedAnswer = String(item?.optimized_answer || '').trim()
+      if (!question || (!userAnswer && !optimizedAnswer)) return null
+
+      const keyImprovements = Array.isArray(item?.key_improvements)
+        ? item.key_improvements
+            .map((improvement) => String(improvement || '').trim())
+            .filter(Boolean)
+        : []
+
+      return {
+        question,
+        user_answer: userAnswer || '候选人回答摘要暂缺。',
+        optimized_answer: optimizedAnswer || '建议按“结论-原理-实践-边界”结构补充回答。',
+        key_improvements: keyImprovements.length > 0
+          ? keyImprovements.slice(0, 4)
+          : ['补充关键机制说明', '增加边界条件与异常处理']
+      }
+    })
+    .filter(Boolean)
+    .slice(0, 12)
+}
+
+const qaDetails = computed(() => normalizeQADetails(report.value?.qa_details))
 
 const submitFeedback = () => {
   // TODO: submit feedback to backend for algorithm optimization

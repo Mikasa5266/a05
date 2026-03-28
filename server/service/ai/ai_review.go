@@ -16,6 +16,8 @@ type ReviewResult struct {
 	Reasoning          string            `json:"reasoning,omitempty"`
 	Scores             *RubricScores     `json:"scores,omitempty"`
 	FinalScore         int               `json:"final_score,omitempty"`
+	ShouldFollowUp     bool              `json:"should_follow_up,omitempty"`
+	FollowUpContext    string            `json:"follow_up_context,omitempty"`
 	Highlights         []string          `json:"highlights,omitempty"`
 	Gaps               []string          `json:"gaps,omitempty"`
 	ModelAnswerOutline string            `json:"model_answer_outline,omitempty"`
@@ -84,16 +86,19 @@ func EvaluateCandidateAnswer(question, expectedAnswer, answer string, llmCallFun
 	result.Dimensions.Completeness = clampReviewScore(result.Dimensions.Completeness)
 
 	if strings.TrimSpace(result.Comment) == "" {
-		result.Comment = "Answer has partial coverage with room to improve depth and clarity."
+		result.Comment = "回答已覆盖部分要点，但在深度和清晰度上仍有提升空间。"
 	}
 	if strings.TrimSpace(result.Suggestion) == "" {
-		result.Suggestion = "Use conclusion -> principle -> example -> boundary structure."
+		result.Suggestion = "建议按“结论 -> 原理 -> 示例 -> 边界”结构作答。"
 	}
 	if strings.TrimSpace(result.ModelAnswerOutline) == "" {
 		result.ModelAnswerOutline = defaultModelAnswerOutline(expectedAnswer)
 	}
 	if strings.TrimSpace(result.FollowUp) == "" {
 		result.FollowUp = defaultFollowUpQuestion(question)
+	}
+	if result.ShouldFollowUp && strings.TrimSpace(result.FollowUpContext) == "" {
+		result.FollowUpContext = "请围绕题目要求中的关键机制继续展开，补充实现细节与边界条件。"
 	}
 
 	return &result, nil
@@ -121,15 +126,15 @@ func defaultModelAnswerOutline(expected string) string {
 	if strings.TrimSpace(expected) != "" {
 		return strings.TrimSpace(expected)
 	}
-	return "Define concept, explain mechanism, show one real scenario, discuss boundaries and trade-offs."
+	return "先给出定义，再说明机制，随后结合一个真实场景，最后补充边界与取舍。"
 }
 
 func defaultFollowUpQuestion(question string) string {
 	q := strings.TrimSpace(question)
 	if q == "" {
-		return "Can you provide a concrete implementation detail and trade-off?"
+		return "请补充一个关键实现细节，并说明对应取舍。"
 	}
-	return "Can you explain one implementation detail and why you chose it?"
+	return "请继续说明一个关键实现细节，以及你为何做出该技术选择。"
 }
 
 func normalizeAnswerForValidation(answer string) string {

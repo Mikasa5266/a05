@@ -44,6 +44,10 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  isFinishing: {
+    type: Boolean,
+    default: false
+  },
   processingHint: {
     type: String,
     default: ''
@@ -313,8 +317,16 @@ const showReportButton = computed(() => {
               <div class="p-6 bg-zinc-50 rounded-2xl text-center text-zinc-600 text-sm border border-zinc-100">
                 <p class="mb-4">{{ latestAiMessage.content }}</p>
                 <div v-if="showReportButton" class="flex justify-center">
-                  <button @click="emit('view-report')" class="px-8 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 hover:shadow-indigo-300 hover:-translate-y-0.5 active:translate-y-0">
-                    查看详细报告
+                  <button
+                    @click="emit('view-report')"
+                    :disabled="isFinishing"
+                    class="px-8 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 hover:shadow-indigo-300 hover:-translate-y-0.5 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60 disabled:transform-none disabled:shadow-indigo-100"
+                  >
+                    <span v-if="isFinishing" class="flex items-center gap-2">
+                      <Loader2 class="w-4 h-4 animate-spin" />
+                      正在跳转报告...
+                    </span>
+                    <span v-else>查看详细报告</span>
                   </button>
                 </div>
               </div>

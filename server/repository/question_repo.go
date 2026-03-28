@@ -66,28 +66,13 @@ func (r *QuestionRepository) GetQuestions(position, difficulty, category string)
 }
 
 func (r *QuestionRepository) GetQuestionsByPositionAndDifficulty(position, difficulty string) ([]*model.Question, error) {
+	return r.GetQuestionsByPositionAndDifficultyWithExclude(position, difficulty, nil)
+}
+
+func (r *QuestionRepository) GetQuestionsByPositionAndDifficultyWithExclude(position, difficulty string, excludeIDs []uint) ([]*model.Question, error) {
 	var questions []*model.Question
-	query := r.db.Model(&model.Question{}).
-		Where("(source IS NULL OR source <> ?) AND (rag_eligible IS NULL OR rag_eligible = ?)", "follow_up", true)
-
-	if position != "" {
-		candidates := buildPositionCandidates(position)
-		if len(candidates) > 0 {
-			query = query.Where("position IN ?", candidates)
-		} else {
-			query = query.Where("position = ?", position)
-		}
-	}
-	if difficulty != "" {
-		candidates := buildDifficultyCandidates(difficulty)
-		if len(candidates) > 0 {
-			query = query.Where("difficulty IN ?", candidates)
-		} else {
-			query = query.Where("difficulty = ?", difficulty)
-		}
-	}
-
-	err := query.Order("RAND()").Limit(10).Find(&questions).Error
+	query := applyQuestionBaseFilters(r.db.Model(&model.Question{}), position, difficulty, "", excludeIDs)
+	err := query.Order(randomOrderExpression(r.db)).Limit(10).Find(&questions).Error
 	if err != nil {
 		return nil, err
 	}
@@ -97,33 +82,15 @@ func (r *QuestionRepository) GetQuestionsByPositionAndDifficulty(position, diffi
 
 // GetQuestionsForInterviewInit fetches a bounded, deterministic set of questions for fast startup.
 func (r *QuestionRepository) GetQuestionsForInterviewInit(position, difficulty, category string, limit int) ([]*model.Question, error) {
+	return r.GetQuestionsForInterviewInitWithExclude(position, difficulty, category, limit, nil)
+}
+
+func (r *QuestionRepository) GetQuestionsForInterviewInitWithExclude(position, difficulty, category string, limit int, excludeIDs []uint) ([]*model.Question, error) {
 	if limit <= 0 {
 		limit = 12
 	}
 
-	query := r.db.Model(&model.Question{}).
-		Where("(source IS NULL OR source <> ?) AND (rag_eligible IS NULL OR rag_eligible = ?)", "follow_up", true)
-
-	if position != "" {
-		candidates := buildPositionCandidates(position)
-		if len(candidates) > 0 {
-			query = query.Where("position IN ?", candidates)
-		} else {
-			query = query.Where("position = ?", position)
-		}
-	}
-	if difficulty != "" {
-		candidates := buildDifficultyCandidates(difficulty)
-		if len(candidates) > 0 {
-			query = query.Where("difficulty IN ?", candidates)
-		} else {
-			query = query.Where("difficulty = ?", difficulty)
-		}
-	}
-	if category != "" {
-		query = query.Where("category = ?", category)
-	}
-
+	query := applyQuestionBaseFilters(r.db.Model(&model.Question{}), position, difficulty, category, excludeIDs)
 	var questions []*model.Question
 	err := query.Order("id DESC").Limit(limit).Find(&questions).Error
 	if err != nil {
@@ -131,6 +98,16 @@ func (r *QuestionRepository) GetQuestionsForInterviewInit(position, difficulty, 
 	}
 
 	return questions, nil
+}
+
+func (r *QuestionRepository) GetRandomQuestionForInterview(position, difficulty string, excludeIDs []uint) (*model.Question, error) {
+	query := applyQuestionBaseFilters(r.db.Model(&model.Question{}), position, difficulty, "", excludeIDs)
+	var question model.Question
+	err := query.Order(randomOrderExpression(r.db)).Limit(1).Take(&question).Error
+	if err != nil {
+		return nil, err
+	}
+	return &question, nil
 }
 
 func (r *QuestionRepository) Update(question *model.Question) error {
@@ -239,6 +216,48 @@ func buildPositionCandidates(position string) []string {
 	default:
 		return []string{position}
 	}
+}
+
+func applyQuestionBaseFilters(query *gorm.DB, position, difficulty, category string, excludeIDs []uint) *gorm.DB {
+	filtered := query.Where("(source IS NULL OR source <> ?) AND (rag_eligible IS NULL OR rag_eligible = ?)", "follow_up", true)
+
+	if len(excludeIDs) > 0 {
+		filtered = filtered.Where("id NOT IN ?", excludeIDs)
+	}
+
+	if position != "" {
+		candidates := buildPositionCandidates(position)
+		if len(candidates) > 0 {
+			filtered = filtered.Where("position IN ?", candidates)
+		} else {
+			filtered = filtered.Where("position = ?", position)
+		}
+	}
+
+	if difficulty != "" {
+		candidates := buildDifficultyCandidates(difficulty)
+		if len(candidates) > 0 {
+			filtered = filtered.Where("difficulty IN ?", candidates)
+		} else {
+			filtered = filtered.Where("difficulty = ?", difficulty)
+		}
+	}
+
+	if category != "" {
+		filtered = filtered.Where("category = ?", category)
+	}
+
+	return filtered
+}
+
+func randomOrderExpression(db *gorm.DB) string {
+	if db != nil && db.Dialector != nil {
+		switch strings.ToLower(strings.TrimSpace(db.Dialector.Name())) {
+		case "postgres", "postgresql":
+			return "RANDOM()"
+		}
+	}
+	return "RAND()"
 }
 
 func buildDifficultyCandidates(difficulty string) []string {

@@ -43,16 +43,24 @@ type EvaluationResult struct {
 	Feedback string `json:"feedback"`
 }
 
+type ReportQADetail struct {
+	Question        string   `json:"question"`
+	UserAnswer      string   `json:"user_answer"`
+	OptimizedAnswer string   `json:"optimized_answer"`
+	KeyImprovements []string `json:"key_improvements"`
+}
+
 type ReportInsights struct {
-	OverallAnalysis string   `json:"overall_analysis"`
-	Strengths       []string `json:"strengths"`
-	Weaknesses      []string `json:"weaknesses"`
-	Suggestions     []string `json:"suggestions"`
-	TechnicalScore  int      `json:"technical_score"`
-	ExpressionScore int      `json:"expression_score"`
-	LogicScore      int      `json:"logic_score"`
-	MatchingScore   int      `json:"matching_score"`
-	BehaviorScore   int      `json:"behavior_score"`
+	OverallAnalysis string           `json:"overall_analysis"`
+	Strengths       []string         `json:"strengths"`
+	Weaknesses      []string         `json:"weaknesses"`
+	Suggestions     []string         `json:"suggestions"`
+	TechnicalScore  int              `json:"technical_score"`
+	ExpressionScore int              `json:"expression_score"`
+	LogicScore      int              `json:"logic_score"`
+	MatchingScore   int              `json:"matching_score"`
+	BehaviorScore   int              `json:"behavior_score"`
+	QADetails       []ReportQADetail `json:"qa_details"`
 }
 
 // Chat exposes the raw LLM chat capability.

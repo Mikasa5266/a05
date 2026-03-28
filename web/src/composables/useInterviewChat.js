@@ -307,6 +307,7 @@ export function useInterviewChat(options = {}) {
   let answerVoiceTimer = null
   let answerRecorderStream = null
   let answerRecorderMimeType = ''
+  let skipNextAnswerSubmit = false
   let analysisSourceStream = null
 
   let audioContext = null
@@ -669,6 +670,7 @@ export function useInterviewChat(options = {}) {
     onResetQuietSeconds()
     answerAudioChunks = []
     answerRecorderMimeType = ''
+    skipNextAnswerSubmit = false
     answerRecordingPeakEnergy.value = 0
     speechRateSmoother.value = 0
     speechMetrics.value.transcribedText = ''
@@ -699,14 +701,26 @@ export function useInterviewChat(options = {}) {
           answerVoiceTimer = null
         }
 
+        if (skipNextAnswerSubmit) {
+          skipNextAnswerSubmit = false
+          answerAudioChunks = []
+          answerVoiceStatus.value = 'idle'
+          answerVoiceError.value = ''
+          answerVoiceSeconds.value = 0
+          answerMediaRecorder = null
+          return
+        }
+
         if (!answerAudioChunks.length) {
           answerVoiceError.value = '未检测到有效语音，请重试'
           answerVoiceStatus.value = 'error'
+          answerMediaRecorder = null
           return
         }
         if (isVideoInterviewMode.value && answerRecordingPeakEnergy.value < 0.06) {
           answerVoiceError.value = '未检测到有效语音输入，请检查麦克风并靠近后重试'
           answerVoiceStatus.value = 'error'
+          answerMediaRecorder = null
           return
         }
 
@@ -719,9 +733,11 @@ export function useInterviewChat(options = {}) {
           if (parts.length < 2 || !parts[1]) {
             answerVoiceError.value = '音频编码失败，请重试'
             answerVoiceStatus.value = 'error'
+            answerMediaRecorder = null
             return
           }
           await submitAudioAnswer(parts[1], answerRecorderMimeType || '')
+          answerMediaRecorder = null
         }
         reader.readAsDataURL(audioBlob)
       }
@@ -743,6 +759,7 @@ export function useInterviewChat(options = {}) {
 
   const stopAnswerRecording = () => {
     if (!answerMediaRecorder || answerVoiceStatus.value !== 'recording') return
+    skipNextAnswerSubmit = false
     stopSpeechAnalysis()
     onResetQuietSeconds()
     answerMediaRecorder.stop()
@@ -826,6 +843,7 @@ export function useInterviewChat(options = {}) {
 
   const cleanupInterviewChat = () => {
     if (answerMediaRecorder && answerMediaRecorder.state === 'recording') {
+      skipNextAnswerSubmit = true
       answerMediaRecorder.stop()
     }
     if (answerRecorderStream) {
@@ -837,6 +855,9 @@ export function useInterviewChat(options = {}) {
       answerVoiceTimer = null
     }
     stopSpeechAnalysis()
+    answerMediaRecorder = null
+    answerAudioChunks = []
+    answerVoiceStatus.value = 'idle'
   }
 
   return {

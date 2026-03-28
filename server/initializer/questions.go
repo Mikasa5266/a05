@@ -1,192 +1,524 @@
 package initializer
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
 
+	"your-project/config"
 	"your-project/model"
+	ragpkg "your-project/pkg/rag"
 
 	"gorm.io/gorm"
 )
 
-// InitSampleQuestions initializes sample questions for various positions
+const (
+	seedSourceKnowledgeBase = "knowledge_base_seed"
+	knowledgeEmbedBatchSize = 48
+)
+
+var (
+	headingLevel3Pattern = regexp.MustCompile(`^###\s+(.+)$`)
+	optionLinePattern    = regexp.MustCompile(`^[A-D][\.、]\s+.+`)
+	answerPattern        = regexp.MustCompile(`(?s)\*\*参考答案：\*\*\s*(.+?)(\n\*\*(答案解析|解析)：\*\*|$)`)
+	analysisPattern      = regexp.MustCompile(`(?s)\*\*(答案解析|解析)：\*\*\s*(.+)`)
+	numberPrefixPattern  = regexp.MustCompile(`^\d+[\.、]\s*`)
+)
+
+// InitSampleQuestions initializes question bank from knowledge_base markdown files.
 func InitSampleQuestions(db *gorm.DB) error {
-	sampleQuestions := []model.Question{
-		// Python questions
-		{
-			Title:          "Python Basics: Variables and Data Types",
-			Content:        "Please explain mutable and immutable data types in Python with examples.",
-			Position:       "Python",
-			Difficulty:     "Junior",
-			Category:       "Basics",
-			Tags:           "data types,basics",
-			ExpectedAnswer: "Immutable data types in Python include: int, float, str, tuple, etc. Once created, they cannot be modified. Mutable data types include: list, dict, set, etc. They can be modified in place.",
-		},
-		{
-			Title:          "Python List Operations",
-			Content:        "Please explain slicing operations in Python lists and how to reverse a list.",
-			Position:       "Python",
-			Difficulty:     "Junior",
-			Category:       "Data Structures",
-			Tags:           "lists,slicing,reverse",
-			ExpectedAnswer: "List slicing syntax is list[start:stop:step]. To reverse a list, you can use list[::-1] or list.reverse() method.",
-		},
-		{
-			Title:          "Python Function Definitions",
-			Content:        "Please explain the purpose and difference between *args and **kwargs parameters in Python functions.",
-			Position:       "Python",
-			Difficulty:     "Junior",
-			Category:       "Functions",
-			Tags:           "functions,parameters",
-			ExpectedAnswer: "*args is used to receive any number of positional arguments, **kwargs is used to receive any number of keyword arguments.",
-		},
-		{
-			Title:          "Python Object-Oriented Programming",
-			Content:        "Please explain the concepts of inheritance and polymorphism in Python.",
-			Position:       "Python",
-			Difficulty:     "Junior",
-			Category:       "OOP",
-			Tags:           "inheritance,polymorphism,OOP",
-			ExpectedAnswer: "Inheritance allows subclasses to inherit attributes and methods from parent classes. Polymorphism allows objects of different classes to respond differently to the same message.",
-		},
-		{
-			Title:          "Python Exception Handling",
-			Content:        "Please explain the execution order of try-except-finally statements in Python.",
-			Position:       "Python",
-			Difficulty:     "Junior",
-			Category:       "Exception Handling",
-			Tags:           "exceptions,try-except",
-			ExpectedAnswer: "First, the try block is executed. If there is an exception, the except block is executed. Finally, the finally block is executed regardless of whether there was an exception.",
-		},
-		{
-			Title:          "Python Intermediate: Decorators",
-			Content:        "Please explain the purpose of Python decorators and write a simple decorator example.",
-			Position:       "Python",
-			Difficulty:     "Intermediate",
-			Category:       "Advanced Features",
-			Tags:           "decorators,advanced features",
-			ExpectedAnswer: "Decorators are used to modify or enhance the behavior of functions. Example: @decorator def func(): pass",
-		},
-		{
-			Title:          "Python Generators",
-			Content:        "Please explain the difference between Python generators and regular functions, and the role of the yield keyword.",
-			Position:       "Python",
-			Difficulty:     "Intermediate",
-			Category:       "Advanced Features",
-			Tags:           "generators,yield",
-			ExpectedAnswer: "Generators use yield to return data and can pause and resume execution, saving memory.",
-		},
-		{
-			Title:          "Python Advanced: Concurrent Programming",
-			Content:        "Please explain the difference between multithreading and multiprocessing in Python and their applicable scenarios.",
-			Position:       "Python",
-			Difficulty:     "Senior",
-			Category:       "Concurrency",
-			Tags:           "multithreading,multiprocessing,concurrency",
-			ExpectedAnswer: "Multithreading is suitable for I/O-bound tasks, multiprocessing is suitable for CPU-bound tasks.",
-		},
-
-		// JavaScript questions
-		{
-			Title:          "JavaScript Basics: Variables and Data Types",
-			Content:        "Please explain the differences between var, let, and const in JavaScript.",
-			Position:       "Frontend",
-			Difficulty:     "Junior",
-			Category:       "Basics",
-			Tags:           "variables,data types,basics",
-			ExpectedAnswer: "var has function scope, let and const have block scope. const cannot be reassigned, while var and let can.",
-		},
-		{
-			Title:          "JavaScript Functions",
-			Content:        "Please explain arrow functions in JavaScript and their differences from regular functions.",
-			Position:       "Frontend",
-			Difficulty:     "Junior",
-			Category:       "Functions",
-			Tags:           "functions,arrow functions",
-			ExpectedAnswer: "Arrow functions have a shorter syntax and do not bind their own this, arguments, super, or new.target.",
-		},
-		{
-			Title:          "JavaScript DOM Manipulation",
-			Content:        "Please explain how to select elements from the DOM and modify their properties.",
-			Position:       "Frontend",
-			Difficulty:     "Junior",
-			Category:       "DOM",
-			Tags:           "DOM,manipulation",
-			ExpectedAnswer: "Use methods like document.getElementById(), document.querySelector(), document.querySelectorAll() to select elements, then modify their properties or content.",
-		},
-
-		// Java questions
-		{
-			Title:          "Java Basics: Variables and Data Types",
-			Content:        "Please explain the primitive data types in Java and their ranges.",
-			Position:       "Java",
-			Difficulty:     "Junior",
-			Category:       "Basics",
-			Tags:           "variables,data types,basics",
-			ExpectedAnswer: "Java has 8 primitive data types: byte, short, int, long, float, double, char, and boolean. Each has a specific range and size.",
-		},
-		{
-			Title:          "Java OOP Concepts",
-			Content:        "Please explain encapsulation, inheritance, and polymorphism in Java.",
-			Position:       "Java",
-			Difficulty:     "Junior",
-			Category:       "OOP",
-			Tags:           "OOP,encapsulation,inheritance,polymorphism",
-			ExpectedAnswer: "Encapsulation is the process of hiding implementation details. Inheritance allows a class to inherit properties from another class. Polymorphism allows objects to be treated as instances of their parent class.",
-		},
-
-		// Go questions
-		{
-			Title:          "Go Basics: Variables and Data Types",
-			Content:        "Please explain the basic data types in Go and how variable declaration differs from other languages.",
-			Position:       "Go",
-			Difficulty:     "Junior",
-			Category:       "Basics",
-			Tags:           "variables,data types,basics",
-			ExpectedAnswer: "Go has basic data types including int, float, bool, string, etc. Variable declaration uses := for short declaration and var for explicit declaration.",
-		},
-		{
-			Title:          "Go Concurrency",
-			Content:        "Please explain goroutines and channels in Go and how they work together.",
-			Position:       "Go",
-			Difficulty:     "Intermediate",
-			Category:       "Concurrency",
-			Tags:           "goroutines,channels,concurrency",
-			ExpectedAnswer: "Goroutines are lightweight threads managed by the Go runtime. Channels are used for communication between goroutines.",
-		},
-
-		// C++ questions (QA or others can use C++)
-		{
-			Title:          "C++ Basics: Variables and Data Types",
-			Content:        "Please explain the basic data types in C++ and their memory sizes.",
-			Position:       "QA",
-			Difficulty:     "Junior",
-			Category:       "Basics",
-			Tags:           "variables,data types,basics",
-			ExpectedAnswer: "C++ has basic data types including int, float, double, char, bool, etc. The memory size of each type depends on the compiler and system.",
-		},
-		{
-			Title:          "Software Testing Basics",
-			Content:        "Please explain the difference between Black Box Testing and White Box Testing.",
-			Position:       "QA",
-			Difficulty:     "Junior",
-			Category:       "Testing",
-			Tags:           "testing,black box,white box",
-			ExpectedAnswer: "Black Box Testing tests the functionality without knowing the internal structure. White Box Testing tests the internal structure and logic of the code.",
-		},
+	if db == nil {
+		return fmt.Errorf("database is nil")
 	}
 
-	for _, q := range sampleQuestions {
-		var count int64
-		// Check if a question with the same title already exists
-		db.Model(&model.Question{}).Where("title = ?", q.Title).Count(&count)
-		if count == 0 {
-			if err := db.Create(&q).Error; err != nil {
-				return fmt.Errorf("failed to create sample question: %w", err)
-			}
-			log.Printf("Created sample question: %s", q.Title)
-		}
+	kbRoot, err := resolveKnowledgeBaseRoot()
+	if err != nil {
+		return err
+	}
+
+	questions, err := parseQuestionsFromKnowledgeBase(kbRoot)
+	if err != nil {
+		return err
+	}
+	if len(questions) == 0 {
+		log.Printf("No seed question parsed from %s", kbRoot)
+		return nil
+	}
+
+	persisted, err := upsertSeedQuestions(db, questions)
+	if err != nil {
+		return err
+	}
+	log.Printf("Knowledge base seed complete: parsed=%d, upserted=%d", len(questions), len(persisted))
+
+	if err := upsertQuestionsToQdrant(context.Background(), persisted); err != nil {
+		log.Printf("Warning: failed to upsert seeded questions to Qdrant: %v", err)
 	}
 
 	return nil
+}
+
+func resolveKnowledgeBaseRoot() (string, error) {
+	candidates := []string{
+		filepath.Join("..", "knowledge_base"),
+		"knowledge_base",
+	}
+
+	for _, candidate := range candidates {
+		info, err := os.Stat(candidate)
+		if err != nil {
+			continue
+		}
+		if info.IsDir() {
+			abs, absErr := filepath.Abs(candidate)
+			if absErr != nil {
+				return candidate, nil
+			}
+			return abs, nil
+		}
+	}
+
+	return "", fmt.Errorf("knowledge_base directory not found")
+}
+
+func parseQuestionsFromKnowledgeBase(root string) ([]model.Question, error) {
+	allowedDomains := map[string]bool{
+		"backend":     true,
+		"frontend":    true,
+		"algorithm":   true,
+		"ai_engineer": true,
+		"behavioral":  true,
+	}
+
+	result := make([]model.Question, 0, 256)
+	seen := make(map[string]struct{}, 256)
+
+	err := filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if strings.ToLower(filepath.Ext(path)) != ".md" {
+			return nil
+		}
+		if strings.EqualFold(info.Name(), "README.md") {
+			return nil
+		}
+
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		parts := strings.Split(rel, "/")
+		if len(parts) < 2 {
+			return nil
+		}
+		domain := strings.TrimSpace(parts[0])
+		if !allowedDomains[domain] {
+			return nil
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		meta := questionSeedMeta{
+			Domain:      domain,
+			RelativeSrc: rel,
+			Category:    strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
+			Position:    mapDomainToPosition(domain),
+		}
+
+		parsed := extractQuestionsFromMarkdown(string(content), meta)
+		for _, item := range parsed {
+			key := normalizeQuestionFingerprint(item.Position, item.Title, item.Content)
+			if key == "" {
+				continue
+			}
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			result = append(result, item)
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+type questionSeedMeta struct {
+	Domain      string
+	RelativeSrc string
+	Category    string
+	Position    string
+}
+
+func extractQuestionsFromMarkdown(doc string, meta questionSeedMeta) []model.Question {
+	lines := strings.Split(doc, "\n")
+	questions := make([]model.Question, 0, 32)
+
+	currentHeading := ""
+	var bodyBuilder strings.Builder
+
+	flushSection := func() {
+		heading := strings.TrimSpace(currentHeading)
+		body := strings.TrimSpace(bodyBuilder.String())
+		bodyBuilder.Reset()
+		if heading == "" {
+			return
+		}
+
+		q, ok := buildQuestionFromSection(heading, body, meta)
+		if !ok {
+			return
+		}
+		questions = append(questions, q)
+	}
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if matches := headingLevel3Pattern.FindStringSubmatch(trimmed); len(matches) > 1 {
+			flushSection()
+			currentHeading = strings.TrimSpace(matches[1])
+			continue
+		}
+		if currentHeading == "" {
+			continue
+		}
+		bodyBuilder.WriteString(line)
+		bodyBuilder.WriteString("\n")
+	}
+	flushSection()
+
+	return questions
+}
+
+func buildQuestionFromSection(rawHeading, body string, meta questionSeedMeta) (model.Question, bool) {
+	heading := cleanQuestionHeading(rawHeading)
+	if !looksLikeQuestionHeading(heading, body) {
+		return model.Question{}, false
+	}
+
+	questionContent := extractQuestionContent(heading, body)
+	if questionContent == "" {
+		questionContent = fmt.Sprintf("请围绕“%s”进行系统说明。", heading)
+	}
+
+	expectedAnswer := extractExpectedAnswer(body)
+	if expectedAnswer == "" {
+		expectedAnswer = truncateText(body, 1200)
+	}
+	if expectedAnswer == "" {
+		expectedAnswer = "请结合知识点给出结构化回答，覆盖定义、原理、实现和边界。"
+	}
+
+	difficulty := inferDifficultyFromSection(heading, body)
+	tags := []string{meta.Domain, meta.Category, seedSourceKnowledgeBase, difficulty}
+
+	q := model.Question{
+		Title:          truncateText(heading, 120),
+		Content:        truncateText(questionContent, 500),
+		Position:       meta.Position,
+		Difficulty:     difficulty,
+		Category:       meta.Category,
+		Source:         seedSourceKnowledgeBase,
+		RAGEligible:    true,
+		ExpectedAnswer: truncateText(expectedAnswer, 2600),
+	}
+	q.SetTags(tags)
+	return q, true
+}
+
+func cleanQuestionHeading(raw string) string {
+	heading := strings.TrimSpace(raw)
+	heading = numberPrefixPattern.ReplaceAllString(heading, "")
+	heading = strings.TrimPrefix(heading, "- ")
+	heading = strings.TrimSpace(heading)
+	return heading
+}
+
+func looksLikeQuestionHeading(heading, body string) bool {
+	if heading == "" {
+		return false
+	}
+	if strings.Contains(heading, "知识点部分") || strings.Contains(heading, "题库部分") || strings.Contains(heading, "扩展") || strings.Contains(heading, "加量") {
+		return false
+	}
+	if strings.Contains(heading, "单选题") || strings.Contains(heading, "简答题") {
+		return true
+	}
+	if strings.Contains(heading, "？") || strings.Contains(heading, "?") {
+		return true
+	}
+	if strings.Contains(body, "**解析：**") || strings.Contains(body, "**参考答案：**") {
+		return true
+	}
+	return false
+}
+
+func extractQuestionContent(heading, body string) string {
+	content := heading
+	if idx := strings.IndexAny(heading, "：:"); idx >= 0 && idx+1 < len(heading) {
+		after := strings.TrimSpace(heading[idx+1:])
+		if after != "" {
+			content = after
+		}
+	}
+
+	options := collectOptionLines(body)
+	if len(options) > 0 {
+		content = strings.TrimSpace(content + "\n" + strings.Join(options, "\n"))
+	}
+	return content
+}
+
+func collectOptionLines(body string) []string {
+	lines := strings.Split(body, "\n")
+	options := make([]string, 0, 4)
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if optionLinePattern.MatchString(trimmed) {
+			options = append(options, trimmed)
+		}
+	}
+	return options
+}
+
+func extractExpectedAnswer(body string) string {
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" {
+		return ""
+	}
+
+	if matches := answerPattern.FindStringSubmatch(trimmed); len(matches) > 1 {
+		answer := strings.TrimSpace(matches[1])
+		if answer != "" {
+			return answer
+		}
+	}
+
+	if matches := analysisPattern.FindStringSubmatch(trimmed); len(matches) > 2 {
+		analysis := strings.TrimSpace(matches[2])
+		if analysis != "" {
+			return analysis
+		}
+	}
+
+	return ""
+}
+
+func inferDifficultyFromSection(heading, body string) string {
+	text := strings.ToLower(strings.TrimSpace(heading + " " + body))
+	switch {
+	case strings.Contains(text, "单选题"):
+		return "campus_intern"
+	case strings.Contains(text, "高并发"), strings.Contains(text, "分布式"), strings.Contains(text, "多活"), strings.Contains(text, "系统设计"), strings.Contains(text, "架构"):
+		return "social_junior"
+	case strings.Contains(text, "简答题"):
+		return "campus_graduate"
+	default:
+		return "campus_graduate"
+	}
+}
+
+func mapDomainToPosition(domain string) string {
+	switch strings.TrimSpace(domain) {
+	case "backend":
+		return "Java后端工程师"
+	case "frontend":
+		return "前端工程师"
+	case "algorithm":
+		return "算法工程师"
+	case "ai_engineer":
+		return "AI工程师"
+	case "behavioral":
+		return "Java后端工程师"
+	default:
+		return "Java后端工程师"
+	}
+}
+
+func normalizeQuestionFingerprint(position, title, content string) string {
+	joined := strings.ToLower(strings.TrimSpace(position + "|" + title + "|" + content))
+	joined = strings.ReplaceAll(joined, " ", "")
+	joined = strings.ReplaceAll(joined, "\n", "")
+	joined = strings.ReplaceAll(joined, "\t", "")
+	joined = strings.ReplaceAll(joined, "，", "")
+	joined = strings.ReplaceAll(joined, "。", "")
+	joined = strings.ReplaceAll(joined, "：", "")
+	joined = strings.ReplaceAll(joined, ":", "")
+	joined = strings.ReplaceAll(joined, "？", "")
+	joined = strings.ReplaceAll(joined, "?", "")
+	joined = strings.ReplaceAll(joined, "（", "")
+	joined = strings.ReplaceAll(joined, "）", "")
+	joined = strings.ReplaceAll(joined, "(", "")
+	joined = strings.ReplaceAll(joined, ")", "")
+	return joined
+}
+
+func truncateText(text string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	runes := []rune(strings.TrimSpace(text))
+	if len(runes) <= max {
+		return string(runes)
+	}
+	return strings.TrimSpace(string(runes[:max]))
+}
+
+func upsertSeedQuestions(db *gorm.DB, questions []model.Question) ([]*model.Question, error) {
+	persisted := make([]*model.Question, 0, len(questions))
+	for _, candidate := range questions {
+		stored, err := upsertSingleQuestion(db, candidate)
+		if err != nil {
+			return nil, err
+		}
+		if stored != nil {
+			persisted = append(persisted, stored)
+		}
+	}
+	return persisted, nil
+}
+
+func upsertSingleQuestion(db *gorm.DB, candidate model.Question) (*model.Question, error) {
+	var existing model.Question
+	err := db.Where("title = ? AND content = ? AND position = ? AND difficulty = ?", candidate.Title, candidate.Content, candidate.Position, candidate.Difficulty).First(&existing).Error
+	if err == nil {
+		existing.Category = candidate.Category
+		existing.Source = candidate.Source
+		existing.RAGEligible = true
+		existing.ExpectedAnswer = candidate.ExpectedAnswer
+		existing.Tags = candidate.Tags
+		if saveErr := db.Save(&existing).Error; saveErr != nil {
+			return nil, fmt.Errorf("failed to update seed question: %w", saveErr)
+		}
+		return &existing, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("failed to query seed question: %w", err)
+	}
+
+	if createErr := db.Create(&candidate).Error; createErr != nil {
+		return nil, fmt.Errorf("failed to create seed question: %w", createErr)
+	}
+	return &candidate, nil
+}
+
+func upsertQuestionsToQdrant(ctx context.Context, questions []*model.Question) error {
+	if len(questions) == 0 {
+		return nil
+	}
+
+	store, err := ragpkg.NewQdrantStoreFromEnv()
+	if err != nil {
+		return err
+	}
+
+	pingCtx, cancelPing := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelPing()
+	if err := store.Ping(pingCtx); err != nil {
+		return err
+	}
+
+	embedder, err := buildInitializerEmbedder()
+	if err != nil {
+		return err
+	}
+
+	points := make([]ragpkg.VectorPoint, 0, len(questions))
+	for _, q := range questions {
+		if q == nil || q.ID == 0 {
+			continue
+		}
+		text := buildQuestionEmbeddingText(q)
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+
+		vector, embErr := embedder.Embed(ctx, text)
+		if embErr != nil {
+			continue
+		}
+
+		points = append(points, ragpkg.VectorPoint{
+			ID:      fmt.Sprintf("question_%d", q.ID),
+			Vector:  vector,
+			Content: text,
+			Metadata: map[string]string{
+				"kind":        "question",
+				"question_id": fmt.Sprintf("%d", q.ID),
+				"position":    strings.TrimSpace(q.Position),
+				"difficulty":  strings.TrimSpace(q.Difficulty),
+				"category":    strings.TrimSpace(q.Category),
+				"source":      strings.TrimSpace(q.Source),
+			},
+		})
+	}
+
+	if len(points) == 0 {
+		return nil
+	}
+
+	for start := 0; start < len(points); start += knowledgeEmbedBatchSize {
+		end := start + knowledgeEmbedBatchSize
+		if end > len(points) {
+			end = len(points)
+		}
+		if err := store.Upsert(ctx, points[start:end]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func buildInitializerEmbedder() (ragpkg.Embedder, error) {
+	embedder, err := ragpkg.NewOpenAIEmbedderFromEnv()
+	if err == nil {
+		return embedder, nil
+	}
+
+	cfg := config.GetConfig()
+	if cfg == nil {
+		return nil, fmt.Errorf("embedding config not found")
+	}
+
+	modelName := strings.TrimSpace(os.Getenv("EMBEDDING_MODEL"))
+	if modelName == "" {
+		modelName = strings.TrimSpace(cfg.LLM.Models["embedding"])
+	}
+
+	return ragpkg.NewOpenAIEmbedder(ragpkg.OpenAIEmbedderConfig{
+		APIKey:  strings.TrimSpace(cfg.LLM.APIKey),
+		BaseURL: strings.TrimSpace(cfg.LLM.BaseURL),
+		Model:   modelName,
+	})
+}
+
+func buildQuestionEmbeddingText(q *model.Question) string {
+	if q == nil {
+		return ""
+	}
+	parts := []string{
+		strings.TrimSpace(q.Title),
+		strings.TrimSpace(q.Content),
+	}
+	if strings.TrimSpace(q.ExpectedAnswer) != "" {
+		parts = append(parts, "参考答案："+strings.TrimSpace(q.ExpectedAnswer))
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n"))
 }

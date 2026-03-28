@@ -11,6 +11,11 @@ type Embedder interface {
 type VectorStore interface {
 	Upsert(ctx context.Context, points []VectorPoint) error
 	Search(ctx context.Context, queryVector []float32, topK int) ([]SearchResult, error)
+	SearchWithOptions(ctx context.Context, queryVector []float32, topK int, opts SearchOptions) ([]SearchResult, error)
+}
+
+type SearchOptions struct {
+	ExcludePointIDs []string
 }
 
 // DocumentSplitter splits a source document into retrievable chunks.

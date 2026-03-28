@@ -17,6 +17,8 @@ type EvaluationResult = aidomain.EvaluationResult
 
 type ReportInsights = aidomain.ReportInsights
 
+type ReportQADetail = aidomain.ReportQADetail
+
 type ReviewResult = aidomain.ReviewResult
 
 type ReviewDimensions = aidomain.ReviewDimensions

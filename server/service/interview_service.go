@@ -2,10 +2,14 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+	"unicode"
 
 	"golang.org/x/sync/errgroup"
 
@@ -14,10 +18,14 @@ import (
 )
 
 const (
-	fastInitAIFillMaxAttempts = 1
-	fastInitAIFillConcurrency = 1
-	fastInitAITaskTimeout     = 1200 * time.Millisecond
+	fastInitAIFillMaxAttempts     = 1
+	fastInitAIFillConcurrency     = 1
+	fastInitAITaskTimeout         = 1200 * time.Millisecond
+	fastInitChineseRewriteTimeout = 1200 * time.Millisecond
+	fastInitOpeningRewriteBudget  = 2
 )
+
+var openingQuestionEnglishTokenPattern = regexp.MustCompile(`[A-Za-z]{8,}`)
 
 type InterviewService struct {
 	interviewRepo *repository.InterviewRepository
@@ -68,6 +76,7 @@ func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID
 	var invitation *model.HumanInterviewInvitation
 
 	topicCount, totalTarget := buildInterviewPlan(difficulty)
+	openingQuestionChineseRewriteBudget := int32(fastInitOpeningRewriteBudget)
 	topicQuestionMin, topicQuestionMax, maxFollowUps := 2, 4, 3
 	position = normalizeInterviewPosition(position)
 
@@ -123,21 +132,41 @@ func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID
 		}
 	}
 
+	// 首题硬约束：优先从题库按岗位+级别随机直取，绕过 LLM 生成。
+	firstQuestion, firstErr := s.questionRepo.GetRandomQuestionForInterview(position, difficulty, nil)
+	if firstErr == nil && firstQuestion != nil {
+		if s.aiService.IsContextDependentOpeningQuestion(firstQuestion) {
+			s.quarantineQuestionAsFollowUp(firstQuestion)
+		} else if normalized := s.normalizeOpeningQuestionForInit(ctx, firstQuestion, &openingQuestionChineseRewriteBudget); normalized != nil {
+			questions = append(questions, normalized)
+		}
+	}
+
 	isAlgorithmStyle := style == "algorithm" && mode != "blindbox"
 	if isAlgorithmStyle {
 		// 算法开场题固定 3 题，避免沿用难度档位导致额外补题并触发超时。
 		topicCount = 3
-		questions = s.buildAlgorithmOpeningQuestions(position, difficulty)
+		seededAlgorithmQuestions := s.buildAlgorithmOpeningQuestions(position, difficulty)
+		for _, q := range seededAlgorithmQuestions {
+			if len(questions) >= topicCount {
+				break
+			}
+			normalized := s.normalizeOpeningQuestionForInit(ctx, q, &openingQuestionChineseRewriteBudget)
+			if normalized == nil || s.isDuplicateOpeningQuestion(questions, normalized) {
+				continue
+			}
+			questions = append(questions, normalized)
+		}
 
 		// 预设题不足时，优先从本地算法题库补齐，避免触发耗时 AI 生成。
 		if len(questions) < topicCount {
-			localAlgorithmBank, err := s.questionRepo.GetQuestionsForInterviewInit(position, difficulty, "algorithm", topicCount*4)
+			localAlgorithmBank, err := s.questionRepo.GetQuestionsForInterviewInitWithExclude(position, difficulty, "algorithm", topicCount*4, collectQuestionIDs(questions))
 			if err == nil {
 				for _, q := range localAlgorithmBank {
 					if len(questions) >= topicCount {
 						break
 					}
-					normalized := s.normalizeOpeningQuestionForInit(q)
+					normalized := s.normalizeOpeningQuestionForInit(ctx, q, &openingQuestionChineseRewriteBudget)
 					if normalized == nil || s.isDuplicateOpeningQuestion(questions, normalized) {
 						continue
 					}
@@ -148,13 +177,13 @@ func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID
 
 		// 若算法分类题仍不足，再使用本地通用题库兜底，不走 AI 强制补题。
 		if len(questions) < topicCount {
-			localFallback, err := s.questionRepo.GetQuestionsForInterviewInit(position, difficulty, "", topicCount*4)
+			localFallback, err := s.questionRepo.GetQuestionsForInterviewInitWithExclude(position, difficulty, "", topicCount*4, collectQuestionIDs(questions))
 			if err == nil {
 				for _, q := range localFallback {
 					if len(questions) >= topicCount {
 						break
 					}
-					normalized := s.normalizeOpeningQuestionForInit(q)
+					normalized := s.normalizeOpeningQuestionForInit(ctx, q, &openingQuestionChineseRewriteBudget)
 					if normalized == nil || s.isDuplicateOpeningQuestion(questions, normalized) {
 						continue
 					}
@@ -183,7 +212,7 @@ func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID
 			q.Difficulty = difficulty
 			q.Source = "ai_opening"
 			q.RAGEligible = true
-			s.normalizeOpeningQuestionForInit(q)
+			s.normalizeOpeningQuestionForInit(ctx, q, &openingQuestionChineseRewriteBudget)
 			if err := s.questionRepo.Create(q); err != nil {
 				return nil, fmt.Errorf("failed to save blindbox question: %w", err)
 			}
@@ -205,7 +234,7 @@ func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID
 
 		// Fill from question bank if needed
 		if len(questions) < topicCount {
-			fallback, err := s.questionRepo.GetQuestionsForInterviewInit(position, difficulty, "", topicCount*4)
+			fallback, err := s.questionRepo.GetQuestionsForInterviewInitWithExclude(position, difficulty, "", topicCount*4, collectQuestionIDs(questions))
 			if err != nil {
 				return nil, fmt.Errorf("failed to get questions: %w", err)
 			}
@@ -217,7 +246,7 @@ func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID
 					s.quarantineQuestionAsFollowUp(q)
 					continue
 				}
-				if normalized := s.normalizeOpeningQuestionForInit(q); normalized != nil {
+				if normalized := s.normalizeOpeningQuestionForInit(ctx, q, &openingQuestionChineseRewriteBudget); normalized != nil {
 					questions = append(questions, normalized)
 				}
 			}
@@ -225,7 +254,7 @@ func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID
 
 		// 先走本地模板兜底，保证优先可进入。
 		if len(questions) < topicCount {
-			questions = s.fillWithLocalFallbackQuestions(ctx, questions, topicCount, position, difficulty, mode, style)
+			questions = s.fillWithLocalFallbackQuestions(ctx, questions, topicCount, position, difficulty, mode, style, &openingQuestionChineseRewriteBudget)
 		}
 
 		// 本地仍不足时再做极少量 AI 补题，避免启动阶段长时间阻塞。
@@ -235,20 +264,20 @@ func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID
 			if maxAttempts > fastInitAIFillMaxAttempts {
 				maxAttempts = fastInitAIFillMaxAttempts
 			}
-			questions = s.fillOpeningQuestionsConcurrently(ctx, questions, topicCount, dummyInterview, capabilityGraph, position, difficulty, maxAttempts)
+			questions = s.fillOpeningQuestionsConcurrently(ctx, questions, topicCount, dummyInterview, capabilityGraph, position, difficulty, maxAttempts, &openingQuestionChineseRewriteBudget)
 		}
 	}
 
 	questions = s.prioritizeTopicVariety(questions, topicCount)
 
 	if len(questions) < topicCount && !isAlgorithmStyle {
-		questions = s.fillWithLocalFallbackQuestions(ctx, questions, topicCount, position, difficulty, mode, style)
+		questions = s.fillWithLocalFallbackQuestions(ctx, questions, topicCount, position, difficulty, mode, style, &openingQuestionChineseRewriteBudget)
 		questions = s.prioritizeTopicVariety(questions, topicCount)
 	}
 
 	// 最后兜底：即使 AI 和题库都不足，也保证至少能拿到可用开场题，避免前端无法进入面试。
 	if len(questions) < topicCount {
-		questions = s.fillWithLocalFallbackQuestions(ctx, questions, topicCount, position, difficulty, mode, style)
+		questions = s.fillWithLocalFallbackQuestions(ctx, questions, topicCount, position, difficulty, mode, style, &openingQuestionChineseRewriteBudget)
 		questions = s.prioritizeTopicVariety(questions, topicCount)
 	}
 
@@ -264,7 +293,12 @@ func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("面试初始化超时，请稍后重试")
 		}
-		s.normalizeOpeningQuestionForInit(q)
+		s.normalizeOpeningQuestionForInit(ctx, q, &openingQuestionChineseRewriteBudget)
+	}
+
+	initialAskedQuestionIDs := []uint{}
+	if len(questions) > 0 && questions[0] != nil && questions[0].ID > 0 {
+		initialAskedQuestionIDs = append(initialAskedQuestionIDs, questions[0].ID)
 	}
 
 	// Style could be overridden by random/blindbox mode, so compute strategy at the end.
@@ -284,6 +318,7 @@ func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID
 		Status:              "in_progress",
 		StartTime:           time.Now(),
 		CurrentIndex:        0,
+		AskedQuestionIDs:    encodeAskedQuestionIDs(initialAskedQuestionIDs),
 		MaxFollowUps:        maxFollowUps,
 		TopicIndex:          0,
 		TopicCountTarget:    topicCount,
@@ -343,6 +378,7 @@ func (s *InterviewService) fillOpeningQuestionsConcurrently(
 	capabilityGraph *model.JobCapabilityDimension,
 	position, difficulty string,
 	maxAttempts int,
+	rewriteBudget *int32,
 ) []*model.Question {
 	if target <= len(questions) || maxAttempts <= 0 {
 		return questions
@@ -389,7 +425,7 @@ func (s *InterviewService) fillOpeningQuestionsConcurrently(
 			q.Source = "ai_opening"
 			q.RAGEligible = true
 
-			normalized := s.normalizeOpeningQuestionForInit(q)
+			normalized := s.normalizeOpeningQuestionForInit(ctx, q, rewriteBudget)
 			if normalized == nil {
 				return nil
 			}
@@ -435,6 +471,7 @@ func (s *InterviewService) fillWithLocalFallbackQuestions(
 	questions []*model.Question,
 	target int,
 	position, difficulty, mode, style string,
+	rewriteBudget *int32,
 ) []*model.Question {
 	if target <= 0 || len(questions) >= target {
 		return questions
@@ -451,7 +488,7 @@ func (s *InterviewService) fillWithLocalFallbackQuestions(
 		if ctx.Err() != nil {
 			break
 		}
-		normalized := s.normalizeOpeningQuestionForInit(candidate)
+		normalized := s.normalizeOpeningQuestionForInit(ctx, candidate, rewriteBudget)
 		if normalized == nil || s.isDuplicateOpeningQuestion(questions, normalized) {
 			continue
 		}
@@ -572,7 +609,7 @@ func (s *InterviewService) buildLocalFallbackOpeningQuestions(position, difficul
 	return questions
 }
 
-func (s *InterviewService) normalizeOpeningQuestionForInit(q *model.Question) *model.Question {
+func (s *InterviewService) normalizeOpeningQuestionForInit(ctx context.Context, q *model.Question, rewriteBudget *int32) *model.Question {
 	if q == nil {
 		return nil
 	}
@@ -601,10 +638,87 @@ func (s *InterviewService) normalizeOpeningQuestionForInit(q *model.Question) *m
 		s.aiService.NormalizeToSelfContainedOpening(q)
 	}
 
+	if shouldRewriteOpeningQuestionForInit(q) && consumeOpeningQuestionRewriteBudget(rewriteBudget) {
+		baseCtx := ctx
+		if baseCtx == nil {
+			baseCtx = context.Background()
+		}
+		rewriteCtx, cancel := context.WithTimeout(baseCtx, fastInitChineseRewriteTimeout)
+		s.aiService.EnsureQuestionChinese(rewriteCtx, q)
+		cancel()
+	}
+
 	q.Title = strings.TrimSpace(q.Title)
 	q.Content = strings.TrimSpace(q.Content)
 	q.ExpectedAnswer = strings.TrimSpace(q.ExpectedAnswer)
 	return q
+}
+
+func consumeOpeningQuestionRewriteBudget(budget *int32) bool {
+	if budget == nil {
+		return false
+	}
+
+	for {
+		current := atomic.LoadInt32(budget)
+		if current <= 0 {
+			return false
+		}
+		if atomic.CompareAndSwapInt32(budget, current, current-1) {
+			return true
+		}
+	}
+}
+
+func shouldRewriteOpeningQuestionForInit(q *model.Question) bool {
+	if q == nil {
+		return false
+	}
+
+	fields := []string{q.Title, q.Content, q.ExpectedAnswer}
+	for _, field := range fields {
+		text := strings.TrimSpace(field)
+		if text == "" {
+			continue
+		}
+		if strings.ContainsRune(text, '\ufffd') {
+			return true
+		}
+		if openingQuestionEnglishTokenPattern.MatchString(text) {
+			return true
+		}
+		if !isMostlyChineseForInit(text, 0.35) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isMostlyChineseForInit(text string, ratio float64) bool {
+	content := strings.TrimSpace(text)
+	if content == "" {
+		return true
+	}
+
+	hanCount := 0
+	letterCount := 0
+	for _, r := range content {
+		if unicode.IsSpace(r) || unicode.IsPunct(r) || unicode.IsDigit(r) {
+			continue
+		}
+		if unicode.IsLetter(r) {
+			letterCount++
+		}
+		if r >= 0x4E00 && r <= 0x9FFF {
+			hanCount++
+		}
+	}
+
+	if letterCount == 0 {
+		return true
+	}
+	return float64(hanCount)/float64(letterCount) >= ratio
 }
 
 func (s *InterviewService) normalizeOpeningQuestion(ctx context.Context, q *model.Question) *model.Question {
@@ -925,6 +1039,7 @@ func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, an
 	if err != nil {
 		return nil, fmt.Errorf("question not found")
 	}
+	interview.AskedQuestionIDs = mergeAskedQuestionIDs(interview.AskedQuestionIDs, baseQuestion.ID)
 
 	evalQuestion := baseQuestion
 	if strings.TrimSpace(questionContent) != "" {
@@ -952,6 +1067,7 @@ func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, an
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate answer: %w", err)
 	}
+	shouldFollowUpHint, followUpContext := parseEvaluationFollowUpHint(evaluation.Feedback)
 
 	result := &model.AnswerResult{
 		InterviewID: interviewID,
@@ -974,7 +1090,7 @@ func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, an
 	if askedQuestionText == "" {
 		askedQuestionText = strings.TrimSpace(evalQuestion.Title)
 	}
-	shouldFollowUp, nextQuestion, err := s.decideNextQuestion(ctx, interview, baseQuestion, askedQuestionText, finalAnswer, evaluation.Score)
+	shouldFollowUp, nextQuestion, err := s.decideNextQuestion(ctx, interview, baseQuestion, askedQuestionText, finalAnswer, evaluation.Score, shouldFollowUpHint, followUpContext)
 	if err != nil {
 		fmt.Printf("Dynamic question generation failed: %v\n", err)
 	}
@@ -994,12 +1110,31 @@ func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, an
 		interview.TopicIndex++
 
 		allQuestions, _ := s.interviewRepo.GetInterviewQuestions(interviewID)
+		excludeIDs := decodeAskedQuestionIDs(interview.AskedQuestionIDs)
 		if interview.CurrentIndex < len(allQuestions) {
 			nextQ, _ := s.questionRepo.GetByID(allQuestions[interview.CurrentIndex].QuestionID)
 			if nextQ != nil {
 				s.normalizeOpeningQuestion(ctx, nextQ)
 				interview.CurrentTopic = nextQ.Category
+				interview.AskedQuestionIDs = mergeAskedQuestionIDs(interview.AskedQuestionIDs, nextQ.ID)
 				result.NextQuestion = nextQ
+			}
+		}
+
+		if result.NextQuestion == nil {
+			fallbackQ, pickErr := s.questionRepo.GetRandomQuestionForInterview(interview.Position, interview.Difficulty, excludeIDs)
+			if pickErr == nil && fallbackQ != nil {
+				s.normalizeOpeningQuestion(ctx, fallbackQ)
+				interview.CurrentTopic = fallbackQ.Category
+				interview.AskedQuestionIDs = mergeAskedQuestionIDs(interview.AskedQuestionIDs, fallbackQ.ID)
+				result.NextQuestion = fallbackQ
+
+				_ = s.interviewRepo.CreateInterviewQuestion(&model.InterviewQuestion{
+					InterviewID: interviewID,
+					QuestionID:  fallbackQ.ID,
+					OrderIndex:  interview.CurrentIndex,
+					IsAnswered:  false,
+				})
 			}
 		}
 	}
@@ -1024,8 +1159,130 @@ func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, an
 	return result, nil
 }
 
+func parseEvaluationFollowUpHint(feedback string) (bool, string) {
+	trimmed := strings.TrimSpace(feedback)
+	if trimmed == "" {
+		return false, ""
+	}
+
+	var payload struct {
+		ShouldFollowUp  bool     `json:"should_follow_up"`
+		FollowUpContext string   `json:"follow_up_context"`
+		Gaps            []string `json:"gaps"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+		return false, ""
+	}
+
+	context := strings.TrimSpace(payload.FollowUpContext)
+	if context == "" && len(payload.Gaps) > 0 {
+		context = strings.TrimSpace(payload.Gaps[0])
+	}
+
+	shouldFollowUp := payload.ShouldFollowUp
+	if !shouldFollowUp && strings.TrimSpace(payload.FollowUpContext) != "" {
+		shouldFollowUp = true
+	}
+	if !shouldFollowUp && len(payload.Gaps) > 0 {
+		shouldFollowUp = true
+	}
+
+	return shouldFollowUp, context
+}
+
+func collectQuestionIDs(questions []*model.Question) []uint {
+	if len(questions) == 0 {
+		return nil
+	}
+	ids := make([]uint, 0, len(questions))
+	seen := make(map[uint]struct{}, len(questions))
+	for _, q := range questions {
+		if q == nil || q.ID == 0 {
+			continue
+		}
+		if _, ok := seen[q.ID]; ok {
+			continue
+		}
+		seen[q.ID] = struct{}{}
+		ids = append(ids, q.ID)
+	}
+	return ids
+}
+
+func decodeAskedQuestionIDs(raw string) []uint {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return []uint{}
+	}
+
+	var parsed []uint
+	if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
+		return []uint{}
+	}
+
+	result := make([]uint, 0, len(parsed))
+	seen := make(map[uint]struct{}, len(parsed))
+	for _, id := range parsed {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+	return result
+}
+
+func encodeAskedQuestionIDs(ids []uint) string {
+	if len(ids) == 0 {
+		return "[]"
+	}
+	normalized := make([]uint, 0, len(ids))
+	seen := make(map[uint]struct{}, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+	}
+	if len(normalized) == 0 {
+		return "[]"
+	}
+
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return "[]"
+	}
+	return string(encoded)
+}
+
+func mergeAskedQuestionIDs(raw string, extraIDs ...uint) string {
+	merged := decodeAskedQuestionIDs(raw)
+	seen := make(map[uint]struct{}, len(merged)+len(extraIDs))
+	for _, id := range merged {
+		seen[id] = struct{}{}
+	}
+	for _, id := range extraIDs {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		merged = append(merged, id)
+	}
+	return encodeAskedQuestionIDs(merged)
+}
+
 // decideNextQuestion determines if a follow-up is needed and generates it
-func (s *InterviewService) decideNextQuestion(ctx context.Context, interview *model.Interview, topicRootQ *model.Question, askedQuestionText, answer string, score int) (bool, *model.Question, error) {
+func (s *InterviewService) decideNextQuestion(ctx context.Context, interview *model.Interview, topicRootQ *model.Question, askedQuestionText, answer string, score int, shouldFollowUpHint bool, followUpContext string) (bool, *model.Question, error) {
 	if interview == nil {
 		return false, nil, nil
 	}
@@ -1088,7 +1345,15 @@ func (s *InterviewService) decideNextQuestion(ctx context.Context, interview *mo
 		}
 	}
 
-	nextQ, reason, err := s.aiService.GenerateFollowUpQuestion(ctx, interview, topicRootQ, answer, ragContext, interview.FollowUpCount)
+	resolvedFollowUpContext := strings.TrimSpace(followUpContext)
+	if resolvedFollowUpContext == "" && shouldFollowUpHint {
+		resolvedFollowUpContext = "请围绕候选人回答中未充分展开的关键机制继续追问其实现细节与边界条件。"
+	}
+	if resolvedFollowUpContext == "" && ragContext != "" {
+		resolvedFollowUpContext = "请结合候选人回答与知识上下文中最关键的机制差异，继续追问其原理与取舍。"
+	}
+
+	nextQ, reason, err := s.aiService.GenerateFollowUpQuestion(ctx, interview, topicRootQ, answer, ragContext, resolvedFollowUpContext, interview.FollowUpCount)
 	if err != nil {
 		return false, nil, err
 	}
@@ -1275,7 +1540,18 @@ func (s *InterviewService) prioritizeTopicVariety(questions []*model.Question, t
 	result := make([]*model.Question, 0, len(unique))
 	usedCategory := map[string]bool{}
 
-	for _, q := range unique {
+	// 保留首题顺序，避免首题被后续按类别重排覆盖。
+	anchor := unique[0]
+	result = append(result, anchor)
+	anchorCategory := strings.TrimSpace(anchor.Category)
+	if anchorCategory != "" {
+		usedCategory[anchorCategory] = true
+	}
+	if len(result) >= target {
+		return result[:target]
+	}
+
+	for _, q := range unique[1:] {
 		cat := strings.TrimSpace(q.Category)
 		if cat == "" || usedCategory[cat] {
 			continue
@@ -1287,7 +1563,7 @@ func (s *InterviewService) prioritizeTopicVariety(questions []*model.Question, t
 		}
 	}
 
-	for _, q := range unique {
+	for _, q := range unique[1:] {
 		if len(result) >= target {
 			break
 		}

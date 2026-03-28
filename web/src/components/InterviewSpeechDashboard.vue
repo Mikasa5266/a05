@@ -12,6 +12,14 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  isSubmitting: {
+    type: Boolean,
+    default: false
+  },
+  isFinishing: {
+    type: Boolean,
+    default: false
+  },
   processingHint: {
     type: String,
     default: ''
@@ -75,18 +83,20 @@ const showSendButton = computed(() => {
 })
 
 const sendDisabled = computed(() => {
-  return props.isProcessing || (!String(props.userInput || '').trim() && props.latestAiMessage?.type !== 'feedback')
+  return props.isProcessing || props.isSubmitting || props.isFinishing || (!String(props.userInput || '').trim() && props.latestAiMessage?.type !== 'feedback')
 })
 
 const recordDisabled = computed(() => {
-  return !props.canAnswerCurrentQuestion || props.answerVoiceStatus === 'requesting' || props.answerVoiceStatus === 'transcribing' || props.answerVoiceStatus === 'submitting'
+  return props.isSubmitting || props.isFinishing || !props.canAnswerCurrentQuestion || props.answerVoiceStatus === 'requesting' || props.answerVoiceStatus === 'transcribing' || props.answerVoiceStatus === 'submitting'
 })
 
 const onToggleAnswerRecording = () => {
+  if (props.isSubmitting || props.isFinishing) return
   emit('toggle-answer-recording')
 }
 
 const onSendMessage = () => {
+  if (props.isSubmitting || props.isFinishing) return
   emit('send-message')
 }
 </script>
@@ -126,9 +136,13 @@ const onSendMessage = () => {
       class="w-full py-3 bg-zinc-900 text-white rounded-2xl font-bold text-base hover:bg-zinc-800 hover:shadow-xl hover:shadow-zinc-900/20 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 group relative overflow-hidden shrink-0"
     >
       <div class="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
-      <span v-if="isProcessing" class="flex items-center gap-2 relative z-10">
+      <span v-if="isFinishing" class="flex items-center gap-2 relative z-10">
         <Loader2 class="w-5 h-5 animate-spin" />
-        {{ processingHint || '正在思考...' }}
+        正在结束面试...
+      </span>
+      <span v-else-if="isProcessing || isSubmitting" class="flex items-center gap-2 relative z-10">
+        <Loader2 class="w-5 h-5 animate-spin" />
+        {{ isProcessing ? (processingHint || '正在思考...') : '正在提交...' }}
       </span>
       <span v-else-if="latestAiMessage?.type === 'feedback'" class="flex items-center gap-2 relative z-10">
         {{ pendingEnd ? '结束面试' : '下一题' }} <ChevronRight class="w-5 h-5 group-hover:translate-x-1 transition-transform" />

@@ -118,6 +118,7 @@ func GetReport(c *gin.Context) {
 		"replay_url":       replayURL,
 		"created_at":       report.CreatedAt,
 		"updated_at":       report.UpdatedAt,
+		"qa_details":       report.GetQADetails(),
 	}
 	for k, v := range buildReportResponse(report) {
 		resp[k] = v
@@ -174,6 +175,7 @@ func GenerateReport(c *gin.Context) {
 			"strengths":        report.GetStrengths(),
 			"weaknesses":       report.GetWeaknesses(),
 			"suggestions":      report.GetSuggestions(),
+			"qa_details":       report.GetQADetails(),
 		},
 	})
 }
@@ -232,6 +234,25 @@ func DownloadReport(c *gin.Context) {
 	builder.WriteString("\n## 优化建议\n\n")
 	for _, item := range report.GetSuggestions() {
 		builder.WriteString("- " + item + "\n")
+	}
+
+	qaDetails := report.GetQADetails()
+	if len(qaDetails) > 0 {
+		builder.WriteString("\n## 详细题目回顾\n\n")
+		for idx, item := range qaDetails {
+			builder.WriteString(fmt.Sprintf("### 题目 %d：%s\n\n", idx+1, item.Question))
+			builder.WriteString("- 候选人回答摘要：\n")
+			builder.WriteString(item.UserAnswer + "\n\n")
+			builder.WriteString("- 优化参考回答：\n")
+			builder.WriteString(item.OptimizedAnswer + "\n\n")
+			if len(item.KeyImprovements) > 0 {
+				builder.WriteString("- 关键改进点：\n")
+				for _, improvement := range item.KeyImprovements {
+					builder.WriteString("  - " + improvement + "\n")
+				}
+				builder.WriteString("\n")
+			}
+		}
 	}
 
 	filename := fmt.Sprintf("report_%d_%d.md", report.ID, time.Now().Unix())

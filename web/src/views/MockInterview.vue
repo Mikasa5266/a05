@@ -66,6 +66,10 @@ const {
 // Interview State
 const reportId = ref(null)
 const isGeneratingReport = ref(false)
+const isSubmitting = ref(false)
+const isFinishing = ref(false)
+const reportNavigationLocked = ref(false)
+const finishLoadingText = '正在为您深度生成面试报告与多维评分，请耐心等待...'
 const isAvatarSpeaking = ref(false)
 let currentSpeechAudio = null
 
@@ -429,6 +433,10 @@ const beginInterview = async (setupContext = {}) => {
   let shouldShowTimeoutDialog = false
   isProcessing.value = true
   startInterviewInitLoadingFlow()
+  reportId.value = null
+  isSubmitting.value = false
+  isFinishing.value = false
+  reportNavigationLocked.value = false
   answerVoiceStatus.value = 'idle'
   answerVoiceError.value = ''
   answerVoiceSeconds.value = 0
@@ -595,12 +603,37 @@ const beginInterview = async (setupContext = {}) => {
 }
 
 const onAlgorithmFinished = ({ total = 0, passed = 0, skipped = 0 } = {}) => {
+  if (isFinishing.value) return
   appendMessage({
     role: 'ai',
     type: 'system',
     content: `算法考察完成：共 ${total} 题，通过 ${passed} 题，跳过 ${skipped} 题。正在为你生成面试报告...`
   })
   completeInterview()
+}
+
+const normalizeReportId = (value) => {
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed <= 0) return 0
+  return parsed
+}
+
+const navigateToReportOnce = async () => {
+  const validReportId = normalizeReportId(reportId.value)
+  if (!validReportId) return false
+  if (reportNavigationLocked.value) return true
+
+  reportNavigationLocked.value = true
+  try {
+    await router.replace({
+      name: 'Report',
+      params: { id: validReportId }
+    })
+    return true
+  } catch (err) {
+    reportNavigationLocked.value = false
+    throw err
+  }
 }
 
 const pushAIQuestion = (question) => {
@@ -672,7 +705,8 @@ const advanceToNextQuestion = () => {
 }
 
 const completeInterview = async () => {
-  if (isGeneratingReport.value || !interviewId.value) return
+  if (isFinishing.value || !interviewId.value) return
+  isFinishing.value = true
   isGeneratingReport.value = true
   stopAISpeech()
   try {
@@ -684,10 +718,11 @@ const completeInterview = async () => {
     const reportRes = await apiGenerateReport({
       interview_id: interviewId.value
     })
-    if (reportRes?.report?.id) {
-      reportId.value = reportRes.report.id
+    const nextReportId = normalizeReportId(reportRes?.report?.id)
+    if (nextReportId) {
+      reportId.value = nextReportId
     }
-    if (!reportId.value) {
+    if (!normalizeReportId(reportId.value)) {
       appendMessage({
         role: 'system',
         content: '报告生成中，请稍后点击“查看面试报告”。',
@@ -707,40 +742,46 @@ const completeInterview = async () => {
     })
   } finally {
     isGeneratingReport.value = false
+    isFinishing.value = false
     scrollToBottom()
   }
 }
 
 const viewReport = async () => {
-  if (!reportId.value && interviewId.value) {
-    try {
+  if (isFinishing.value || reportNavigationLocked.value) return
+
+  isFinishing.value = true
+  try {
+    if (!normalizeReportId(reportId.value) && interviewId.value) {
       const reportRes = await apiGenerateReport({
         interview_id: interviewId.value
       })
-      if (reportRes?.report?.id) {
-        reportId.value = reportRes.report.id
+      const nextReportId = normalizeReportId(reportRes?.report?.id)
+      if (nextReportId) {
+        reportId.value = nextReportId
       }
-    } catch (error) {
-      const errMsg = error?.response?.data?.error || error?.message || '未知错误'
-      appendMessage({
-        role: 'system',
-        content: `获取报告失败：${errMsg}`,
-        type: 'system'
-      })
-      scrollToBottom()
-      return
     }
+
+    const didNavigate = await navigateToReportOnce()
+    if (didNavigate) return
+
+    appendMessage({
+      role: 'system',
+      content: '报告暂未生成完成，请稍后再试。',
+      type: 'system'
+    })
+    scrollToBottom()
+  } catch (error) {
+    const errMsg = error?.response?.data?.error || error?.message || '未知错误'
+    appendMessage({
+      role: 'system',
+      content: `获取报告失败：${errMsg}`,
+      type: 'system'
+    })
+    scrollToBottom()
+  } finally {
+    isFinishing.value = false
   }
-  if (reportId.value) {
-    router.push(`/student/report/${reportId.value}`)
-    return
-  }
-  appendMessage({
-    role: 'system',
-    content: '报告暂未生成完成，请稍后再试。',
-    type: 'system'
-  })
-  scrollToBottom()
 }
 
 const scrollToBottom = () => {
@@ -751,30 +792,56 @@ const scrollToBottom = () => {
 }
 
 const endInterviewEarly = async () => {
+  if (isFinishing.value) return
   if (confirm('确定要结束面试吗？进度将不会保存。')) {
+    isFinishing.value = true
     answerVoiceStatus.value = 'idle'
     answerVoiceError.value = ''
     answerVoiceSeconds.value = 0
-    await stopAndUploadInterviewRecording()
-    stopCamera()
-    stopQuestionTimer()
-    stopAISpeech()
-    exitInterviewPhase()
-    setCurrentQuestionIndex(0)
-    currentQuestion.value = null
-    resetConversationState()
-    blindBoxScenario.value = null
-    blindBoxRevealed.value = false
-    randomStyleRevealed.value = false
-    revealedStyleInfo.value = null
-    if (settings.value.interviewMode === 'human') {
-      loadUserInvitations()
-    }
-    resetShadowHintProgress()
-    hideShadowBubble()
-    if (interviewId.value) {
+    try {
+      await stopAndUploadInterviewRecording()
+      stopCamera()
+      stopQuestionTimer()
+      stopAISpeech()
+      exitInterviewPhase()
+      setCurrentQuestionIndex(0)
+      currentQuestion.value = null
+      resetConversationState()
+      blindBoxScenario.value = null
+      blindBoxRevealed.value = false
+      randomStyleRevealed.value = false
+      revealedStyleInfo.value = null
+      if (settings.value.interviewMode === 'human') {
+        loadUserInvitations()
+      }
+      resetShadowHintProgress()
+      hideShadowBubble()
+      if (interviewId.value) {
         try { await apiEndInterview(interviewId.value) } catch(e){}
+      }
+    } finally {
+      isFinishing.value = false
     }
+  }
+}
+
+const onToggleAnswerRecording = async () => {
+  if (isSubmitting.value || isFinishing.value) return
+  isSubmitting.value = true
+  try {
+    await toggleAnswerRecording()
+  } finally {
+    isSubmitting.value = false
+  }
+}
+
+const onSendMessage = async () => {
+  if (isSubmitting.value || isFinishing.value) return
+  isSubmitting.value = true
+  try {
+    await sendMessage()
+  } finally {
+    isSubmitting.value = false
   }
 }
 
@@ -858,6 +925,8 @@ const chatProps = computed(() => ({
   latestUserTranscript: latestUserTranscript.value,
   latestAiMessage: latestAIMessage.value,
   isProcessing: isProcessing.value,
+  isSubmitting: isSubmitting.value,
+  isFinishing: isFinishing.value,
   processingHint: processingHint.value,
   canAnswerCurrentQuestion: canAnswerCurrentQuestion.value,
   pendingEnd: pendingEnd.value,
@@ -884,6 +953,9 @@ const onSettingsUpdate = (nextSettings) => {
 }
 
 const cleanupInterviewPageSideEffects = () => {
+  isSubmitting.value = false
+  isFinishing.value = false
+  reportNavigationLocked.value = false
   clearManagedTimeouts()
   clearInitLoadingTimers()
   detachModelViewerLoadListener()
@@ -949,10 +1021,21 @@ onBeforeUnmount(() => {
       @view-report="viewReport"
       @complete-interview="onAlgorithmFinished"
       @update:user-input="onUserInputUpdate"
-      @send-message="sendMessage"
-      @toggle-answer-recording="toggleAnswerRecording"
+      @send-message="onSendMessage"
+      @toggle-answer-recording="onToggleAnswerRecording"
       @close-random-reveal="randomStyleRevealed = false"
     />
+
+    <div
+      v-if="isFinishing"
+      class="fixed inset-0 z-1200 bg-slate-950/45 backdrop-blur-sm flex items-center justify-center px-6"
+    >
+      <div class="w-full max-w-md rounded-3xl border border-white/30 bg-white/96 shadow-2xl p-8 text-center">
+        <div class="h-10 w-10 mx-auto rounded-full border-4 border-indigo-200 border-t-indigo-600 animate-spin"></div>
+        <p class="mt-5 text-base font-semibold text-zinc-900 leading-relaxed">{{ finishLoadingText }}</p>
+        <p class="mt-2 text-xs text-zinc-500">期间请勿重复点击按钮，我们会在报告可用后自动为您继续。</p>
+      </div>
+    </div>
 
   </div>
 </template>

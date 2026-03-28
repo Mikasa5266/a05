@@ -13,8 +13,12 @@ import (
 
 func (s *AIService) EnsureChineseOutput(ctx context.Context, text, fallback string) string {
 	normalized := normalizeFeedbackText(text)
+	safeFallback := normalizeFeedbackText(fallback)
+	if safeFallback == "" {
+		safeFallback = "回答内容已收到，建议补充更具体的技术细节与实践案例。"
+	}
 	if normalized == "" {
-		return fallback
+		return safeFallback
 	}
 	if isMostlyChinese(normalized, 0.45) {
 		return normalized
@@ -23,11 +27,11 @@ func (s *AIService) EnsureChineseOutput(ctx context.Context, text, fallback stri
 	prompt := fmt.Sprintf("Rewrite the following content into natural simplified Chinese only:\n\n%s", normalized)
 	rewritten, err := s.chat(ctx, prompt, "chat", nil)
 	if err != nil {
-		return fallback
+		return safeFallback
 	}
 	rewritten = normalizeFeedbackText(rewritten)
 	if rewritten == "" || !isMostlyChinese(rewritten, 0.45) {
-		return fallback
+		return safeFallback
 	}
 	return rewritten
 }
@@ -36,11 +40,10 @@ func (s *AIService) EnsureQuestionChinese(ctx context.Context, question *model.Q
 	if question == nil {
 		return
 	}
+	sanitizeQuestionTextFields(question)
 	needRewrite := !isMostlyChinese(question.Title, 0.3) || !isMostlyChinese(question.Content, 0.35) || !isMostlyChinese(question.ExpectedAnswer, 0.3)
 	if !needRewrite {
-		question.Title = strings.TrimSpace(question.Title)
-		question.Content = strings.TrimSpace(question.Content)
-		question.ExpectedAnswer = strings.TrimSpace(question.ExpectedAnswer)
+		sanitizeQuestionTextFields(question)
 		return
 	}
 
@@ -53,15 +56,15 @@ func (s *AIService) EnsureQuestionChinese(ctx context.Context, question *model.Q
 				Content        string `json:"content"`
 				ExpectedAnswer string `json:"expected_answer"`
 			}
-			if unmarshalErr := json.Unmarshal([]byte(response), &localized); unmarshalErr == nil {
+			if unmarshalErr := json.Unmarshal([]byte(sanitizeGeneratedText(response)), &localized); unmarshalErr == nil {
 				if strings.TrimSpace(localized.Title) != "" {
-					question.Title = localized.Title
+					question.Title = sanitizeGeneratedText(localized.Title)
 				}
 				if strings.TrimSpace(localized.Content) != "" {
-					question.Content = localized.Content
+					question.Content = sanitizeGeneratedText(localized.Content)
 				}
 				if strings.TrimSpace(localized.ExpectedAnswer) != "" {
-					question.ExpectedAnswer = localized.ExpectedAnswer
+					question.ExpectedAnswer = sanitizeGeneratedText(localized.ExpectedAnswer)
 				}
 			}
 		}
@@ -76,13 +79,11 @@ func (s *AIService) EnsureQuestionChinese(ctx context.Context, question *model.Q
 	if !isMostlyChinese(question.ExpectedAnswer, 0.3) {
 		question.ExpectedAnswer = "回答应包含核心原理、实现步骤、关键细节与风险边界。"
 	}
-	question.Title = strings.TrimSpace(question.Title)
-	question.Content = strings.TrimSpace(question.Content)
-	question.ExpectedAnswer = strings.TrimSpace(question.ExpectedAnswer)
+	sanitizeQuestionTextFields(question)
 }
 
 func normalizeFeedbackText(s string) string {
-	text := strings.TrimSpace(s)
+	text := sanitizeGeneratedText(strings.TrimSpace(s))
 	if text == "" {
 		return "回答内容已收到，建议补充更具体的技术细节与实践案例。"
 	}
@@ -94,7 +95,7 @@ func normalizeFeedbackText(s string) string {
 			for _, key := range keys {
 				if v, ok := obj[key]; ok {
 					if line, ok := v.(string); ok && strings.TrimSpace(line) != "" {
-						parts = append(parts, strings.TrimSpace(line))
+						parts = append(parts, sanitizeGeneratedText(strings.TrimSpace(line)))
 					}
 				}
 			}
@@ -106,7 +107,30 @@ func normalizeFeedbackText(s string) string {
 	re := regexp.MustCompile(`\s+`)
 	text = re.ReplaceAllString(text, " ")
 	text = strings.TrimSpace(strings.Trim(text, "`"))
-	return text
+	return sanitizeGeneratedText(text)
+}
+
+func sanitizeGeneratedText(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return ""
+	}
+
+	cleaned := strings.ToValidUTF8(s, "")
+	cleaned = strings.ReplaceAll(cleaned, "\uFFFD", "")
+	cleaned = strings.ReplaceAll(cleaned, "\x00", "")
+	cleaned = strings.ReplaceAll(cleaned, "\uFEFF", "")
+	cleaned = strings.ReplaceAll(cleaned, "\u200B", "")
+	return strings.TrimSpace(cleaned)
+}
+
+func sanitizeQuestionTextFields(question *model.Question) {
+	if question == nil {
+		return
+	}
+
+	question.Title = sanitizeGeneratedText(question.Title)
+	question.Content = sanitizeGeneratedText(question.Content)
+	question.ExpectedAnswer = sanitizeGeneratedText(question.ExpectedAnswer)
 }
 
 func isMostlyChinese(text string, ratio float64) bool {

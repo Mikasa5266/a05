@@ -88,9 +88,23 @@ type qdrantPoint struct {
 }
 
 type qdrantSearchRequest struct {
-	Vector      []float32 `json:"vector"`
-	Limit       int       `json:"limit"`
-	WithPayload bool      `json:"with_payload"`
+	Vector      []float32     `json:"vector"`
+	Limit       int           `json:"limit"`
+	WithPayload bool          `json:"with_payload"`
+	Filter      *qdrantFilter `json:"filter,omitempty"`
+}
+
+type qdrantFilter struct {
+	MustNot []qdrantFilterCondition `json:"must_not,omitempty"`
+}
+
+type qdrantFilterCondition struct {
+	Key   string            `json:"key"`
+	Match *qdrantMatchValue `json:"match,omitempty"`
+}
+
+type qdrantMatchValue struct {
+	Value any `json:"value"`
 }
 
 type qdrantSearchResponse struct {
@@ -288,6 +302,10 @@ func (s *QdrantStore) Upsert(ctx context.Context, points []VectorPoint) error {
 }
 
 func (s *QdrantStore) Search(ctx context.Context, queryVector []float32, topK int) ([]SearchResult, error) {
+	return s.SearchWithOptions(ctx, queryVector, topK, SearchOptions{})
+}
+
+func (s *QdrantStore) SearchWithOptions(ctx context.Context, queryVector []float32, topK int, opts SearchOptions) ([]SearchResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -316,6 +334,7 @@ func (s *QdrantStore) Search(ctx context.Context, queryVector []float32, topK in
 		Vector:      queryVector,
 		Limit:       topK,
 		WithPayload: true,
+		Filter:      buildQdrantSearchFilter(opts),
 	}
 
 	var response qdrantSearchResponse
@@ -342,6 +361,35 @@ func (s *QdrantStore) Search(ctx context.Context, queryVector []float32, topK in
 	}
 
 	return results, nil
+}
+
+func buildQdrantSearchFilter(opts SearchOptions) *qdrantFilter {
+	if len(opts.ExcludePointIDs) == 0 {
+		return nil
+	}
+
+	mustNot := make([]qdrantFilterCondition, 0, len(opts.ExcludePointIDs))
+	seen := make(map[string]struct{}, len(opts.ExcludePointIDs))
+	for _, rawID := range opts.ExcludePointIDs {
+		id := strings.TrimSpace(rawID)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		mustNot = append(mustNot, qdrantFilterCondition{
+			Key:   "raw_id",
+			Match: &qdrantMatchValue{Value: id},
+		})
+	}
+
+	if len(mustNot) == 0 {
+		return nil
+	}
+
+	return &qdrantFilter{MustNot: mustNot}
 }
 
 func (s *QdrantStore) ensureCollection(ctx context.Context, vectorDim int) error {

@@ -148,6 +148,14 @@ go run ./tools/cleanup_garbage_questions
 # 执行删除请追加 -apply
 ```
 
+修复历史题目中的乱码/英文模板（默认 dry-run）：
+
+```bash
+cd server
+go run ./tools/repair_question_text
+# 执行更新请追加 -apply
+```
+
 ## API 领域总览
 
 所有接口都在 `/api/v1` 下。

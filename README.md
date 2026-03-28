@@ -155,6 +155,14 @@ go run ./tools/cleanup_garbage_questions
 # dry-run by default; add -apply to execute deletion
 ```
 
+Repair historical garbled/English question text:
+
+```bash
+cd server
+go run ./tools/repair_question_text
+# dry-run by default; add -apply to execute updates
+```
+
 ## Core API Areas
 
 All APIs are under ` /api/v1 `.

@@ -5,6 +5,7 @@
 面试模式：{{.Mode}}
 面试风格：{{.Style}}
 已回答问题数量：{{.AnsweredCount}}
+候选人已覆盖知识点：{{.AnsweredKnowledgePoints}}
 
 {{.ModeInstruction}}
 {{.StyleInstruction}}
@@ -15,5 +16,6 @@
 {{.NextFocus}}
 
 请生成一个合适的后续问题，以深入了解候选人的技术能力。
+候选人已经回答过以下知识点：{{.AnsweredKnowledgePoints}}，请生成一个全新的问题，不要与上述内容重复。
 只使用简体中文。
 返回格式：{"title": "问题标题", "content": "具体问题内容", "expected_answer": "简要的期望回答"}

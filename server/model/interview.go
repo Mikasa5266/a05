@@ -33,6 +33,7 @@ type Interview struct {
 	StartTime              time.Time      `json:"start_time"`
 	EndTime                *time.Time     `json:"end_time,omitempty"`
 	CurrentIndex           int            `gorm:"default:0" json:"current_index"`
+	AskedQuestionIDs       string         `gorm:"type:text" json:"asked_question_ids,omitempty"`
 	CurrentTopic           string         `gorm:"default:''" json:"current_topic,omitempty"` // Current interview topic (e.g. "Project Experience")
 	FollowUpCount          int            `gorm:"default:0" json:"follow_up_count"`          // Number of follow-ups asked for current topic
 	MaxFollowUps           int            `gorm:"default:3" json:"max_follow_ups"`           // Max follow-ups per topic

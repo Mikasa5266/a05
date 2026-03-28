@@ -93,6 +93,14 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  isSubmitting: {
+    type: Boolean,
+    default: false
+  },
+  isFinishing: {
+    type: Boolean,
+    default: false
+  },
   processingHint: {
     type: String,
     default: ''
@@ -275,6 +283,7 @@ const voiceStatusClass = computed(() => {
         :current-question="currentQuestion"
         :latest-ai-message="latestAiMessage"
         :is-processing="isProcessing"
+        :is-finishing="isFinishing"
         :processing-hint="processingHint"
         :algorithm-brief-text="''"
         :algorithm-progress="{ current: 1, total: 0, finished: 0, passed: 0, skipped: 0, failed: 0 }"
@@ -292,6 +301,8 @@ const voiceStatusClass = computed(() => {
       <InterviewSpeechDashboard
         :is-algorithm-style="false"
         :is-processing="isProcessing"
+        :is-submitting="isSubmitting"
+        :is-finishing="isFinishing"
         :processing-hint="processingHint"
         :can-answer-current-question="canAnswerCurrentQuestion"
         :answer-voice-status="answerVoiceStatus"

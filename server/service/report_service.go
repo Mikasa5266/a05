@@ -65,6 +65,7 @@ func (s *ReportService) GenerateInterviewReport(userID, interviewID uint) (*mode
 		averageScore = totalScore / len(answers)
 	}
 	aggregated := aggregateReportDimensionScores(answers, averageScore)
+	qaDetails := buildReportQADetailsFromAnswers(answers)
 
 	strengths, weaknesses, suggestions := s.analyzePerformance(answers)
 	overallAnalysis := "基于面试表现，建议继续提升技术能力。"
@@ -90,6 +91,9 @@ func (s *ReportService) GenerateInterviewReport(userID, interviewID uint) (*mode
 		logicScore = insights.LogicScore
 		matchingScore = insights.MatchingScore
 		behaviorScore = insights.BehaviorScore
+		if mappedDetails := mapInsightsQADetails(insights.QADetails); len(mappedDetails) > 0 {
+			qaDetails = mappedDetails
+		}
 	} else {
 		if analysis, analysisErr := s.aiService.GenerateOverallAnalysis(context.Background(), interview, answers); analysisErr == nil && analysis != "" {
 			overallAnalysis = analysis
@@ -127,6 +131,7 @@ func (s *ReportService) GenerateInterviewReport(userID, interviewID uint) (*mode
 	report.SetStrengths(strengths)
 	report.SetWeaknesses(weaknesses)
 	report.SetSuggestions(suggestions)
+	report.SetQADetails(qaDetails)
 
 	if existing != nil {
 		if err := s.reportRepo.Update(report); err != nil {
@@ -160,6 +165,9 @@ func shouldRegenerateReport(report *model.Report, answers []model.AnswerResult) 
 		return true
 	}
 	if len(report.GetStrengths()) == 0 || len(report.GetWeaknesses()) == 0 || len(report.GetSuggestions()) == 0 {
+		return true
+	}
+	if len(answers) > 0 && len(report.GetQADetails()) == 0 {
 		return true
 	}
 	// 兼容旧逻辑生成的“全维度=平均分”报告，发现后自动重算
@@ -254,6 +262,146 @@ func stringsTrimSpaceFast(s string) string {
 		return ""
 	}
 	return strings.TrimSpace(s)
+}
+
+func mapInsightsQADetails(items []ReportQADetail) []model.ReportQADetail {
+	if len(items) == 0 {
+		return []model.ReportQADetail{}
+	}
+
+	mapped := make([]model.ReportQADetail, 0, len(items))
+	for _, item := range items {
+		question := stringsTrimSpaceFast(item.Question)
+		userAnswer := stringsTrimSpaceFast(item.UserAnswer)
+		optimizedAnswer := stringsTrimSpaceFast(item.OptimizedAnswer)
+		if question == "" || (userAnswer == "" && optimizedAnswer == "") {
+			continue
+		}
+
+		if userAnswer == "" {
+			userAnswer = "候选人回答摘要暂缺。"
+		}
+		if optimizedAnswer == "" {
+			optimizedAnswer = "建议按“结论-原理-实践-边界”结构组织回答，并补充工程细节。"
+		}
+
+		mapped = append(mapped, model.ReportQADetail{
+			Question:        truncateRunesForReport(question, 240),
+			UserAnswer:      truncateRunesForReport(userAnswer, 520),
+			OptimizedAnswer: truncateRunesForReport(optimizedAnswer, 900),
+			KeyImprovements: normalizeReportImprovementList(item.KeyImprovements),
+		})
+
+		if len(mapped) >= 12 {
+			break
+		}
+	}
+
+	return mapped
+}
+
+func buildReportQADetailsFromAnswers(answers []model.AnswerResult) []model.ReportQADetail {
+	if len(answers) == 0 {
+		return []model.ReportQADetail{}
+	}
+
+	result := make([]model.ReportQADetail, 0, len(answers))
+	for _, ans := range answers {
+		question := stringsTrimSpaceFast(ans.Question.Content)
+		if question == "" {
+			question = stringsTrimSpaceFast(ans.Question.Title)
+		}
+		if question == "" {
+			continue
+		}
+
+		userAnswer := stringsTrimSpaceFast(ans.Answer)
+		if userAnswer == "" {
+			userAnswer = "候选人回答内容较少，建议补充关键技术点。"
+		}
+
+		optimizedAnswer, improvements := extractReportQAHintsFromFeedback(ans.Feedback)
+		if optimizedAnswer == "" {
+			optimizedAnswer = stringsTrimSpaceFast(ans.Question.ExpectedAnswer)
+		}
+		if optimizedAnswer == "" {
+			optimizedAnswer = "建议按“结论-原理-实践-边界”结构补充回答，并增加可验证的工程细节。"
+		}
+
+		result = append(result, model.ReportQADetail{
+			Question:        truncateRunesForReport(question, 240),
+			UserAnswer:      truncateRunesForReport(userAnswer, 520),
+			OptimizedAnswer: truncateRunesForReport(optimizedAnswer, 900),
+			KeyImprovements: improvements,
+		})
+
+		if len(result) >= 12 {
+			break
+		}
+	}
+
+	return result
+}
+
+func extractReportQAHintsFromFeedback(feedback string) (string, []string) {
+	raw := stringsTrimSpaceFast(feedback)
+	if raw == "" {
+		return "", []string{"补充关键机制说明", "增加边界条件与异常处理"}
+	}
+
+	var payload struct {
+		ModelAnswerOutline string   `json:"model_answer_outline"`
+		Suggestions        []string `json:"suggestions"`
+		Gaps               []string `json:"gaps"`
+		FollowUpContext    string   `json:"follow_up_context"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return "", []string{"补充关键机制说明", "增加边界条件与异常处理"}
+	}
+
+	improvements := make([]string, 0, len(payload.Suggestions)+len(payload.Gaps)+1)
+	improvements = append(improvements, payload.Suggestions...)
+	improvements = append(improvements, payload.Gaps...)
+	if stringsTrimSpaceFast(payload.FollowUpContext) != "" {
+		improvements = append(improvements, payload.FollowUpContext)
+	}
+
+	return stringsTrimSpaceFast(payload.ModelAnswerOutline), normalizeReportImprovementList(improvements)
+}
+
+func normalizeReportImprovementList(items []string) []string {
+	clean := make([]string, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		line := stringsTrimSpaceFast(item)
+		if line == "" {
+			continue
+		}
+		if _, ok := seen[line]; ok {
+			continue
+		}
+		seen[line] = struct{}{}
+		clean = append(clean, truncateRunesForReport(line, 120))
+		if len(clean) >= 4 {
+			break
+		}
+	}
+
+	if len(clean) == 0 {
+		return []string{"补充关键机制说明", "增加边界条件与异常处理"}
+	}
+	return clean
+}
+
+func truncateRunesForReport(text string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	runes := []rune(stringsTrimSpaceFast(text))
+	if len(runes) <= max {
+		return string(runes)
+	}
+	return stringsTrimSpaceFast(string(runes[:max])) + "..."
 }
 
 func (s *ReportService) GetUserReports(userID uint, page, pageSize int) ([]*model.Report, int64, error) {

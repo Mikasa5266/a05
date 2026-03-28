@@ -29,6 +29,7 @@ func (r *ReportRepository) Create(report *model.Report) error {
 			"strengths",
 			"weaknesses",
 			"suggestions",
+			"qa_details",
 			"overall_analysis",
 			"technical_score",
 			"expression_score",

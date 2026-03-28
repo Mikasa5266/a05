@@ -5,7 +5,9 @@ export const useInterviewStore = defineStore('interview', {
   state: () => ({
     interview: null,
     currentQuestion: null,
-    answers: []
+    answers: [],
+    isSubmitting: false,
+    isFinishing: false
   }),
   actions: {
     async start(data) {
@@ -37,16 +39,30 @@ export const useInterviewStore = defineStore('interview', {
       }
     },
     async submit(id, data) {
-      const res = await submitAnswer(id, data)
-      this.answers.push(res.result)
+      if (this.isSubmitting) return null
+      this.isSubmitting = true
+      try {
+        const res = await submitAnswer(id, data)
+        this.answers.push(res.result)
 
-      // Always sync from backend because interview flow can change dynamically
-      // (follow-up insertion, early completion, index updates, etc.).
-      await this.get(id)
+        // Always sync from backend because interview flow can change dynamically
+        // (follow-up insertion, early completion, index updates, etc.).
+        await this.get(id)
+        return res.result || null
+      } finally {
+        this.isSubmitting = false
+      }
     },
     async end(id) {
-      const res = await endInterview(id)
-      this.interview = res.interview
+      if (this.isFinishing) return this.interview
+      this.isFinishing = true
+      try {
+        const res = await endInterview(id)
+        this.interview = res.interview
+        return this.interview
+      } finally {
+        this.isFinishing = false
+      }
     }
   }
 })

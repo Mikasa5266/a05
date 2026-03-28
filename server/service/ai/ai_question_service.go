@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"math/rand"
 	"regexp"
 	"strings"
@@ -100,12 +99,12 @@ func (s *AIService) ensureOpeningQuestionTone(q *model.Question, category string
 	}
 	topic := strings.TrimSpace(category)
 	if topic == "" {
-		topic = "topic"
+		topic = "通用技术主题"
 	}
-	q.Title = fmt.Sprintf("%s: core principles and practice", topic)
-	q.Content = fmt.Sprintf("Please explain %s including concepts, mechanisms and practical scenarios.", topic)
+	q.Title = fmt.Sprintf("%s：核心原理与实践应用", topic)
+	q.Content = fmt.Sprintf("请系统说明%s的概念、运行机制及典型应用场景。", topic)
 	if strings.TrimSpace(q.ExpectedAnswer) == "" {
-		q.ExpectedAnswer = fmt.Sprintf("Cover definition, mechanism, constraints and practical trade-offs of %s.", topic)
+		q.ExpectedAnswer = fmt.Sprintf("回答应覆盖%s的定义、实现机制、约束条件与技术取舍。", topic)
 	}
 }
 
@@ -114,7 +113,7 @@ func isFollowUpWording(text string) bool {
 	if t == "" {
 		return false
 	}
-	patterns := []string{"you mentioned", "continue", "further", "follow-up", "based on previous"}
+	patterns := []string{"you mentioned", "continue", "further", "follow-up", "based on previous", "你提到", "继续", "进一步", "基于上一个", "接着"}
 	for _, p := range patterns {
 		if strings.Contains(t, p) {
 			return true
@@ -123,7 +122,7 @@ func isFollowUpWording(text string) bool {
 	return false
 }
 
-var openingQuestionContextPatterns = []string{"previous", "above", "continue", "further", "those", "these"}
+var openingQuestionContextPatterns = []string{"previous", "above", "continue", "further", "those", "these", "上文", "上一题", "之前", "继续", "进一步", "上述"}
 var openingQuestionQuantifierRef = regexp.MustCompile(`this\s+\d+\s+`)
 
 func (s *AIService) IsContextDependentOpeningQuestion(question *model.Question) bool {
@@ -154,16 +153,16 @@ func (s *AIService) NormalizeToSelfContainedOpening(question *model.Question) {
 		topic = strings.TrimSpace(question.Title)
 	}
 	if topic == "" {
-		topic = "topic"
+		topic = "通用技术主题"
 	}
-	question.Title = fmt.Sprintf("%s: core principles and practice", topic)
-	question.Content = fmt.Sprintf("Please explain %s from concept, mechanism, thread safety and performance.", topic)
+	question.Title = fmt.Sprintf("%s：核心原理与实践应用", topic)
+	question.Content = fmt.Sprintf("请系统说明%s的概念、运行机制、线程安全与性能取舍。", topic)
 	if strings.TrimSpace(question.ExpectedAnswer) == "" {
-		question.ExpectedAnswer = fmt.Sprintf("Should cover definition, implementation, boundaries and trade-offs of %s.", topic)
+		question.ExpectedAnswer = fmt.Sprintf("回答应覆盖%s的定义、实现机制、边界条件与技术取舍。", topic)
 	}
-	question.Title = strings.TrimSpace(question.Title)
-	question.Content = strings.TrimSpace(question.Content)
-	question.ExpectedAnswer = strings.TrimSpace(question.ExpectedAnswer)
+	question.Title = sanitizeGeneratedText(question.Title)
+	question.Content = sanitizeGeneratedText(question.Content)
+	question.ExpectedAnswer = sanitizeGeneratedText(question.ExpectedAnswer)
 }
 
 func (s *AIService) GenerateClarifyingFollowUpQuestion(ctx context.Context, currentQ *model.Question, answer string, followUpIndex int) (*model.Question, error) {
@@ -203,16 +202,17 @@ func (s *AIService) GenerateNextQuestionWithWeights(ctx context.Context, intervi
 	}
 
 	prompt, err := s.renderPrompt("generate_next_question_with_weights.tmpl", map[string]interface{}{
-		"Position":              interview.Position,
-		"Difficulty":            interview.Difficulty,
-		"Mode":                  interview.Mode,
-		"Style":                 interview.Style,
-		"AnsweredCount":         len(previousAnswers),
-		"ModeInstruction":       buildModePrompt(interview.Mode),
-		"StyleInstruction":      buildStylePrompt(interview.Style, interview.Company),
-		"DifficultyInstruction": buildDifficultyPrompt(interview.Difficulty),
-		"WeightsInstruction":    weightsBuilder.String(),
-		"NextFocus":             "Choose a high-weight dimension not fully covered yet.",
+		"Position":                interview.Position,
+		"Difficulty":              interview.Difficulty,
+		"Mode":                    interview.Mode,
+		"Style":                   interview.Style,
+		"AnsweredCount":           len(previousAnswers),
+		"AnsweredKnowledgePoints": buildAnsweredKnowledgePoints(previousAnswers),
+		"ModeInstruction":         buildModePrompt(interview.Mode),
+		"StyleInstruction":        buildStylePrompt(interview.Style, interview.Company),
+		"DifficultyInstruction":   buildDifficultyPrompt(interview.Difficulty),
+		"WeightsInstruction":      weightsBuilder.String(),
+		"NextFocus":               "Choose a high-weight dimension not fully covered yet.",
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to render weighted next question prompt: %w", err)
@@ -237,14 +237,15 @@ func (s *AIService) GenerateNextQuestionWithWeights(ctx context.Context, intervi
 
 func (s *AIService) GenerateNextQuestion(ctx context.Context, interview *model.Interview, previousAnswers []model.AnswerResult) (*model.Question, error) {
 	prompt, err := s.renderPrompt("generate_next_question.tmpl", map[string]interface{}{
-		"Position":              interview.Position,
-		"Difficulty":            interview.Difficulty,
-		"Mode":                  interview.Mode,
-		"Style":                 interview.Style,
-		"AnsweredCount":         len(previousAnswers),
-		"ModeInstruction":       buildModePrompt(interview.Mode),
-		"StyleInstruction":      buildStylePrompt(interview.Style, interview.Company),
-		"DifficultyInstruction": buildDifficultyPrompt(interview.Difficulty),
+		"Position":                interview.Position,
+		"Difficulty":              interview.Difficulty,
+		"Mode":                    interview.Mode,
+		"Style":                   interview.Style,
+		"AnsweredCount":           len(previousAnswers),
+		"AnsweredKnowledgePoints": buildAnsweredKnowledgePoints(previousAnswers),
+		"ModeInstruction":         buildModePrompt(interview.Mode),
+		"StyleInstruction":        buildStylePrompt(interview.Style, interview.Company),
+		"DifficultyInstruction":   buildDifficultyPrompt(interview.Difficulty),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to render next question prompt: %w", err)
@@ -266,7 +267,47 @@ func (s *AIService) GenerateNextQuestion(ctx context.Context, interview *model.I
 	return result, nil
 }
 
-func (s *AIService) GenerateFollowUpQuestion(ctx context.Context, interview *model.Interview, currentQ *model.Question, answer string, ragContext string, followUpIndex int) (*model.Question, string, error) {
+func buildAnsweredKnowledgePoints(previousAnswers []model.AnswerResult) string {
+	if len(previousAnswers) == 0 {
+		return "（暂无）"
+	}
+
+	points := make([]string, 0, len(previousAnswers)*2)
+	seen := make(map[string]struct{}, len(previousAnswers)*2)
+	for _, item := range previousAnswers {
+		title := strings.TrimSpace(item.Question.Title)
+		if title != "" {
+			if _, ok := seen[title]; !ok {
+				seen[title] = struct{}{}
+				points = append(points, title)
+			}
+		}
+
+		category := strings.TrimSpace(item.Question.Category)
+		if category != "" {
+			label := "领域:" + category
+			if _, ok := seen[label]; !ok {
+				seen[label] = struct{}{}
+				points = append(points, label)
+			}
+		}
+
+		if len(points) >= 8 {
+			break
+		}
+	}
+
+	if len(points) == 0 {
+		return "（暂无）"
+	}
+	return strings.Join(points, "；")
+}
+
+func (s *AIService) GenerateFollowUpQuestion(ctx context.Context, interview *model.Interview, currentQ *model.Question, answer string, ragContext string, followUpContext string, followUpIndex int) (*model.Question, string, error) {
+	if currentQ == nil {
+		return nil, "", fmt.Errorf("current question is nil")
+	}
+
 	mode, style, difficulty, company := "technical", "gentle", "campus_intern", ""
 	if interview != nil {
 		mode, style, difficulty, company = interview.Mode, interview.Style, interview.Difficulty, interview.Company
@@ -282,34 +323,132 @@ func (s *AIService) GenerateFollowUpQuestion(ctx context.Context, interview *mod
 		"CurrentContent":        currentQ.Content,
 		"Answer":                answer,
 		"RAGContext":            ragContext,
+		"FollowUpContext":       strings.TrimSpace(followUpContext),
 		"FollowUpIndex":         followUpIndex,
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to render follow-up prompt: %w", err)
 	}
-	response, err := s.chat(ctx, prompt, "chat", jsonObjectResponseFormat())
+	response, err := s.chat(ctx, prompt, "chat", nil)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to generate follow-up: %w", err)
 	}
-	var result struct {
-		FollowUpNeeded bool   `json:"follow_up_needed"`
-		Reason         string `json:"reason"`
-		Question       struct {
-			Title          string `json:"title"`
-			Content        string `json:"content"`
-			ExpectedAnswer string `json:"expected_answer"`
-		} `json:"question"`
+
+	questionText, noFollowUp, reason := parseFollowUpModelOutput(response)
+	if noFollowUp {
+		return nil, reason, nil
 	}
-	if err := json.Unmarshal([]byte(response), &result); err != nil {
-		log.Printf("failed to parse follow-up response: %v, body: %s", err, response)
-		return nil, "", nil
+	if questionText == "" {
+		return nil, "追问生成结果为空", nil
 	}
-	if !result.FollowUpNeeded {
-		return nil, result.Reason, nil
+
+	q := &model.Question{
+		Title:          buildFollowUpTitle(currentQ.Title),
+		Content:        ensureQuestionSentence(questionText),
+		ExpectedAnswer: buildFollowUpExpectedAnswer(followUpContext, ragContext),
+		Position:       currentQ.Position,
+		Difficulty:     currentQ.Difficulty,
+		Category:       currentQ.Category,
 	}
-	q := &model.Question{Title: result.Question.Title, Content: result.Question.Content, ExpectedAnswer: result.Question.ExpectedAnswer, Position: currentQ.Position, Difficulty: currentQ.Difficulty, Category: currentQ.Category}
 	s.EnsureQuestionChinese(ctx, q)
-	return q, result.Reason, nil
+	return q, reason, nil
+}
+
+func parseFollowUpModelOutput(response string) (question string, noFollowUp bool, reason string) {
+	trimmed := sanitizeGeneratedText(strings.TrimSpace(stripOptionalCodeFence(sanitizeGeneratedText(response))))
+	if trimmed == "" {
+		return "", true, "模型未返回有效追问"
+	}
+
+	normalized := sanitizeGeneratedText(strings.Trim(strings.TrimSpace(trimmed), "\"'` "))
+	if strings.EqualFold(normalized, "NO_FOLLOWUP") {
+		return "", true, "模型判定当前无需继续追问"
+	}
+
+	if strings.HasPrefix(normalized, "{") {
+		var legacy struct {
+			FollowUpNeeded bool   `json:"follow_up_needed"`
+			Reason         string `json:"reason"`
+			Question       struct {
+				Title          string `json:"title"`
+				Content        string `json:"content"`
+				ExpectedAnswer string `json:"expected_answer"`
+			} `json:"question"`
+		}
+		if err := json.Unmarshal([]byte(normalized), &legacy); err == nil {
+			if !legacy.FollowUpNeeded {
+				r := strings.TrimSpace(legacy.Reason)
+				if r == "" {
+					r = "模型判定当前无需继续追问"
+				}
+				return "", true, r
+			}
+
+			line := strings.TrimSpace(firstNonEmpty(legacy.Question.Content, legacy.Question.Title))
+			if line != "" {
+				return normalizeFollowUpQuestionLine(line), false, strings.TrimSpace(legacy.Reason)
+			}
+		}
+	}
+
+	for _, line := range strings.Split(normalized, "\n") {
+		cleaned := normalizeFollowUpQuestionLine(line)
+		if cleaned == "" {
+			continue
+		}
+		if strings.EqualFold(cleaned, "NO_FOLLOWUP") {
+			return "", true, "模型判定当前无需继续追问"
+		}
+		return cleaned, false, "基于评估上下文生成追问"
+	}
+
+	return "", true, "模型未返回可用追问"
+}
+
+func normalizeFollowUpQuestionLine(line string) string {
+	cleaned := sanitizeGeneratedText(strings.TrimSpace(line))
+	if cleaned == "" {
+		return ""
+	}
+	cleaned = sanitizeGeneratedText(strings.Trim(cleaned, "\"'` "))
+	for _, prefix := range []string{"问题：", "追问：", "Q:", "q:"} {
+		if strings.HasPrefix(cleaned, prefix) {
+			cleaned = strings.TrimSpace(strings.TrimPrefix(cleaned, prefix))
+		}
+	}
+	cleaned = strings.TrimLeft(cleaned, "-•0123456789.、) ")
+	return sanitizeGeneratedText(strings.TrimSpace(cleaned))
+}
+
+func ensureQuestionSentence(text string) string {
+	normalized := sanitizeGeneratedText(strings.TrimSpace(text))
+	if normalized == "" {
+		return ""
+	}
+	if strings.HasSuffix(normalized, "？") || strings.HasSuffix(normalized, "?") {
+		return normalized
+	}
+	return normalized + "？"
+}
+
+func buildFollowUpTitle(currentTitle string) string {
+	base := sanitizeGeneratedText(strings.TrimSpace(currentTitle))
+	if base == "" {
+		return "追问深入"
+	}
+	return "追问深入：" + base
+}
+
+func buildFollowUpExpectedAnswer(followUpContext, ragContext string) string {
+	context := sanitizeGeneratedText(strings.TrimSpace(followUpContext))
+	if context == "" {
+		context = "候选人回答中需要进一步验证的技术点"
+	}
+	expected := fmt.Sprintf("回答应围绕“%s”，说明核心原理、实现步骤、边界条件与技术取舍。", context)
+	if strings.TrimSpace(ragContext) != "" {
+		expected += "可结合知识上下文中的依据进行论证。"
+	}
+	return expected
 }
 
 func buildModePrompt(mode string) string {

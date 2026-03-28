@@ -406,11 +406,15 @@ func (s *RAGService) SearchKnowledgeBase(query string) (string, error) {
 }
 
 func (s *RAGService) SearchSimilarQuestions(query string, position, difficulty string, limit int) ([]*model.Question, error) {
+	return s.SearchSimilarQuestionsWithExclude(query, position, difficulty, limit, nil)
+}
+
+func (s *RAGService) SearchSimilarQuestionsWithExclude(query string, position, difficulty string, limit int, excludeQuestionIDs []uint) ([]*model.Question, error) {
 	if limit <= 0 {
 		limit = 1
 	}
 
-	allQuestions, err := s.questionRepo.GetQuestionsByPositionAndDifficulty(position, difficulty)
+	allQuestions, err := s.questionRepo.GetQuestionsByPositionAndDifficultyWithExclude(position, difficulty, excludeQuestionIDs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get questions: %w", err)
 	}
@@ -464,7 +468,9 @@ func (s *RAGService) SearchSimilarQuestions(query string, position, difficulty s
 		return nil, fmt.Errorf("failed to embed query: %w", err)
 	}
 
-	similarResults, err := s.vectorStore.Search(context.Background(), queryVector, limit*2)
+	similarResults, err := s.vectorStore.SearchWithOptions(context.Background(), queryVector, limit*2, ragpkg.SearchOptions{
+		ExcludePointIDs: buildQuestionExcludePointIDs(excludeQuestionIDs),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to search similar questions: %w", err)
 	}
@@ -474,6 +480,9 @@ func (s *RAGService) SearchSimilarQuestions(query string, position, difficulty s
 	for _, result := range similarResults {
 		question := questionByPointID[result.ID]
 		if question == nil {
+			continue
+		}
+		if uintSliceContains(excludeQuestionIDs, question.ID) {
 			continue
 		}
 		if _, ok := seen[question.ID]; ok {
@@ -492,6 +501,34 @@ func (s *RAGService) SearchSimilarQuestions(query string, position, difficulty s
 	return filteredQuestions, nil
 }
 
+func buildQuestionExcludePointIDs(excludeQuestionIDs []uint) []string {
+	if len(excludeQuestionIDs) == 0 {
+		return nil
+	}
+	pointIDs := make([]string, 0, len(excludeQuestionIDs))
+	seen := make(map[uint]struct{}, len(excludeQuestionIDs))
+	for _, id := range excludeQuestionIDs {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		pointIDs = append(pointIDs, fmt.Sprintf("question_%d", id))
+	}
+	return pointIDs
+}
+
+func uintSliceContains(items []uint, target uint) bool {
+	for _, item := range items {
+		if item == target {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *RAGService) GenerateQuestionBasedOnContext(context string, position, difficulty string) (*model.Question, error) {
 	similarQuestions, err := s.SearchSimilarQuestions(context, position, difficulty, 5)
 	if err != nil {
@@ -499,16 +536,23 @@ func (s *RAGService) GenerateQuestionBasedOnContext(context string, position, di
 	}
 
 	if len(similarQuestions) == 0 {
-		return s.createDefaultQuestion(position, difficulty)
+		question, createErr := s.createDefaultQuestion(position, difficulty)
+		if createErr != nil {
+			return nil, createErr
+		}
+		s.ensureQuestionLocalized(question)
+		return question, nil
 	}
 
 	bestQuestion := similarQuestions[0]
-	return s.adaptQuestion(bestQuestion, context), nil
+	adapted := s.adaptQuestion(bestQuestion, context)
+	s.ensureQuestionLocalized(adapted)
+	return adapted, nil
 }
 
 func (s *RAGService) createDefaultQuestion(position, difficulty string) (*model.Question, error) {
 	question := &model.Question{
-		Title:      fmt.Sprintf("%s - %s Level Question", position, difficulty),
+		Title:      fmt.Sprintf("%s岗位技术问题", position),
 		Content:    fmt.Sprintf("请描述你在%s方面的经验，以及你如何处理相关的技术挑战。", position),
 		Position:   position,
 		Difficulty: difficulty,
@@ -534,6 +578,21 @@ func (s *RAGService) adaptQuestion(original *model.Question, context string) *mo
 	adapted.SetTags(tags)
 
 	return &adapted
+}
+
+func (s *RAGService) ensureQuestionLocalized(question *model.Question) {
+	if question == nil {
+		return
+	}
+
+	defer func() {
+		_ = recover()
+	}()
+
+	aiSvc := MustGetAIService()
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	aiSvc.EnsureQuestionChinese(ctx, question)
 }
 
 func (s *RAGService) hasVectorBackends() bool {
