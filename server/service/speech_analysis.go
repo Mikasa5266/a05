@@ -40,7 +40,7 @@ type SpeechAnalysisService struct {
 
 func NewSpeechAnalysisService() *SpeechAnalysisService {
 	return &SpeechAnalysisService{
-		aiService: NewAIService(),
+		aiService: MustGetAIService(),
 	}
 }
 

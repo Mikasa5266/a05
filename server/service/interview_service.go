@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -22,7 +23,7 @@ func NewInterviewService() *InterviewService {
 		interviewRepo: repository.NewInterviewRepository(),
 		questionRepo:  repository.NewQuestionRepository(),
 		userRepo:      repository.NewUserRepository(),
-		aiService:     NewAIService(),
+		aiService:     MustGetAIService(),
 		ragService:    GetRAGService(), // Init RAG service
 	}
 }
@@ -45,6 +46,7 @@ func normalizeInterviewPosition(position string) string {
 
 // StartInterview now accepts mode, style, company, and interviewMode. It uses AI to generate questions based on these parameters.
 func (s *InterviewService) StartInterview(userID uint, position, difficulty, mode, style, company, interviewMode string, invitationID *uint) (*model.Interview, error) {
+	ctx := context.Background()
 	var questions []*model.Question
 	var scenarioJSON string
 	var revealedStyle string
@@ -117,7 +119,7 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 		style = scenario.Style
 
 		// Generate questions tailored to this scenario
-		generated, err := bbService.GenerateBlindBoxQuestions(scenario, position, difficulty, topicCount)
+		generated, err := bbService.GenerateBlindBoxQuestions(ctx, scenario, position, difficulty, topicCount)
 		if err != nil {
 			return nil, fmt.Errorf("blindbox question generation failed: %w", err)
 		}
@@ -126,7 +128,7 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 			q.Difficulty = difficulty
 			q.Source = "ai_opening"
 			q.RAGEligible = true
-			s.normalizeOpeningQuestion(q)
+			s.normalizeOpeningQuestion(ctx, q)
 			if err := s.questionRepo.Create(q); err != nil {
 				return nil, fmt.Errorf("failed to save blindbox question: %w", err)
 			}
@@ -147,11 +149,11 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 			chunks, err := s.ragService.SearchKnowledgeChunksWithLimit(query, topicCount)
 			if err == nil {
 				for _, chunk := range chunks {
-					q, qErr := s.aiService.GenerateTopicQuestionFromContext(dummyInterview, chunk.Content, chunk.Category)
+					q, qErr := s.aiService.GenerateTopicQuestionFromContext(ctx, dummyInterview, chunk.Content, chunk.Category)
 					if qErr == nil && q != nil {
 						q.Source = "ai_opening"
 						q.RAGEligible = true
-						if normalized := s.normalizeOpeningQuestion(q); normalized != nil {
+						if normalized := s.normalizeOpeningQuestion(ctx, q); normalized != nil {
 							if err := s.questionRepo.Create(normalized); err != nil {
 								continue
 							}
@@ -176,7 +178,7 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 					s.quarantineQuestionAsFollowUp(q)
 					continue
 				}
-				if normalized := s.normalizeOpeningQuestion(q); normalized != nil {
+				if normalized := s.normalizeOpeningQuestion(ctx, q); normalized != nil {
 					questions = append(questions, normalized)
 				}
 			}
@@ -187,9 +189,9 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 			needed := topicCount - len(questions)
 			maxAttempts := needed * 3
 			for i := 0; i < maxAttempts && len(questions) < topicCount; i++ {
-				q, err := s.aiService.GenerateNextQuestionWithWeights(dummyInterview, nil, capabilityGraph)
+				q, err := s.aiService.GenerateNextQuestionWithWeights(ctx, dummyInterview, nil, capabilityGraph)
 				if err != nil {
-					q, err = s.aiService.GenerateNextQuestion(dummyInterview, nil)
+					q, err = s.aiService.GenerateNextQuestion(ctx, dummyInterview, nil)
 					if err != nil {
 						continue
 					}
@@ -198,7 +200,7 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 				q.Difficulty = difficulty
 				q.Source = "ai_opening"
 				q.RAGEligible = true
-				if normalized := s.normalizeOpeningQuestion(q); normalized == nil {
+				if normalized := s.normalizeOpeningQuestion(ctx, q); normalized == nil {
 					continue
 				}
 				if err := s.questionRepo.Create(q); err == nil {
@@ -220,9 +222,9 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 		}
 		maxAttempts := (topicCount - len(questions)) * 4
 		for i := 0; i < maxAttempts && len(questions) < topicCount; i++ {
-			q, genErr := s.aiService.GenerateNextQuestionWithWeights(dummyInterview, nil, capabilityGraph)
+			q, genErr := s.aiService.GenerateNextQuestionWithWeights(ctx, dummyInterview, nil, capabilityGraph)
 			if genErr != nil {
-				q, genErr = s.aiService.GenerateNextQuestion(dummyInterview, nil)
+				q, genErr = s.aiService.GenerateNextQuestion(ctx, dummyInterview, nil)
 				if genErr != nil {
 					continue
 				}
@@ -231,7 +233,7 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 			q.Difficulty = difficulty
 			q.Source = "ai_opening"
 			q.RAGEligible = true
-			normalized := s.normalizeOpeningQuestion(q)
+			normalized := s.normalizeOpeningQuestion(ctx, q)
 			if normalized == nil {
 				continue
 			}
@@ -250,7 +252,7 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 	}
 
 	for _, q := range questions {
-		s.normalizeOpeningQuestion(q)
+		s.normalizeOpeningQuestion(ctx, q)
 	}
 
 	// Style could be overridden by random/blindbox mode, so compute strategy at the end.
@@ -316,7 +318,7 @@ func (s *InterviewService) StartInterview(userID uint, position, difficulty, mod
 	return interviewWithQuestions, nil
 }
 
-func (s *InterviewService) normalizeOpeningQuestion(q *model.Question) *model.Question {
+func (s *InterviewService) normalizeOpeningQuestion(ctx context.Context, q *model.Question) *model.Question {
 	if q == nil {
 		return nil
 	}
@@ -327,7 +329,7 @@ func (s *InterviewService) normalizeOpeningQuestion(q *model.Question) *model.Qu
 		return nil
 	}
 
-	s.aiService.EnsureQuestionChinese(q)
+	s.aiService.EnsureQuestionChinese(ctx, q)
 	if s.aiService.IsContextDependentOpeningQuestion(q) {
 		s.aiService.NormalizeToSelfContainedOpening(q)
 	}
@@ -410,9 +412,11 @@ func CreateHumanInvitation(studentID, inviteeUserID uint, scheduledAt *time.Time
 		ScheduledAt:   scheduledAt,
 		Notes:         strings.TrimSpace(notes),
 	}
+
 	if err := svc.interviewRepo.CreateInvitation(inv); err != nil {
 		return nil, fmt.Errorf("创建邀请失败: %w", err)
 	}
+
 	inv.Invitee = *invitee
 	return inv, nil
 }
@@ -512,6 +516,8 @@ func (s *InterviewService) GetInterviewByID(userID, interviewID uint) (*model.In
 func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, answer, audioData, audioMime, questionTitle, questionContent string) (*model.AnswerResult, error) {
 	_ = audioMime
 
+	ctx := context.Background()
+
 	interview, err := s.GetInterviewByID(userID, interviewID)
 	if err != nil {
 		return nil, err
@@ -548,7 +554,7 @@ func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, an
 		finalAnswer = answer
 	}
 
-	evaluation, err := s.aiService.EvaluateAnswer(evalQuestion, finalAnswer)
+	evaluation, err := s.aiService.EvaluateAnswer(ctx, evalQuestion, finalAnswer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate answer: %w", err)
 	}
@@ -574,7 +580,7 @@ func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, an
 	if askedQuestionText == "" {
 		askedQuestionText = strings.TrimSpace(evalQuestion.Title)
 	}
-	shouldFollowUp, nextQuestion, err := s.decideNextQuestion(interview, baseQuestion, askedQuestionText, finalAnswer, evaluation.Score)
+	shouldFollowUp, nextQuestion, err := s.decideNextQuestion(ctx, interview, baseQuestion, askedQuestionText, finalAnswer, evaluation.Score)
 	if err != nil {
 		fmt.Printf("Dynamic question generation failed: %v\n", err)
 	}
@@ -597,7 +603,7 @@ func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, an
 		if interview.CurrentIndex < len(allQuestions) {
 			nextQ, _ := s.questionRepo.GetByID(allQuestions[interview.CurrentIndex].QuestionID)
 			if nextQ != nil {
-				s.normalizeOpeningQuestion(nextQ)
+				s.normalizeOpeningQuestion(ctx, nextQ)
 				interview.CurrentTopic = nextQ.Category
 				result.NextQuestion = nextQ
 			}
@@ -625,7 +631,7 @@ func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, an
 }
 
 // decideNextQuestion determines if a follow-up is needed and generates it
-func (s *InterviewService) decideNextQuestion(interview *model.Interview, topicRootQ *model.Question, askedQuestionText, answer string, score int) (bool, *model.Question, error) {
+func (s *InterviewService) decideNextQuestion(ctx context.Context, interview *model.Interview, topicRootQ *model.Question, askedQuestionText, answer string, score int) (bool, *model.Question, error) {
 	if interview == nil {
 		return false, nil, nil
 	}
@@ -688,14 +694,14 @@ func (s *InterviewService) decideNextQuestion(interview *model.Interview, topicR
 		}
 	}
 
-	nextQ, reason, err := s.aiService.GenerateFollowUpQuestion(interview, topicRootQ, answer, ragContext, interview.FollowUpCount)
+	nextQ, reason, err := s.aiService.GenerateFollowUpQuestion(ctx, interview, topicRootQ, answer, ragContext, interview.FollowUpCount)
 	if err != nil {
 		return false, nil, err
 	}
 
 	if nextQ == nil {
 		if forceFollowUp {
-			forced, err := s.aiService.GenerateClarifyingFollowUpQuestion(topicRootQ, answer, interview.FollowUpCount)
+			forced, err := s.aiService.GenerateClarifyingFollowUpQuestion(ctx, topicRootQ, answer, interview.FollowUpCount)
 			if err != nil {
 				return false, nil, nil
 			}
@@ -712,7 +718,7 @@ func (s *InterviewService) decideNextQuestion(interview *model.Interview, topicR
 	}
 	if s.isDuplicateQuestionInSession(interview.ID, askedQuestionText, nextQ) {
 		if forceFollowUp {
-			forced, forceErr := s.aiService.GenerateClarifyingFollowUpQuestion(topicRootQ, answer, interview.FollowUpCount)
+			forced, forceErr := s.aiService.GenerateClarifyingFollowUpQuestion(ctx, topicRootQ, answer, interview.FollowUpCount)
 			if forceErr != nil || isMeaninglessFollowUpQuestion(forced) || s.isDuplicateQuestionInSession(interview.ID, askedQuestionText, forced) {
 				return false, nil, nil
 			}
@@ -1019,7 +1025,10 @@ func (s *InterviewService) GenerateShadowHint(userID, interviewID uint, question
 		return "", fmt.Errorf("interview is not in progress")
 	}
 
+	ctx := context.Background()
+
 	hint, err := s.aiService.GenerateShadowCoachHint(
+		ctx,
 		interview.Position,
 		question,
 		transcript,
@@ -1041,6 +1050,8 @@ func (s *InterviewService) GenerateShadowHintPack(userID, interviewID uint, ques
 	if interview.Status != "in_progress" {
 		return nil, fmt.Errorf("interview is not in progress")
 	}
+
+	ctx := context.Background()
 
 	knowledgeContext := ""
 	if s.ragService != nil {
@@ -1084,6 +1095,7 @@ func (s *InterviewService) GenerateShadowHintPack(userID, interviewID uint, ques
 	}
 
 	hints, err := s.aiService.GenerateShadowCoachHintLevels(
+		ctx,
 		interview.Position,
 		question,
 		transcript,

@@ -435,7 +435,7 @@ func QueryKnowledgeBase(c *gin.Context) {
 		})
 	}
 
-	aiSvc := service.NewAIService()
+	aiSvc := mustAIService()
 	prompt := fmt.Sprintf("请根据以下参考资料回答问题。如果参考资料不足以回答，请根据你的通用知识补充，但请优先使用参考资料。\n\n参考资料：\n%s\n\n问题：%s", contextBuilder.String(), req.Query)
 
 	answer, err := aiSvc.Chat(context.Background(), prompt)
@@ -444,7 +444,7 @@ func QueryKnowledgeBase(c *gin.Context) {
 		return
 	}
 
-	answer = aiSvc.EnsureChineseOutput(answer, "抱歉，我暂时无法回答这个问题。")
+	answer = aiSvc.EnsureChineseOutput(context.Background(), answer, "抱歉，我暂时无法回答这个问题。")
 
 	c.JSON(http.StatusOK, gin.H{
 		"answer":  answer,

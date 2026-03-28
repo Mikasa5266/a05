@@ -1,11 +1,13 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 
 	"your-project/model"
+	"your-project/pkg/llm"
 	"your-project/repository"
 )
 
@@ -14,17 +16,15 @@ type AIChatResponse struct {
 	Type    string `json:"type"` // "answer" or "question"
 }
 
-func AIChat(userID uint, message, context string) (*AIChatResponse, error) {
-	aiService := NewAIService()
-
+func (s *AIService) AIChat(ctx context.Context, userID uint, message, convoContext string) (*AIChatResponse, error) {
 	// 构建对话提示词
-	prompt := buildChatPrompt(userID, message, context, nil, nil)
+	prompt := buildChatPrompt(userID, message, convoContext, nil, nil)
 
-	response, err := aiService.callLLM(prompt, "chat")
+	response, err := s.ChatWithTask(ctx, prompt, "chat")
 	if err != nil {
 		return nil, fmt.Errorf("failed to call AI: %w", err)
 	}
-	response = aiService.EnsureChineseOutput(response, "我已收到你的问题。请你补充更具体的技术背景和目标，我会给出更有针对性的中文建议。")
+	response = s.EnsureChineseOutput(ctx, response, "我已收到你的问题。请你补充更具体的技术背景和目标，我会给出更有针对性的中文建议。")
 
 	return &AIChatResponse{
 		Message: response,
@@ -32,7 +32,7 @@ func AIChat(userID uint, message, context string) (*AIChatResponse, error) {
 	}, nil
 }
 
-func AIChatWithInterviewContext(userID uint, interviewID uint, message string) (*AIChatResponse, error) {
+func (s *AIService) AIChatWithInterviewContext(ctx context.Context, userID uint, interviewID uint, message string) (*AIChatResponse, error) {
 	// 获取面试信息
 	interview, err := GetInterviewByID(userID, interviewID)
 	if err != nil {
@@ -46,16 +46,14 @@ func AIChatWithInterviewContext(userID uint, interviewID uint, message string) (
 		return nil, fmt.Errorf("failed to get answers: %w", err)
 	}
 
-	aiService := NewAIService()
-
 	// 构建包含面试上下文的提示词
 	prompt := buildChatPrompt(userID, message, "", interview, answers)
 
-	response, err := aiService.callLLM(prompt, "chat")
+	response, err := s.ChatWithTask(ctx, prompt, "chat")
 	if err != nil {
 		return nil, fmt.Errorf("failed to call AI: %w", err)
 	}
-	response = aiService.EnsureChineseOutput(response, "我已结合当前面试上下文进行分析。建议你先按结论、原理、实践案例的结构来组织回答。")
+	response = s.EnsureChineseOutput(ctx, response, "我已结合当前面试上下文进行分析。建议你先按结论、原理、实践案例的结构来组织回答。")
 
 	return &AIChatResponse{
 		Message: response,
@@ -121,9 +119,7 @@ func CheckIfShouldGenerateQuestion(message string) bool {
 }
 
 // 将用户消息转换为面试问题
-func GenerateQuestionFromMessage(position, difficulty, message string) (*model.Question, error) {
-	aiService := NewAIService()
-
+func (s *AIService) GenerateQuestionFromMessage(ctx context.Context, position, difficulty, message string) (*model.Question, error) {
 	prompt := fmt.Sprintf(`
 基于用户的输入，生成一个合适的面试问题：
 
@@ -139,7 +135,7 @@ func GenerateQuestionFromMessage(position, difficulty, message string) (*model.Q
 返回格式：{"title": "问题标题", "content": "问题内容", "expected_answer": "期望答案要点"}
 `, message, position, difficulty)
 
-	response, err := aiService.callLLM(prompt, "chat")
+	response, err := s.ChatWithFormat(ctx, prompt, "chat", &llm.ResponseFormat{Type: llm.ResponseFormatJSON})
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate question: %w", err)
 	}
@@ -151,10 +147,8 @@ func GenerateQuestionFromMessage(position, difficulty, message string) (*model.Q
 		ExpectedAnswer string `json:"expected_answer"`
 	}
 
-	cleanResponse := extractJSONContent(response)
-
 	// 尝试解析JSON，如果失败则使用默认值
-	if err := json.Unmarshal([]byte(cleanResponse), &result); err == nil && result.Title != "" {
+	if err := json.Unmarshal([]byte(response), &result); err == nil && result.Title != "" {
 		// 成功解析，使用AI生成的问题
 		question := &model.Question{
 			Title:          result.Title,
@@ -163,18 +157,18 @@ func GenerateQuestionFromMessage(position, difficulty, message string) (*model.Q
 			Difficulty:     difficulty,
 			ExpectedAnswer: result.ExpectedAnswer,
 		}
-		aiService.EnsureQuestionChinese(question)
+		s.EnsureQuestionChinese(ctx, question)
 		return question, nil
 	}
 
 	// 解析失败或格式不正确，使用默认问题格式
 	question := &model.Question{
 		Title:          fmt.Sprintf("基于用户输入的问题: %s", message),
-		Content:        aiService.EnsureChineseOutput(response, "请结合岗位要求，详细说明你的技术方案、关键实现与优化思路。"),
+		Content:        s.EnsureChineseOutput(ctx, response, "请结合岗位要求，详细说明你的技术方案、关键实现与优化思路。"),
 		Position:       position,
 		Difficulty:     difficulty,
 		ExpectedAnswer: "请根据具体问题提供详细回答",
 	}
-	aiService.EnsureQuestionChinese(question)
+	s.EnsureQuestionChinese(ctx, question)
 	return question, nil
 }

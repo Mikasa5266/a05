@@ -1,12 +1,14 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math/rand"
 	"time"
 
 	"your-project/model"
+	"your-project/pkg/llm"
 )
 
 // BlindBoxScenario represents a randomly generated interview scenario
@@ -115,7 +117,7 @@ type BlindBoxService struct {
 
 func NewBlindBoxService() *BlindBoxService {
 	return &BlindBoxService{
-		aiService: NewAIService(),
+		aiService: MustGetAIService(),
 		rng:       rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
@@ -153,7 +155,7 @@ func (s *BlindBoxService) DrawScenarioByPressure(minPressure string) *BlindBoxSc
 }
 
 // GenerateBlindBoxQuestions generates questions tailored to a specific scenario
-func (s *BlindBoxService) GenerateBlindBoxQuestions(scenario *BlindBoxScenario, position, difficulty string, count int) ([]*model.Question, error) {
+func (s *BlindBoxService) GenerateBlindBoxQuestions(ctx context.Context, scenario *BlindBoxScenario, position, difficulty string, count int) ([]*model.Question, error) {
 	pressureInstruction := s.buildPressurePrompt(scenario)
 
 	prompt := fmt.Sprintf(`
@@ -184,7 +186,7 @@ func (s *BlindBoxService) GenerateBlindBoxQuestions(scenario *BlindBoxScenario, 
 `, scenario.Name, scenario.Description, scenario.Pressure, scenario.Style,
 		position, difficulty, pressureInstruction, count)
 
-	response, err := s.aiService.callLLM(prompt, "chat")
+	response, err := s.aiService.ChatWithFormat(ctx, prompt, "chat", &llm.ResponseFormat{Type: llm.ResponseFormatJSON})
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate blindbox questions: %w", err)
 	}
@@ -195,8 +197,7 @@ func (s *BlindBoxService) GenerateBlindBoxQuestions(scenario *BlindBoxScenario, 
 		ExpectedAnswer string `json:"expected_answer"`
 	}
 
-	cleanResponse := extractJSONContent(response)
-	if err := json.Unmarshal([]byte(cleanResponse), &questionsData); err != nil {
+	if err := json.Unmarshal([]byte(response), &questionsData); err != nil {
 		return nil, fmt.Errorf("failed to parse blindbox questions: %w, raw: %s", err, response)
 	}
 
@@ -210,7 +211,7 @@ func (s *BlindBoxService) GenerateBlindBoxQuestions(scenario *BlindBoxScenario, 
 			Difficulty:     difficulty,
 			Category:       "blindbox_" + scenario.ID,
 		}
-		s.aiService.EnsureQuestionChinese(q)
+		s.aiService.EnsureQuestionChinese(ctx, q)
 		questions = append(questions, q)
 	}
 

@@ -11,6 +11,7 @@ func bootstrapSpeechAnalysisTestConfig() {
 		LLM: config.LLMConfig{},
 		ASR: config.ASRConfig{},
 	}
+	SetAIService(NewAIService(nil))
 }
 
 func TestAnalyzeAudioChunkSkipsASROnLowEnergy(t *testing.T) {

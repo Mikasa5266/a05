@@ -371,7 +371,7 @@ func SynthesizeInterviewSpeech(c *gin.Context) {
 		return
 	}
 
-	aiService := service.NewAIService()
+	aiService := mustAIService()
 	audioBytes, err := aiService.SynthesizeSpeech(text)
 	if err != nil {
 		log.Printf("TTS synth failed: interview=%d user=%d err=%v", interviewID, userID, err)

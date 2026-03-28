@@ -1,0 +1,15 @@
+基于以下面试信息，生成下一个合适的面试问题：
+
+职位：{{.Position}}
+难度级别：{{.Difficulty}}
+面试模式：{{.Mode}}
+面试风格：{{.Style}}
+已回答问题数量：{{.AnsweredCount}}
+
+{{.ModeInstruction}}
+{{.StyleInstruction}}
+{{.DifficultyInstruction}}
+
+请生成一个合适的后续问题，以深入了解候选人的技术能力。
+只使用简体中文。
+返回格式：{"title": "问题标题", "content": "具体问题内容", "expected_answer": "简要的期望回答"}

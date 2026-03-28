@@ -2,40 +2,50 @@ package llm
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
-type DeepSeekClient struct {
-	apiKey  string
-	baseURL string
-	model   string
+const defaultDeepSeekBaseURL = "https://api.deepseek.com/v1"
+
+var sharedHTTPClient = &http.Client{
+	Timeout: 60 * time.Second,
+	Transport: &http.Transport{
+		Proxy:               http.ProxyFromEnvironment,
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 20,
+		IdleConnTimeout:     90 * time.Second,
+	},
 }
 
-func NewDeepSeekClient(apiKey, model string) *DeepSeekClient {
-	baseURL := "https://api.deepseek.com/v1"
-	if model == "" {
-		model = "deepseek-chat"
+type DeepSeekClient struct {
+	apiKey     string
+	baseURL    string
+	model      string
+	httpClient *http.Client
+}
+
+func NewDeepSeekClient(apiKey, model, baseURL string) *DeepSeekClient {
+	trimmedModel := strings.TrimSpace(model)
+	if trimmedModel == "" {
+		trimmedModel = "deepseek-chat"
+	}
+	trimmedBaseURL := strings.TrimSpace(baseURL)
+	if trimmedBaseURL == "" {
+		trimmedBaseURL = defaultDeepSeekBaseURL
 	}
 
 	return &DeepSeekClient{
-		apiKey:  apiKey,
-		baseURL: baseURL,
-		model:   model,
+		apiKey:     strings.TrimSpace(apiKey),
+		baseURL:    trimmedBaseURL,
+		model:      trimmedModel,
+		httpClient: sharedHTTPClient,
 	}
-}
-
-type ChatRequest struct {
-	Model    string        `json:"model"`
-	Messages []ChatMessage `json:"messages"`
-	Stream   bool          `json:"stream,omitempty"`
-}
-
-type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
 }
 
 type ChatResponse struct {
@@ -55,66 +65,95 @@ type ChatResponse struct {
 	} `json:"usage"`
 }
 
-func (c *DeepSeekClient) Chat(messages []ChatMessage) (string, error) {
-	request := ChatRequest{
-		Model:    c.model,
-		Messages: messages,
-		Stream:   false,
+func (c *DeepSeekClient) Chat(ctx context.Context, req ChatRequest) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if len(req.Messages) == 0 {
+		return "", fmt.Errorf("messages cannot be empty")
+	}
+	if req.Stream {
+		return "", fmt.Errorf("stream mode is not supported for DeepSeekClient")
 	}
 
-	jsonBody, err := json.Marshal(request)
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		model = c.model
+	}
+	if model == "" {
+		return "", fmt.Errorf("model is required")
+	}
+
+	payload := ChatRequest{
+		Model:          model,
+		Messages:       req.Messages,
+		Stream:         req.Stream,
+		Temperature:    req.Temperature,
+		ResponseFormat: req.ResponseFormat,
+	}
+
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/chat/completions", c.baseURL)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
+	endpoint := strings.TrimSuffix(c.baseURL, "/") + "/chat/completions"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.apiKey))
-
-	client := &http.Client{
-		Timeout: 30 * time.Second,
+	httpReq.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API returned status: %d", resp.StatusCode)
+		return "", fmt.Errorf("API returned status: %d, body: %s", resp.StatusCode, string(respBody))
 	}
 
 	var result ChatResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("failed to decode response: %w", err)
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("failed to decode response: %w, body: %s", err, string(respBody))
 	}
 
-	if len(result.Choices) > 0 {
-		return result.Choices[0].Message.Content, nil
+	if len(result.Choices) == 0 {
+		return "", fmt.Errorf("no response from API")
 	}
 
-	return "", fmt.Errorf("no response from API")
+	return result.Choices[0].Message.Content, nil
 }
 
-func (c *DeepSeekClient) GenerateText(prompt string) (string, error) {
-	messages := []ChatMessage{
-		{
-			Role:    "user",
-			Content: prompt,
-		},
+func (c *DeepSeekClient) GenerateText(ctx context.Context, prompt string) (string, error) {
+	message := ChatMessage{
+		Role:    "user",
+		Content: prompt,
 	}
 
-	return c.Chat(messages)
+	return c.Chat(ctx, ChatRequest{
+		Messages: []ChatMessage{message},
+	})
 }
 
-func (c *DeepSeekClient) GenerateStructuredResponse(prompt string, responseFormat string) (string, error) {
-	fullPrompt := fmt.Sprintf("%s\n\n请严格按照以下格式返回：\n%s", prompt, responseFormat)
+func (c *DeepSeekClient) GenerateStructuredResponse(ctx context.Context, prompt string, format string) (string, error) {
+	message := ChatMessage{
+		Role:    "user",
+		Content: fmt.Sprintf("%s\n\nPlease strictly follow this format:\n%s", prompt, format),
+	}
 
-	return c.GenerateText(fullPrompt)
+	return c.Chat(ctx, ChatRequest{
+		Messages:       []ChatMessage{message},
+		ResponseFormat: &ResponseFormat{Type: ResponseFormatJSON},
+	})
 }

@@ -3,11 +3,13 @@ package router
 import (
 	"your-project/handler"
 	"your-project/middleware"
+	"your-project/service"
 
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRouter() *gin.Engine {
+func SetupRouter(aiService *service.AIService) *gin.Engine {
+	handler.SetAIService(aiService)
 	router := gin.New()
 	router.MaxMultipartMemory = 512 << 20
 

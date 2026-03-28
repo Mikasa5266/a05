@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"your-project/service"
-
 	"github.com/gin-gonic/gin"
 )
 
@@ -22,8 +20,8 @@ func AIChat(c *gin.Context) {
 		return
 	}
 
-	// 使用AI服务进行对话
-	response, err := service.AIChat(userID, req.Message, req.Context)
+	aiSvc := mustAIService()
+	response, err := aiSvc.AIChat(c.Request.Context(), userID, req.Message, req.Context)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -52,8 +50,8 @@ func AIChatWithInterviewContext(c *gin.Context) {
 		return
 	}
 
-	// 使用AI服务进行对话，包含面试上下文
-	response, err := service.AIChatWithInterviewContext(userID, uint(interviewID), req.Message)
+	aiSvc := mustAIService()
+	response, err := aiSvc.AIChatWithInterviewContext(c.Request.Context(), userID, uint(interviewID), req.Message)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

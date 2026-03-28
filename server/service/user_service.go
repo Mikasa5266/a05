@@ -328,7 +328,7 @@ func GetQuestionByID(questionID uint) (*model.Question, error) {
 
 func CreateQuestion(title, content, position, difficulty, category string, tags []string, expectedAnswer string) (*model.Question, error) {
 	ensureRepos()
-	validator := NewAIService()
+	validator := MustGetAIService()
 	candidate := &model.Question{
 		Title:    strings.TrimSpace(title),
 		Content:  strings.TrimSpace(content),

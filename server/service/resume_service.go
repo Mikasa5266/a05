@@ -16,7 +16,7 @@ type ResumeService struct {
 
 func NewResumeService() *ResumeService {
 	return &ResumeService{
-		aiService: NewAIService(),
+		aiService: MustGetAIService(),
 	}
 }
 

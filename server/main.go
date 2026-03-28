@@ -8,8 +8,10 @@ import (
 	"your-project/config"
 	"your-project/initializer"
 	"your-project/model"
+	"your-project/pkg/llm"
 	"your-project/repository"
 	"your-project/router"
+	"your-project/service"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -20,6 +22,10 @@ func main() {
 	if err := config.LoadConfig("config.yaml"); err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+
+	cfg := config.GetConfig()
+	llmClient := llm.NewDeepSeekClient(cfg.LLM.APIKey, cfg.LLM.Model, cfg.LLM.BaseURL)
+	aiService := service.MustNewAIService(llmClient)
 
 	db, err := initDatabase()
 	if err != nil {
@@ -37,9 +43,7 @@ func main() {
 		log.Printf("Warning: Failed to initialize sample questions: %v", err)
 	}
 
-	r := router.SetupRouter()
-
-	cfg := config.GetConfig()
+	r := router.SetupRouter(aiService)
 	addr := cfg.Server.Host + ":" + cfg.Server.Port
 	if addr == ":" {
 		addr = ":8080"

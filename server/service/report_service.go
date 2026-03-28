@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -20,7 +21,7 @@ func NewReportService() *ReportService {
 	return &ReportService{
 		reportRepo:    repository.NewReportRepository(),
 		interviewRepo: repository.NewInterviewRepository(),
-		aiService:     NewAIService(),
+		aiService:     MustGetAIService(),
 	}
 }
 
@@ -73,7 +74,7 @@ func (s *ReportService) GenerateInterviewReport(userID, interviewID uint) (*mode
 	matchingScore := aggregated.Matching
 	behaviorScore := aggregated.Behavior
 
-	if insights, aiErr := s.aiService.GenerateReportInsights(interview, answers); aiErr == nil && insights != nil {
+	if insights, aiErr := s.aiService.GenerateReportInsights(context.Background(), interview, answers); aiErr == nil && insights != nil {
 		overallAnalysis = insights.OverallAnalysis
 		if len(insights.Strengths) > 0 {
 			strengths = insights.Strengths
@@ -90,7 +91,7 @@ func (s *ReportService) GenerateInterviewReport(userID, interviewID uint) (*mode
 		matchingScore = insights.MatchingScore
 		behaviorScore = insights.BehaviorScore
 	} else {
-		if analysis, analysisErr := s.aiService.GenerateOverallAnalysis(interview, answers); analysisErr == nil && analysis != "" {
+		if analysis, analysisErr := s.aiService.GenerateOverallAnalysis(context.Background(), interview, answers); analysisErr == nil && analysis != "" {
 			overallAnalysis = analysis
 		}
 	}

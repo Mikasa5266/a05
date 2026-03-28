@@ -186,7 +186,7 @@ func (s *RAGService) FilterAndIndexPost(post *model.CommunityPost) error {
 		shouldIndex = true
 	} else {
 		// Use AI to check if it's a valid interview experience
-		aiSvc := NewAIService()
+		aiSvc := MustGetAIService()
 		prompt := fmt.Sprintf(`
 		请分析以下面试经验内容，判断其是否包含有价值的技术面试信息（如面试流程、具体面试题、技术点复盘等）。
 		如果内容是乱发的、无意义的、或者完全不包含技术面试相关信息，请返回 "INVALID"。
