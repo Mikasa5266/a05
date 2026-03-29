@@ -7,8 +7,11 @@ import (
 	"strings"
 
 	"your-project/model"
-	"your-project/repository"
 )
+
+type userUUIDUpdater interface {
+	Update(user *model.User) error
+}
 
 func generateUUIDv4() (string, error) {
 	buf := make([]byte, 16)
@@ -37,7 +40,7 @@ func generateInvitationCode() (string, error) {
 	return strings.ToUpper(hex.EncodeToString(buf)), nil
 }
 
-func ensureUserUUID(userRepo *repository.UserRepository, user *model.User) (string, error) {
+func ensureUserUUID(userRepo userUUIDUpdater, user *model.User) (string, error) {
 	if user == nil {
 		return "", fmt.Errorf("user is nil")
 	}

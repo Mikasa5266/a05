@@ -375,7 +375,7 @@ func CreateQuestion(title, content, position, difficulty, category string, tags 
 
 func GetUserReports(userID uint, page, pageSize int) ([]*model.Report, int64, error) {
 	ensureRepos()
-	return reportRepo.GetByUserID(userID, page, pageSize)
+	return reportRepo.ListByUserPaged(userID, page, pageSize)
 }
 
 func GetReportByID(userID, reportID uint) (*model.Report, error) {
@@ -400,7 +400,7 @@ func GenerateInterviewReport(userID, interviewID uint) (*model.Report, error) {
 var (
 	userRepo     *repository.UserRepository
 	questionRepo *repository.QuestionRepository
-	reportRepo   *repository.ReportRepository
+	reportRepo   repository.ReportRepository
 )
 
 func initRepos() {

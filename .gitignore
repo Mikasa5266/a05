@@ -21,6 +21,22 @@ dist/
 *.log
 .gocache/
 
+# Go build artifacts and binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.a
+*.o
+*.obj
+*.out
+*.test
+*.prof
+coverage.out
+bin/
+server/bin/
+
 # OS/editor noise
 .DS_Store
 Thumbs.db

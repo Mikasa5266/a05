@@ -9,12 +9,13 @@ import (
 
 	"your-project/model"
 	"your-project/repository"
+	aidomain "your-project/service/ai"
 )
 
 type ReportService struct {
-	reportRepo    *repository.ReportRepository
+	reportRepo    repository.ReportRepository
 	interviewRepo *repository.InterviewRepository
-	aiService     *AIService
+	aiService     aidomain.AIFacade
 }
 
 func NewReportService() *ReportService {
@@ -140,7 +141,7 @@ func (s *ReportService) GenerateInterviewReport(userID, interviewID uint) (*mode
 		return report, nil
 	}
 
-	if err := s.reportRepo.Create(report); err != nil {
+	if err := s.reportRepo.UpsertByInterview(report); err != nil {
 		return nil, fmt.Errorf("failed to create report: %w", err)
 	}
 
@@ -199,7 +200,7 @@ func aggregateReportDimensionScores(answers []model.AnswerResult, fallback int) 
 		}
 
 		var payload struct {
-			Dimensions *ReviewDimensions `json:"dimensions"`
+			Dimensions *aidomain.ReviewDimensions `json:"dimensions"`
 		}
 		if err := json.Unmarshal([]byte(feedback), &payload); err != nil {
 			continue
@@ -264,7 +265,7 @@ func stringsTrimSpaceFast(s string) string {
 	return strings.TrimSpace(s)
 }
 
-func mapInsightsQADetails(items []ReportQADetail) []model.ReportQADetail {
+func mapInsightsQADetails(items []aidomain.ReportQADetail) []model.ReportQADetail {
 	if len(items) == 0 {
 		return []model.ReportQADetail{}
 	}
@@ -405,7 +406,7 @@ func truncateRunesForReport(text string, max int) string {
 }
 
 func (s *ReportService) GetUserReports(userID uint, page, pageSize int) ([]*model.Report, int64, error) {
-	return s.reportRepo.GetByUserID(userID, page, pageSize)
+	return s.reportRepo.ListByUserPaged(userID, page, pageSize)
 }
 
 func (s *ReportService) GetReportByID(userID, reportID uint) (*model.Report, error) {

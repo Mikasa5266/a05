@@ -9,6 +9,7 @@ import (
 
 	"your-project/model"
 	"your-project/pkg/llm"
+	aidomain "your-project/service/ai"
 )
 
 // BlindBoxScenario represents a randomly generated interview scenario
@@ -111,7 +112,7 @@ var pressureWeights = map[string]int{
 
 // BlindBoxService handles blind box scenario generation
 type BlindBoxService struct {
-	aiService *AIService
+	aiService aidomain.AIFacade
 	rng       *rand.Rand
 }
 

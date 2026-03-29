@@ -143,7 +143,7 @@ func (s *AIService) transcribeWithWhisper(audioData []byte, mimeType string) (st
 	if configuredModel != "" && !strings.EqualFold(configuredModel, primaryModel) {
 		log.Printf("ASR model '%s' is not a transcription model, fallback to '%s'", configuredModel, primaryModel)
 	}
-	client := asr.NewWhisperClient(asrConfig.APIKey, asrConfig.BaseURL, primaryModel)
+	client := asr.NewWhisperClientWithModel(config.GetConfig(), primaryModel)
 	language := "zh"
 	log.Printf("ASR request start: model=%s mime=%s bytes=%d", primaryModel, strings.TrimSpace(mimeType), len(audioData))
 
@@ -192,12 +192,12 @@ func (s *AIService) transcribeWithWhisper(audioData []byte, mimeType string) (st
 		return text, nil
 	}
 
-	if strings.EqualFold(primaryModel, "whisper-1") {
+	if strings.EqualFold(primaryModel, config.DefaultWhisperModel) {
 		return "", fmt.Errorf("whisper transcription failed (model=%s): %w", primaryModel, primaryErr)
 	}
 
-	fallbackModel := "whisper-1"
-	fallbackClient := asr.NewWhisperClient(asrConfig.APIKey, asrConfig.BaseURL, fallbackModel)
+	fallbackModel := config.DefaultWhisperModel
+	fallbackClient := asr.NewWhisperClientWithModel(config.GetConfig(), fallbackModel)
 	fallbackText, fallbackErr := fallbackClient.TranscribeAudioWithOptions(audioData, language, mimeType, prompt)
 	if fallbackErr == nil {
 		fallbackText = strings.TrimSpace(fallbackText)
@@ -249,10 +249,10 @@ func isASRPromptEcho(text string) bool {
 func resolveASRModel(configured string) string {
 	model := strings.TrimSpace(configured)
 	if model == "" {
-		return "whisper-1"
+		return config.DefaultWhisperModel
 	}
 	if looksLikeNonASRModel(model) {
-		return "whisper-1"
+		return config.DefaultWhisperModel
 	}
 	return model
 }

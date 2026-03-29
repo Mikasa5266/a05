@@ -24,7 +24,7 @@ func main() {
 	}
 
 	cfg := config.GetConfig()
-	llmClient := llm.NewDeepSeekClient(cfg.LLM.APIKey, cfg.LLM.Model, cfg.LLM.BaseURL)
+	llmClient := llm.NewDeepSeekClient(cfg)
 	aiService := service.MustNewAIService(llmClient)
 
 	db, err := initDatabase()
@@ -91,6 +91,7 @@ func autoMigrate(db *gorm.DB) error {
 		&model.InterviewQuestion{},
 		&model.AnswerResult{},
 		&model.Report{},
+		&model.ResumeRecord{},
 		&model.HumanInterviewer{},
 		&model.InterviewBooking{},
 		&model.HumanInterviewInvitation{},

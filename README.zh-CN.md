@@ -70,10 +70,24 @@ cd server
 go mod tidy
 ```
 
-按本机环境修改 `server/config.yaml`。
+先从模板创建本地环境变量文件并填写真实密钥：
+
+```bash
+cd server
+cp .env.example .env
+```
+
+Windows PowerShell 可用：
+
+```powershell
+cd server
+Copy-Item .env.example .env
+```
+
+`server/config.yaml` 现已支持 `${ENV}` / `${ENV:-default}` 占位符，`config.LoadConfig` 会在启动时自动加载 `server/.env`（若存在）。
 
 注意：
-- 发布前请替换数据库/JWT/LLM/ASR 凭据。
+- 请勿提交真实数据库/JWT/LLM/ASR/TTS 凭据。
 - `main.go` 通过相对路径读取 `config.yaml`，请在 `server/` 目录执行启动命令。
 
 ```bash
@@ -112,7 +126,7 @@ npm run dev
 
 ```bash
 cd server
-go run ./tools/create_accounts.go
+go run ./tools/create_accounts
 ```
 
 默认创建：

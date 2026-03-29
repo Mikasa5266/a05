@@ -70,10 +70,24 @@ cd server
 go mod tidy
 ```
 
-Edit `server/config.yaml` for your local environment.
+Create local environment file from template and fill your real secrets:
+
+```bash
+cd server
+cp .env.example .env
+```
+
+For Windows PowerShell:
+
+```powershell
+cd server
+Copy-Item .env.example .env
+```
+
+`server/config.yaml` now uses `${ENV}` / `${ENV:-default}` placeholders and `config.LoadConfig` will auto-load `server/.env` if present.
 
 Important:
-- Replace DB/JWT/LLM/ASR credentials before sharing or deploying.
+- Never commit real DB/JWT/LLM/ASR/TTS credentials.
 - `main.go` loads `config.yaml` from current working directory, so run backend commands inside `server/`.
 
 Start backend:
@@ -119,7 +133,7 @@ You can create demo enterprise/university accounts with:
 
 ```bash
 cd server
-go run ./tools/create_accounts.go
+go run ./tools/create_accounts
 ```
 
 The script creates:

@@ -1,5 +1,11 @@
 package model
 
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
+
 type ResumeData struct {
 	TechStack  []string `json:"techStack"`
 	Experience []struct {
@@ -84,4 +90,17 @@ type ResumeRoleMatch struct {
 type ResumeMatchResult struct {
 	MatchedRoles        []ResumeRoleMatch `json:"matched_roles"`
 	TargetQuestionBanks []string          `json:"target_question_banks"`
+}
+
+// ResumeRecord stores resume parsing snapshots for traceability and reuse.
+type ResumeRecord struct {
+	ID         uint           `gorm:"primaryKey" json:"id"`
+	UserID     uint           `gorm:"index;not null" json:"user_id"`
+	FileName   string         `gorm:"size:255" json:"file_name"`
+	RawText    string         `gorm:"type:longtext" json:"raw_text"`
+	ParsedData string         `gorm:"type:longtext" json:"parsed_data"`
+	MatchData  string         `gorm:"type:longtext" json:"match_data"`
+	CreatedAt  time.Time      `json:"created_at"`
+	UpdatedAt  time.Time      `json:"updated_at"`
+	DeletedAt  gorm.DeletedAt `gorm:"index" json:"-"`
 }

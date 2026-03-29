@@ -2,12 +2,21 @@ package prompt
 
 import (
 	"bytes"
+	"embed"
 	"fmt"
+	"io/fs"
 	"os"
-	"path/filepath"
-	"runtime"
+	"path"
+	"strings"
 	"text/template"
+
+	"your-project/config"
 )
+
+const promptTemplatesDirEnv = "PROMPT_TEMPLATES_DIR"
+
+//go:embed templates/*
+var embeddedTemplatesFS embed.FS
 
 // PromptManager loads and renders text templates for LLM prompts.
 type PromptManager struct {
@@ -15,47 +24,87 @@ type PromptManager struct {
 }
 
 func NewPromptManager() (*PromptManager, error) {
-	_, currentFile, _, ok := runtime.Caller(0)
-	if !ok {
-		return nil, fmt.Errorf("failed to resolve prompt manager path")
+	root := template.New("prompts").Option("missingkey=error")
+
+	configuredDir, hasConfiguredDir := resolveConfiguredTemplatesDir()
+	if hasConfiguredDir {
+		loaded, err := loadTemplates(root, os.DirFS(configuredDir), ".")
+		if err == nil && loaded > 0 {
+			return &PromptManager{tpl: root}, nil
+		}
+
+		root = template.New("prompts").Option("missingkey=error")
 	}
 
-	templatesDir := filepath.Join(filepath.Dir(currentFile), "templates")
-	root := template.New("prompts").Option("missingkey=error")
+	loaded, err := loadTemplates(root, embeddedTemplatesFS, "templates")
+	if err != nil {
+		if hasConfiguredDir {
+			return nil, fmt.Errorf("failed to load embedded templates after configured dir %q: %w", configuredDir, err)
+		}
+		return nil, fmt.Errorf("failed to load embedded templates: %w", err)
+	}
+
+	if loaded == 0 {
+		if hasConfiguredDir {
+			return nil, fmt.Errorf("no .tmpl files found in configured dir %q or embedded templates", configuredDir)
+		}
+		return nil, fmt.Errorf("no .tmpl files found in embedded templates")
+	}
+
+	return &PromptManager{tpl: root}, nil
+}
+
+func resolveConfiguredTemplatesDir() (string, bool) {
+	if fromEnv := strings.TrimSpace(os.Getenv(promptTemplatesDirEnv)); fromEnv != "" {
+		return fromEnv, true
+	}
+
+	cfg := config.GetConfig()
+	if cfg == nil {
+		return "", false
+	}
+
+	fromConfig := strings.TrimSpace(cfg.Prompt.TemplatesDir)
+	if fromConfig == "" {
+		return "", false
+	}
+
+	return fromConfig, true
+}
+
+func loadTemplates(root *template.Template, sourceFS fs.FS, baseDir string) (int, error) {
 	loaded := 0
-	err := filepath.WalkDir(templatesDir, func(path string, d os.DirEntry, walkErr error) error {
+	err := fs.WalkDir(sourceFS, baseDir, func(currentPath string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if d.IsDir() || filepath.Ext(d.Name()) != ".tmpl" {
+		if d.IsDir() || path.Ext(d.Name()) != ".tmpl" {
 			return nil
 		}
 
-		relPath, relErr := filepath.Rel(templatesDir, path)
-		if relErr != nil {
-			return relErr
+		templateName := strings.TrimPrefix(currentPath, baseDir)
+		templateName = strings.TrimPrefix(templateName, "/")
+		templateName = path.Clean(templateName)
+		if templateName == "." || templateName == "" {
+			return fmt.Errorf("invalid template path %q", currentPath)
 		}
-		templateName := filepath.ToSlash(relPath)
 
-		content, readErr := os.ReadFile(path)
+		content, readErr := fs.ReadFile(sourceFS, currentPath)
 		if readErr != nil {
-			return fmt.Errorf("failed to read template %q: %w", path, readErr)
+			return fmt.Errorf("failed to read template %q: %w", currentPath, readErr)
 		}
 		if _, parseErr := root.New(templateName).Parse(string(content)); parseErr != nil {
-			return fmt.Errorf("failed to parse template %q: %w", path, parseErr)
+			return fmt.Errorf("failed to parse template %q: %w", currentPath, parseErr)
 		}
+
 		loaded++
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to walk templates dir %q: %w", templatesDir, err)
+		return 0, err
 	}
 
-	if loaded == 0 {
-		return nil, fmt.Errorf("no .tmpl files found in %q", templatesDir)
-	}
-
-	return &PromptManager{tpl: root}, nil
+	return loaded, nil
 }
 
 func (m *PromptManager) Render(templateName string, data interface{}) (string, error) {

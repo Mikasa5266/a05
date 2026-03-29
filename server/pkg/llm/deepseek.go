@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
-)
 
-const defaultDeepSeekBaseURL = "https://api.deepseek.com/v1"
+	"your-project/config"
+)
 
 var sharedHTTPClient = &http.Client{
 	Timeout: 60 * time.Second,
@@ -30,18 +30,32 @@ type DeepSeekClient struct {
 	httpClient *http.Client
 }
 
-func NewDeepSeekClient(apiKey, model, baseURL string) *DeepSeekClient {
-	trimmedModel := strings.TrimSpace(model)
-	if trimmedModel == "" {
-		trimmedModel = "deepseek-chat"
+func NewDeepSeekClient(cfg *config.Config) *DeepSeekClient {
+	var deepSeekCfg config.DeepSeekConfig
+	if cfg != nil {
+		deepSeekCfg = cfg.LLM.DeepSeek
+		if strings.TrimSpace(deepSeekCfg.APIKey) == "" {
+			deepSeekCfg.APIKey = strings.TrimSpace(cfg.LLM.APIKey)
+		}
+		if strings.TrimSpace(deepSeekCfg.BaseURL) == "" {
+			deepSeekCfg.BaseURL = strings.TrimSpace(cfg.LLM.BaseURL)
+		}
+		if strings.TrimSpace(deepSeekCfg.Model) == "" {
+			deepSeekCfg.Model = strings.TrimSpace(cfg.LLM.Model)
+		}
 	}
-	trimmedBaseURL := strings.TrimSpace(baseURL)
+
+	trimmedModel := strings.TrimSpace(deepSeekCfg.Model)
+	if trimmedModel == "" {
+		trimmedModel = config.DefaultDeepSeekModel
+	}
+	trimmedBaseURL := strings.TrimSpace(deepSeekCfg.BaseURL)
 	if trimmedBaseURL == "" {
-		trimmedBaseURL = defaultDeepSeekBaseURL
+		trimmedBaseURL = config.DefaultDeepSeekBaseURL
 	}
 
 	return &DeepSeekClient{
-		apiKey:     strings.TrimSpace(apiKey),
+		apiKey:     strings.TrimSpace(deepSeekCfg.APIKey),
 		baseURL:    trimmedBaseURL,
 		model:      trimmedModel,
 		httpClient: sharedHTTPClient,

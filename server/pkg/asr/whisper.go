@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"your-project/config"
 )
 
 type WhisperClient struct {
@@ -21,15 +23,45 @@ type WhisperClient struct {
 	model   string
 }
 
-func NewWhisperClient(apiKey, baseURL, model string) *WhisperClient {
-	if strings.TrimSpace(baseURL) == "" {
-		baseURL = "https://api.openai.com/v1"
-		if apiKey == "" {
-			baseURL = "http://localhost:9000/v1"
+func NewWhisperClient(cfg *config.Config) *WhisperClient {
+	return NewWhisperClientWithModel(cfg, "")
+}
+
+func NewWhisperClientWithModel(cfg *config.Config, modelOverride string) *WhisperClient {
+	var whisperCfg config.WhisperConfig
+	if cfg != nil {
+		whisperCfg = cfg.ASR.Whisper
+		if strings.TrimSpace(whisperCfg.APIKey) == "" {
+			whisperCfg.APIKey = strings.TrimSpace(cfg.ASR.APIKey)
+		}
+		if strings.TrimSpace(whisperCfg.BaseURL) == "" {
+			whisperCfg.BaseURL = strings.TrimSpace(cfg.ASR.BaseURL)
+		}
+		if strings.TrimSpace(whisperCfg.Model) == "" {
+			whisperCfg.Model = strings.TrimSpace(cfg.ASR.Model)
 		}
 	}
-	if strings.TrimSpace(model) == "" {
-		model = "whisper-1"
+
+	apiKey := strings.TrimSpace(whisperCfg.APIKey)
+	baseURL := strings.TrimSpace(whisperCfg.BaseURL)
+	localBaseURL := strings.TrimSpace(whisperCfg.LocalBaseURL)
+	if localBaseURL == "" {
+		localBaseURL = config.DefaultWhisperLocalBaseURL
+	}
+	if baseURL == "" {
+		if apiKey == "" {
+			baseURL = localBaseURL
+		} else {
+			baseURL = config.DefaultWhisperBaseURL
+		}
+	}
+
+	model := strings.TrimSpace(modelOverride)
+	if model == "" {
+		model = strings.TrimSpace(whisperCfg.Model)
+	}
+	if model == "" {
+		model = config.DefaultWhisperModel
 	}
 
 	return &WhisperClient{

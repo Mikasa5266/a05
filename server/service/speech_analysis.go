@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+
+	aidomain "your-project/service/ai"
 )
 
 // SpeechMetrics holds real-time speech analysis results for a single audio chunk.
@@ -35,7 +37,7 @@ type SpeechMetrics struct {
 
 // SpeechAnalysisService provides real-time speech analysis capabilities.
 type SpeechAnalysisService struct {
-	aiService *AIService
+	aiService aidomain.AIFacade
 }
 
 func NewSpeechAnalysisService() *SpeechAnalysisService {

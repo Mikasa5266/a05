@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 	"your-project/model"
-	"your-project/service"
 	"your-project/utils"
 
 	"github.com/gin-gonic/gin"
@@ -41,7 +40,7 @@ func ParseResume(c *gin.Context) {
 		log.Printf("Warning: Extracted text is very short; the PDF might be image-based or encoded fonts")
 	}
 
-	svc := service.NewResumeService()
+	svc := mustResumeService()
 	resumeData, err := svc.ParseResume(textContent)
 	if err != nil {
 		log.Printf("Failed to parse resume: %v", err)
@@ -82,7 +81,7 @@ func GenerateQuestions(c *gin.Context) {
 		return
 	}
 
-	svc := service.NewResumeService()
+	svc := mustResumeService()
 	questions, err := svc.GenerateInterviewQuestions(req.ResumeData, req.JobTitle)
 	if err != nil {
 		log.Printf("Failed to generate interview questions: %v", err)
@@ -108,7 +107,7 @@ func AnalyzeResumeAuthenticity(c *gin.Context) {
 		return
 	}
 
-	svc := service.NewResumeService()
+	svc := mustResumeService()
 	report, err := svc.AnalyzeAuthenticity(req.ResumeData, req.RawText, req.TargetRole)
 	if err != nil {
 		log.Printf("Failed to analyze resume authenticity: %v", err)
@@ -131,7 +130,7 @@ func GetResumeOptimizationSuggestions(c *gin.Context) {
 		return
 	}
 
-	svc := service.NewResumeService()
+	svc := mustResumeService()
 	report, err := svc.GenerateOptimizationSuggestions(req.ResumeData, req.TargetRole)
 	if err != nil {
 		log.Printf("Failed to generate resume optimization report: %v", err)
@@ -155,7 +154,7 @@ func GenerateResumeTemplate(c *gin.Context) {
 		return
 	}
 
-	svc := service.NewResumeService()
+	svc := mustResumeService()
 	tpl, err := svc.GenerateResumeTemplate(req.TargetRole, req.Seniority, req.Language)
 	if err != nil {
 		log.Printf("Failed to generate resume template: %v", err)

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"your-project/config"
+	aidomain "your-project/service/ai"
 )
 
 func bootstrapSpeechAnalysisTestConfig() {
@@ -11,7 +12,7 @@ func bootstrapSpeechAnalysisTestConfig() {
 		LLM: config.LLMConfig{},
 		ASR: config.ASRConfig{},
 	}
-	SetAIService(NewAIService(nil))
+	SetAIService(aidomain.NewAIFacade(nil, nil))
 }
 
 func TestAnalyzeAudioChunkSkipsASROnLowEnergy(t *testing.T) {

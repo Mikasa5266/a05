@@ -6,7 +6,7 @@ import (
 )
 
 type GrowthService struct {
-	reportRepo *repository.ReportRepository
+	reportRepo repository.ReportRepository
 }
 
 func NewGrowthService() *GrowthService {
@@ -39,7 +39,7 @@ type SkillGap struct {
 
 func (s *GrowthService) GetGrowthStats(userID uint) (*GrowthStats, error) {
 	// 1. Get all reports for user
-	reports, err := s.reportRepo.GetAllByUserID(userID)
+	reports, err := s.reportRepo.ListByUserTimeline(userID)
 	if err != nil {
 		return nil, err
 	}

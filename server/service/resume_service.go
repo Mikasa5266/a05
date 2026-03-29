@@ -11,14 +11,25 @@ import (
 
 	"your-project/model"
 	"your-project/repository"
-
-	"gorm.io/gorm"
+	aidomain "your-project/service/ai"
 )
 
 type ResumeService struct {
-	aiService          *AIService
+	aiService          aidomain.AIFacade
+	resumeRepo         repository.ResumeRepository
 	lastPipelineResult *ResumePipelineResult
 }
+
+type ResumeServiceInterface interface {
+	ParseResume(fileContent string) (*model.ResumeData, error)
+	MatchJobs(resumeData *model.ResumeData) ([]*model.JobMatch, error)
+	GenerateInterviewQuestions(resumeData *model.ResumeData, jobTitle string) (map[string][]string, error)
+	AnalyzeAuthenticity(resumeData *model.ResumeData, rawText string, targetRole string) (*model.ResumeAuthenticityReport, error)
+	GenerateOptimizationSuggestions(resumeData *model.ResumeData, targetRole string) (*model.ResumeOptimizationReport, error)
+	GenerateResumeTemplate(targetRole string, seniority string, language string) (*model.ResumeTemplate, error)
+}
+
+var _ ResumeServiceInterface = (*ResumeService)(nil)
 
 type ResumePipelineResult struct {
 	Validation *model.ResumeValidationResult
@@ -29,8 +40,20 @@ type ResumePipelineResult struct {
 }
 
 func NewResumeService() *ResumeService {
+	return NewResumeServiceWithDeps(MustGetAIService(), repository.NewResumeRepository())
+}
+
+func NewResumeServiceWithDeps(aiService aidomain.AIFacade, resumeRepo repository.ResumeRepository) *ResumeService {
+	if aiService == nil {
+		aiService = MustGetAIService()
+	}
+	if resumeRepo == nil {
+		resumeRepo = repository.NewResumeRepository()
+	}
+
 	return &ResumeService{
-		aiService: MustGetAIService(),
+		aiService:  aiService,
+		resumeRepo: resumeRepo,
 	}
 }
 
@@ -188,15 +211,12 @@ func (s *ResumeService) runMatcher(ctx context.Context, extracted *model.ResumeE
 }
 
 func (s *ResumeService) loadAvailableRoles() []string {
-	roles := make([]string, 0)
-	db := getDBSafe()
-	if db == nil {
-		return roles
+	if s.resumeRepo == nil {
+		return []string{}
 	}
-	if err := db.Model(&model.Question{}).
-		Where("position IS NOT NULL AND position <> ''").
-		Distinct().
-		Pluck("position", &roles).Error; err != nil {
+
+	roles, err := s.resumeRepo.ListDistinctQuestionPositions()
+	if err != nil {
 		log.Printf("load available roles failed: %v", err)
 		return []string{}
 	}
@@ -204,28 +224,16 @@ func (s *ResumeService) loadAvailableRoles() []string {
 }
 
 func (s *ResumeService) loadAvailableQuestionBanks() []string {
-	questionBanks := make([]string, 0)
-	db := getDBSafe()
-	if db == nil {
-		return questionBanks
+	if s.resumeRepo == nil {
+		return []string{}
 	}
-	if err := db.Model(&model.Question{}).
-		Where("category IS NOT NULL AND category <> ''").
-		Distinct().
-		Pluck("category", &questionBanks).Error; err != nil {
+
+	questionBanks, err := s.resumeRepo.ListDistinctQuestionCategories()
+	if err != nil {
 		log.Printf("load available question banks failed: %v", err)
 		return []string{}
 	}
 	return uniqueSortedNonEmpty(questionBanks)
-}
-
-func getDBSafe() (db *gorm.DB) {
-	defer func() {
-		if recover() != nil {
-			db = nil
-		}
-	}()
-	return repository.GetDB()
 }
 
 func convertExtractedToResumeData(extracted *model.ResumeExtractedData) *model.ResumeData {

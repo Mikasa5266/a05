@@ -1,25 +1,57 @@
 package service
 
-import "your-project/pkg/llm"
+import (
+	"context"
+	"strings"
 
-var defaultAIService *AIService
+	"your-project/pkg/llm"
+	aidomain "your-project/service/ai"
+)
 
-// SetAIService registers the shared AIService instance for packages that need LLM access.
-func SetAIService(ai *AIService) {
+var defaultAIService aidomain.AIFacade
+
+// SetAIService registers the shared AIFacade instance for packages that need AI capabilities.
+func SetAIService(ai aidomain.AIFacade) {
 	defaultAIService = ai
 }
 
-// MustGetAIService returns the shared AIService or panics if it is not initialized.
-func MustGetAIService() *AIService {
+// MustGetAIService returns the shared AIFacade or panics if it is not initialized.
+func MustGetAIService() aidomain.AIFacade {
 	if defaultAIService == nil {
-		panic("AIService is not initialized; call SetAIService first")
+		panic("AIFacade is not initialized; call SetAIService first")
 	}
 	return defaultAIService
 }
 
-// MustNewAIService initializes AIService with a provided LLM client and sets it as default.
-func MustNewAIService(client llm.LLMClient) *AIService {
-	ai := NewAIService(client)
-	SetAIService(ai)
-	return ai
+// MustNewAIService initializes AIFacade with a provided LLM client and sets it as default.
+func MustNewAIService(client llm.LLMClient) aidomain.AIFacade {
+	facade := aidomain.NewAIFacade(client, func(ctx context.Context, query string, limit int) ([]string, error) {
+		ragSvc := GetRAGService()
+		if ragSvc == nil {
+			return nil, nil
+		}
+
+		chunks, err := ragSvc.SearchKnowledgeChunksWithLimit(query, limit)
+		if err != nil {
+			return nil, err
+		}
+
+		seen := make(map[string]struct{}, len(chunks))
+		references := make([]string, 0, len(chunks))
+		for _, chunk := range chunks {
+			content := strings.TrimSpace(chunk.Content)
+			if content == "" {
+				continue
+			}
+			if _, ok := seen[content]; ok {
+				continue
+			}
+			seen[content] = struct{}{}
+			references = append(references, content)
+		}
+		return references, nil
+	})
+
+	SetAIService(facade)
+	return facade
 }

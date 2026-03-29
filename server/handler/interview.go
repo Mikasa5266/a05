@@ -12,97 +12,27 @@ import (
 	"strings"
 	"time"
 
-	"your-project/config"
-	ws "your-project/pkg/websocket"
 	"your-project/service"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 )
 
 const coreRequestTimeout = 10 * time.Second
 
-type liveTokenIdentity struct {
-	UserID   uint
-	Role     string
-	UserUUID string
-}
-
-func parseLiveIdentityFromToken(tokenString string) (*liveTokenIdentity, error) {
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, jwt.ErrSignatureInvalid
-		}
-		return []byte(config.GetConfig().JWT.Secret), nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok || !token.Valid {
-		return nil, jwt.ErrTokenInvalidClaims
-	}
-	uid, ok := claims["user_id"].(float64)
-	if !ok || uid <= 0 {
-		return nil, jwt.ErrTokenInvalidClaims
-	}
-
-	role, roleOK := claims["role"].(string)
-	if !roleOK || strings.TrimSpace(role) == "" {
-		return nil, jwt.ErrTokenInvalidClaims
-	}
-
-	userUUID, _ := claims["user_uuid"].(string)
-
-	return &liveTokenIdentity{
-		UserID:   uint(uid),
-		Role:     strings.TrimSpace(role),
-		UserUUID: strings.TrimSpace(userUUID),
-	}, nil
-}
-
 // InterviewSignalWS provides a websocket signaling channel for live human interview rooms.
 func InterviewSignalWS(c *gin.Context) {
-	tokenString := strings.TrimSpace(c.Query("token"))
-	if tokenString == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "token is required"})
+	handshake, statusCode, errMsg := resolveLiveSignalHandshake(c)
+	if handshake == nil {
+		c.JSON(statusCode, gin.H{"error": errMsg})
 		return
 	}
 
-	roomID := strings.TrimSpace(c.Query("room_id"))
-	if roomID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "room_id is required"})
+	if err := ensureSingleRoomConnection(handshake.identity, handshake.roomID); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		return
 	}
 
-	identity, err := parseLiveIdentityFromToken(tokenString)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
-		return
-	}
-
-	invitationCode := strings.TrimSpace(c.Query("invitation_code"))
-	if _, err := service.ValidateLiveRoomAccess(identity.UserID, identity.Role, identity.UserUUID, roomID, invitationCode); err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
-		return
-	}
-
-	// 并发检查：允许同一房间重连，但禁止同时进入其他房间。
-	// 注意：这里允许重新进入同一个房间（断线重连），但禁止跨房间
-	activeClients := ws.GetHub().GetClientsByUserID(strconv.FormatUint(uint64(identity.UserID), 10))
-	for _, client := range activeClients {
-		if client.GetInterviewID() != roomID {
-			c.JSON(http.StatusConflict, gin.H{"error": "您已在其他面试间中，请先退出"})
-			return
-		}
-	}
-
-	query := c.Request.URL.Query()
-	query.Set("user_id", strconv.FormatUint(uint64(identity.UserID), 10))
-	query.Set("interview_id", roomID)
-	c.Request.URL.RawQuery = query.Encode()
-
-	ws.GetHub().HandleWebSocket(c.Writer, c.Request)
+	proxyLiveSignalToHub(c, handshake.identity, handshake.roomID)
 }
 
 func JoinInterview(c *gin.Context) {

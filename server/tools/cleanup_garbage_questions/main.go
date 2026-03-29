@@ -10,7 +10,7 @@ import (
 	"your-project/config"
 	"your-project/model"
 	"your-project/repository"
-	"your-project/service"
+	aidomain "your-project/service/ai"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -181,7 +181,7 @@ func findGarbageFollowUps(db *gorm.DB) ([]candidate, error) {
 
 func isGarbageTriggerAnswer(answer string) bool {
 	trimmed := strings.TrimSpace(answer)
-	if service.IsInvalidAnswer(trimmed) {
+	if aidomain.IsInvalidAnswer(trimmed) {
 		return true
 	}
 	if len([]rune(trimmed)) <= 8 {
@@ -202,7 +202,7 @@ func likelyGarbageQuestion(q model.Question) bool {
 	if all == "" {
 		return true
 	}
-	if service.IsInvalidAnswer(all) {
+	if aidomain.IsInvalidAnswer(all) {
 		return true
 	}
 	if len([]rune(strings.TrimSpace(q.Content))) < 10 {

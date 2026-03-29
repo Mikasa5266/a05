@@ -1,4 +1,4 @@
-package service
+package ai
 
 import (
 	"context"
@@ -34,14 +34,17 @@ func (s *AIService) AIChat(ctx context.Context, userID uint, message, convoConte
 
 func (s *AIService) AIChatWithInterviewContext(ctx context.Context, userID uint, interviewID uint, message string) (*AIChatResponse, error) {
 	// 获取面试信息
-	interview, err := GetInterviewByID(userID, interviewID)
+	interviewRepo := repository.NewInterviewRepository()
+	interview, err := interviewRepo.GetByID(interviewID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get interview: %w", err)
 	}
+	if interview == nil || interview.UserID != userID {
+		return nil, fmt.Errorf("unauthorized access")
+	}
 
 	// 获取已回答的问题
-	repo := repository.NewInterviewRepository()
-	answers, err := repo.GetAnswersByInterviewID(interviewID)
+	answers, err := interviewRepo.GetAnswersByInterviewID(interviewID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get answers: %w", err)
 	}
@@ -61,7 +64,7 @@ func (s *AIService) AIChatWithInterviewContext(ctx context.Context, userID uint,
 	}, nil
 }
 
-func buildChatPrompt(userID uint, message, context string, interview *model.Interview, answers []model.AnswerResult) string {
+func buildChatPrompt(userID uint, message, convoContext string, interview *model.Interview, answers []model.AnswerResult) string {
 	var prompt strings.Builder
 
 	prompt.WriteString("你是一个专业的AI面试助手，请根据以下信息进行对话：\n\n")
@@ -74,8 +77,8 @@ func buildChatPrompt(userID uint, message, context string, interview *model.Inte
 	}
 
 	// 添加上下文信息
-	if context != "" {
-		prompt.WriteString(fmt.Sprintf("对话上下文：%s\n", context))
+	if convoContext != "" {
+		prompt.WriteString(fmt.Sprintf("对话上下文：%s\n", convoContext))
 	}
 
 	// 添加面试信息

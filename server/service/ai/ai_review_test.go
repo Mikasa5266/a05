@@ -1,4 +1,4 @@
-package service
+package ai
 
 import "testing"
 
@@ -57,4 +57,3 @@ func TestEvaluateCandidateAnswer_KeepsReasonableScoreForSubstantiveAnswer(t *tes
 		t.Fatalf("expected positive score for substantive answer, got %d", result.Score)
 	}
 }
-

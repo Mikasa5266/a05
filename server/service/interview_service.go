@@ -15,6 +15,7 @@ import (
 
 	"your-project/model"
 	"your-project/repository"
+	aidomain "your-project/service/ai"
 )
 
 const (
@@ -31,7 +32,7 @@ type InterviewService struct {
 	interviewRepo *repository.InterviewRepository
 	questionRepo  *repository.QuestionRepository
 	userRepo      *repository.UserRepository
-	aiService     *AIService
+	aiService     aidomain.AIFacade
 	ragService    *RAGService // Add RAG service
 }
 
@@ -88,7 +89,7 @@ func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID
 
 	// ==== Random Mode: pick a random style/company, don't tell the user ====
 	if interviewMode == "random" {
-		randomStyle, randomCompany := GenerateRandomStyleForInterview()
+		randomStyle, randomCompany := s.aiService.GenerateRandomStyleForInterview()
 		style = randomStyle
 		company = randomCompany
 		revealedStyle = style // will be stored but not shown until end
@@ -315,7 +316,7 @@ func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID
 		RevealedStyle:       revealedStyle,
 		Scenario:            scenarioJSON,
 		Role:                "candidate",
-		Status:              "in_progress",
+		Status:              interviewStatusInProgress,
 		StartTime:           time.Now(),
 		CurrentIndex:        0,
 		AskedQuestionIDs:    encodeAskedQuestionIDs(initialAskedQuestionIDs),
@@ -328,7 +329,7 @@ func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID
 	}
 
 	if invitation != nil {
-		interview.Status = "pending"
+		interview.Status = interviewStatusPending
 		interview.HumanInterviewerUserID = &invitation.InviteeUserID
 		interview.HumanInterviewerName = invitation.Invitee.Username
 		interview.HumanInterviewerRole = invitation.InviteeRole
@@ -956,7 +957,7 @@ func RespondHumanInvitation(inviteeUserID, invitationID uint, action string) (*m
 		return nil, fmt.Errorf("action 仅支持 accept 或 reject")
 	}
 
-	if invitation.Status != "pending" {
+	if normalizeStatusValue(invitation.Status) != invitationStatusPending {
 		return nil, fmt.Errorf("当前邀请状态为 %s，无法重复处理", invitation.Status)
 	}
 
@@ -975,11 +976,16 @@ func RespondHumanInvitation(inviteeUserID, invitationID uint, action string) (*m
 		invitation.InviteeUUID = strings.TrimSpace(user.UUID)
 	}
 
+	targetStatus := invitationStatusRejected
 	if normalizedAction == "accept" {
-		invitation.Status = "accepted"
-	} else {
-		invitation.Status = "rejected"
+		targetStatus = invitationStatusAccepted
 	}
+
+	nextStatus, transitionErr := transitionInvitationStatus(invitation.Status, targetStatus)
+	if transitionErr != nil {
+		return nil, transitionErr
+	}
+	invitation.Status = nextStatus
 
 	if err := svc.interviewRepo.UpdateInvitation(invitation); err != nil {
 		return nil, fmt.Errorf("更新邀请状态失败: %w", err)
@@ -1021,142 +1027,12 @@ func (s *InterviewService) GetInterviewByID(userID, interviewID uint) (*model.In
 	return interview, nil
 }
 
+func (s *InterviewService) interviewLifecycleUseCase() InterviewLifecycleUseCase {
+	return NewInterviewLifecycleUseCase(s)
+}
+
 func (s *InterviewService) SubmitAnswer(userID, interviewID, questionID uint, answer, audioData, audioMime, questionTitle, questionContent string) (*model.AnswerResult, error) {
-	_ = audioMime
-
-	ctx := context.Background()
-
-	interview, err := s.GetInterviewByID(userID, interviewID)
-	if err != nil {
-		return nil, err
-	}
-
-	if interview.Status != "in_progress" {
-		return nil, fmt.Errorf("interview is not in progress")
-	}
-
-	baseQuestion, err := s.questionRepo.GetByID(questionID)
-	if err != nil {
-		return nil, fmt.Errorf("question not found")
-	}
-	interview.AskedQuestionIDs = mergeAskedQuestionIDs(interview.AskedQuestionIDs, baseQuestion.ID)
-
-	evalQuestion := baseQuestion
-	if strings.TrimSpace(questionContent) != "" {
-		tempQ := *baseQuestion
-		tempQ.Content = strings.TrimSpace(questionContent)
-		if strings.TrimSpace(questionTitle) != "" {
-			tempQ.Title = strings.TrimSpace(questionTitle)
-		}
-		evalQuestion = &tempQ
-	}
-
-	var finalAnswer string
-	if audioData != "" {
-		transcribedText, err := s.aiService.TranscribeAudio(strings.TrimSpace(audioData))
-		if err != nil {
-			return nil, fmt.Errorf("failed to transcribe audio: %w", err)
-		}
-		finalAnswer = transcribedText
-		interview.ASRCallCount++
-	} else {
-		finalAnswer = answer
-	}
-
-	evaluation, err := s.aiService.EvaluateAnswer(ctx, evalQuestion, finalAnswer)
-	if err != nil {
-		return nil, fmt.Errorf("failed to evaluate answer: %w", err)
-	}
-	shouldFollowUpHint, followUpContext := parseEvaluationFollowUpHint(evaluation.Feedback)
-
-	result := &model.AnswerResult{
-		InterviewID: interviewID,
-		QuestionID:  baseQuestion.ID,
-		Answer:      finalAnswer,
-		Score:       evaluation.Score,
-		Feedback:    evaluation.Feedback,
-		CreatedAt:   time.Now(),
-	}
-
-	if err := s.interviewRepo.SaveAnswer(result); err != nil {
-		return nil, fmt.Errorf("failed to save answer: %w", err)
-	}
-
-	answers, _ := s.interviewRepo.GetAnswersByInterviewID(interviewID)
-
-	// ==== Dynamic Follow-Up Logic ====
-	// Follow-up questions are generated in real time and kept ephemeral (no DB write).
-	askedQuestionText := strings.TrimSpace(evalQuestion.Content)
-	if askedQuestionText == "" {
-		askedQuestionText = strings.TrimSpace(evalQuestion.Title)
-	}
-	shouldFollowUp, nextQuestion, err := s.decideNextQuestion(ctx, interview, baseQuestion, askedQuestionText, finalAnswer, evaluation.Score, shouldFollowUpHint, followUpContext)
-	if err != nil {
-		fmt.Printf("Dynamic question generation failed: %v\n", err)
-	}
-
-	if shouldFollowUp && nextQuestion != nil {
-		nextQuestion.Source = "follow_up"
-		nextQuestion.RAGEligible = false
-		nextQuestion.ID = baseQuestion.ID
-		nextQuestion.Position = baseQuestion.Position
-		nextQuestion.Difficulty = baseQuestion.Difficulty
-		nextQuestion.Category = baseQuestion.Category
-		result.NextQuestion = nextQuestion
-		interview.FollowUpCount++
-	} else {
-		interview.CurrentIndex++
-		interview.FollowUpCount = 0
-		interview.TopicIndex++
-
-		allQuestions, _ := s.interviewRepo.GetInterviewQuestions(interviewID)
-		excludeIDs := decodeAskedQuestionIDs(interview.AskedQuestionIDs)
-		if interview.CurrentIndex < len(allQuestions) {
-			nextQ, _ := s.questionRepo.GetByID(allQuestions[interview.CurrentIndex].QuestionID)
-			if nextQ != nil {
-				s.normalizeOpeningQuestion(ctx, nextQ)
-				interview.CurrentTopic = nextQ.Category
-				interview.AskedQuestionIDs = mergeAskedQuestionIDs(interview.AskedQuestionIDs, nextQ.ID)
-				result.NextQuestion = nextQ
-			}
-		}
-
-		if result.NextQuestion == nil {
-			fallbackQ, pickErr := s.questionRepo.GetRandomQuestionForInterview(interview.Position, interview.Difficulty, excludeIDs)
-			if pickErr == nil && fallbackQ != nil {
-				s.normalizeOpeningQuestion(ctx, fallbackQ)
-				interview.CurrentTopic = fallbackQ.Category
-				interview.AskedQuestionIDs = mergeAskedQuestionIDs(interview.AskedQuestionIDs, fallbackQ.ID)
-				result.NextQuestion = fallbackQ
-
-				_ = s.interviewRepo.CreateInterviewQuestion(&model.InterviewQuestion{
-					InterviewID: interviewID,
-					QuestionID:  fallbackQ.ID,
-					OrderIndex:  interview.CurrentIndex,
-					IsAnswered:  false,
-				})
-			}
-		}
-	}
-
-	allQuestions, _ := s.interviewRepo.GetInterviewQuestions(interviewID)
-	if interview.TotalQuestionTarget > 0 && len(answers) >= interview.TotalQuestionTarget {
-		interview.Status = "completed"
-		t := time.Now()
-		interview.EndTime = &t
-		result.InterviewCompleted = true
-	} else if interview.CurrentIndex >= len(allQuestions) && result.NextQuestion == nil {
-		interview.Status = "completed"
-		t := time.Now()
-		interview.EndTime = &t
-		result.InterviewCompleted = true
-	}
-
-	if err := s.interviewRepo.Update(interview); err != nil {
-		return nil, fmt.Errorf("failed to update interview: %w", err)
-	}
-
-	return result, nil
+	return s.interviewLifecycleUseCase().SubmitAnswer(userID, interviewID, questionID, answer, audioData, audioMime, questionTitle, questionContent)
 }
 
 func parseEvaluationFollowUpHint(feedback string) (bool, string) {
@@ -1324,7 +1200,7 @@ func (s *InterviewService) decideNextQuestion(ctx context.Context, interview *mo
 			}
 		}
 	}
-	if isLowSignalAnswer(answer) && !forceFollowUp {
+	if s.isLowSignalAnswer(answer) && !forceFollowUp {
 		// Aggressive styles still force a clarifying follow-up on vague answers.
 		switch interview.Style {
 		case "stress", "deep", "algorithm", "practical":
@@ -1364,7 +1240,7 @@ func (s *InterviewService) decideNextQuestion(ctx context.Context, interview *mo
 			if err != nil {
 				return false, nil, nil
 			}
-			if isMeaninglessFollowUpQuestion(forced) {
+			if s.isMeaninglessFollowUpQuestion(forced) {
 				return false, nil, nil
 			}
 			return true, forced, nil
@@ -1372,13 +1248,13 @@ func (s *InterviewService) decideNextQuestion(ctx context.Context, interview *mo
 		return false, nil, nil // AI decided not to follow up
 	}
 
-	if isMeaninglessFollowUpQuestion(nextQ) {
+	if s.isMeaninglessFollowUpQuestion(nextQ) {
 		return false, nil, nil
 	}
 	if s.isDuplicateQuestionInSession(interview.ID, askedQuestionText, nextQ) {
 		if forceFollowUp {
 			forced, forceErr := s.aiService.GenerateClarifyingFollowUpQuestion(ctx, topicRootQ, answer, interview.FollowUpCount)
-			if forceErr != nil || isMeaninglessFollowUpQuestion(forced) || s.isDuplicateQuestionInSession(interview.ID, askedQuestionText, forced) {
+			if forceErr != nil || s.isMeaninglessFollowUpQuestion(forced) || s.isDuplicateQuestionInSession(interview.ID, askedQuestionText, forced) {
 				return false, nil, nil
 			}
 			return true, forced, nil
@@ -1600,12 +1476,12 @@ func isNearDuplicateQuestionText(lastAsked string, candidate *model.Question) bo
 	return false
 }
 
-func isLowSignalAnswer(answer string) bool {
+func (s *InterviewService) isLowSignalAnswer(answer string) bool {
 	text := strings.TrimSpace(answer)
 	if text == "" {
 		return true
 	}
-	if IsInvalidAnswer(text) {
+	if s.aiService.IsInvalidAnswer(text) {
 		return true
 	}
 	if len([]rune(text)) < 8 {
@@ -1626,14 +1502,14 @@ func isLowSignalAnswer(answer string) bool {
 	return false
 }
 
-func isMeaninglessFollowUpQuestion(q *model.Question) bool {
+func (s *InterviewService) isMeaninglessFollowUpQuestion(q *model.Question) bool {
 	if q == nil {
 		return true
 	}
 	content := strings.TrimSpace(q.Content)
 	title := strings.TrimSpace(q.Title)
 	all := strings.TrimSpace(title + " " + content)
-	if all == "" || IsInvalidAnswer(all) {
+	if all == "" || s.aiService.IsInvalidAnswer(all) {
 		return true
 	}
 	if len([]rune(content)) < 8 {
@@ -1652,32 +1528,7 @@ func isMeaninglessFollowUpQuestion(q *model.Question) bool {
 }
 
 func (s *InterviewService) EndInterview(userID, interviewID uint) (*model.Interview, error) {
-	interview, err := s.GetInterviewByID(userID, interviewID)
-	if err != nil {
-		return nil, err
-	}
-
-	if interview.Status == "completed" {
-		return interview, nil
-	}
-
-	interview.Status = "completed"
-	t := time.Now()
-	interview.EndTime = &t
-
-	if err := s.interviewRepo.Update(interview); err != nil {
-		return nil, fmt.Errorf("failed to update interview: %w", err)
-	}
-
-	if interview.InterviewMode == "human" {
-		inv, invErr := s.interviewRepo.GetInvitationByInterviewID(interviewID)
-		if invErr == nil && inv != nil {
-			inv.Status = "completed"
-			_ = s.interviewRepo.UpdateInvitation(inv)
-		}
-	}
-
-	return interview, nil
+	return s.interviewLifecycleUseCase().EndInterview(userID, interviewID)
 }
 
 func (s *InterviewService) GenerateShadowHint(userID, interviewID uint, question, transcript string, silenceSeconds int) (string, error) {
