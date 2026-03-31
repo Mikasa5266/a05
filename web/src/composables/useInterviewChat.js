@@ -197,10 +197,10 @@ const normalizeAnswerSubmitError = (msg = '') => {
   const text = String(msg || '')
   if (!text) return '未知错误'
   if (/err_ssl_protocol_error|ssl\s*protocol/i.test(text)) {
-    return '请求协议异常（ERR_SSL_PROTOCOL_ERROR）：通常是 HTTPS 请求打到了仅支持 HTTP 的后端。请检查 VITE_PROXY_TARGET 是否为 http://127.0.0.1:8080，并确保 ngrok 转发到前端端口 5173（无需本地 HTTPS）'
+    return '请求协议异常（ERR_SSL_PROTOCOL_ERROR）：通常是 HTTPS 请求打到了仅支持 HTTP 的后端。请检查 VITE_PROXY_TARGET 是否为 http://127.0.0.1:8082，并确保 ngrok 转发到前端端口 3001（无需本地 HTTPS）'
   }
   if (/network\s*error|err_network|econnreset|wsarecv|forcibly\s+closed/i.test(text)) {
-    return '网络连接中断（请求链路异常）。请重试；若使用 ngrok，请确认隧道、前端 5173 与后端 8080 均在线，并检查协议是否为“前端 HTTPS(ngrok) -> 本地 HTTP(8080)”'
+    return '网络连接中断（请求链路异常）。请重试；若使用 ngrok，请确认隧道、前端 3001 与后端 8082 均在线，并检查协议是否为“前端 HTTPS(ngrok) -> 本地 HTTP(8082)”'
   }
   if (/field\s+validation.*answer.*required/i.test(text) || /key:\s*'answer'/i.test(text)) {
     return '您似乎没有做出任何回答'

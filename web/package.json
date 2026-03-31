@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:public": "vite --host 0.0.0.0 --port 5173 --strictPort",
-    "ngrok": "ngrok http 5173",
+    "dev:public": "vite --host 0.0.0.0 --port 3001 --strictPort",
+    "ngrok": "ngrok http 3001",
     "build": "vite build",
     "preview": "vite preview"
   },

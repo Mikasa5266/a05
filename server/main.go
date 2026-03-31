@@ -46,7 +46,7 @@ func main() {
 	r := router.SetupRouter(aiService)
 	addr := cfg.Server.Host + ":" + cfg.Server.Port
 	if addr == ":" {
-		addr = ":8080"
+		addr = ":8082"
 	}
 
 	log.Printf("Server starting on %s", addr)

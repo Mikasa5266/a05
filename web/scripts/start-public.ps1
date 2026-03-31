@@ -71,23 +71,23 @@ $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $repoRoot = (Resolve-Path (Join-Path $projectRoot '..')).Path
 
 # 0) Ensure backend is running, otherwise login and API calls will return proxy 500.
-if (-not (Test-PortListening -Port 8080)) {
+if (-not (Test-PortListening -Port 8082)) {
   $backendCmd = "Set-Location '$repoRoot\\server'; go run main.go"
   Start-Process powershell -ArgumentList @('-NoExit', '-Command', $backendCmd)
-  if (Wait-PortListening -Port 8080 -TimeoutSeconds 30) {
-    Write-Host "Backend started on 8080."
+  if (Wait-PortListening -Port 8082 -TimeoutSeconds 30) {
+    Write-Host "Backend started on 8082."
   } else {
-    Write-Host "Backend did not become ready on 8080 within 30s. Check server terminal logs."
+    Write-Host "Backend did not become ready on 8082 within 30s. Check server terminal logs."
   }
 } else {
-  Write-Host "Backend already listening on 8080, reusing existing process."
+  Write-Host "Backend already listening on 8082, reusing existing process."
 }
 
-if (-not (Test-PortListening -Port 5173)) {
+if (-not (Test-PortListening -Port 3001)) {
   $viteCmd = "Set-Location '$projectRoot'; npm run dev:public"
   Start-Process powershell -ArgumentList @('-NoExit', '-Command', $viteCmd)
 } else {
-  Write-Host "Vite already listening on 5173, reusing existing process."
+  Write-Host "Vite already listening on 3001, reusing existing process."
 }
 
 Start-Sleep -Seconds 3
@@ -100,7 +100,7 @@ if (-not (Get-NgrokPublicUrl -TimeoutSeconds 2)) {
     $ngrokCmd = "Set-Location '$projectRoot'; & '$ngrokExe' start --config '$configPath' interview-web"
     Start-Process powershell -ArgumentList @('-NoExit', '-Command', $ngrokCmd)
   } else {
-    $ngrokCmd = "Set-Location '$projectRoot'; & '$ngrokExe' http 5173"
+    $ngrokCmd = "Set-Location '$projectRoot'; & '$ngrokExe' http 3001"
     Start-Process powershell -ArgumentList @('-NoExit', '-Command', $ngrokCmd)
   }
 } else {

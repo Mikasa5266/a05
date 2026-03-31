@@ -39,6 +39,6 @@ ENV TESSDATA_PREFIX=/usr/share/tessdata
 COPY --from=builder /out/app /app/app
 COPY config.yaml /app/config.yaml
 
-EXPOSE 8080
+EXPOSE 8082
 
 CMD ["/app/app"]
