@@ -1,24 +1,32 @@
 <template>
-  <aside class="w-64 h-screen sticky top-0 flex flex-col border-r border-zinc-100 bg-white/95 backdrop-blur-sm shadow-sm">
+  <aside
+    :class="[
+      'flex flex-col border-zinc-100 bg-white/95 backdrop-blur-sm shadow-sm',
+      mobile
+        ? 'w-full h-full border-0 shadow-none'
+        : 'w-64 h-[calc(100vh-4rem)] sticky top-16 border-r'
+    ]"
+  >
     <!-- Logo 区 -->
     <div class="p-6 flex items-center gap-3">
-      <div class="h-8 w-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white">
+      <div class="h-8 w-8 rounded-lg flex items-center justify-center text-white" :class="portalConfig.logoBg">
         <BrainCircuit class="h-5 w-5" />
       </div>
-      <span class="font-bold text-xl text-zinc-900">AI Interview</span>
+      <span class="font-bold text-xl" :class="portalConfig.logoText">{{ portalConfig.title }}</span>
     </div>
 
     <!-- 导航区 -->
     <nav class="flex-1 px-4 space-y-1 overflow-y-auto">
       <router-link
-        v-for="item in navigation"
+        v-for="item in currentNavItems"
         :key="item.name"
         :to="item.href"
-        class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-colors"
+        @click="handleNavigate"
+        class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-colors touch-manipulation active:scale-[0.99]"
         :class="[
-          isActive(item.href)
-            ? 'bg-indigo-50 text-indigo-600'
-            : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+          isNavPathActive(route.path, item.href)
+            ? portalConfig.activeBg + ' ' + portalConfig.activeText
+            : 'text-zinc-500 md:hover:bg-zinc-50 md:hover:text-zinc-900 active:bg-zinc-100'
         ]"
       >
         <component :is="item.icon" class="h-5 w-5" />
@@ -29,20 +37,21 @@
     <!-- 底部区 -->
     <div class="p-4 border-t border-zinc-100 space-y-4">
       <router-link 
-        to="/student/settings"
-        class="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900 transition-colors"
+        :to="settingsPath"
+        @click="handleNavigate"
+        class="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-zinc-500 md:hover:bg-zinc-50 md:hover:text-zinc-900 active:bg-zinc-100 transition-colors touch-manipulation"
       >
         <Settings class="h-5 w-5" />
         设置
       </router-link>
       
-      <router-link to="/student/settings" class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-zinc-50 transition-colors cursor-pointer group">
-        <div class="h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold overflow-hidden border border-indigo-200 group-hover:border-indigo-300 transition-colors">
+      <router-link :to="settingsPath" @click="handleNavigate" class="flex items-center gap-3 px-3 py-2 rounded-xl md:hover:bg-zinc-50 active:bg-zinc-100 transition-colors cursor-pointer group touch-manipulation">
+        <div class="h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold overflow-hidden border border-indigo-200 md:group-hover:border-indigo-300 transition-colors">
           <img v-if="userStore.userInfo?.avatar" :src="avatarUrl" class="w-full h-full object-cover" />
           <span v-else>{{ userInitials }}</span>
         </div>
         <div class="flex flex-col">
-          <span class="text-sm font-medium text-zinc-900 group-hover:text-indigo-600 transition-colors">{{ userStore.userInfo?.username || 'Guest' }}</span>
+          <span class="text-sm font-medium text-zinc-900 md:group-hover:text-indigo-600 transition-colors">{{ userStore.userInfo?.username || 'Guest' }}</span>
           <span class="text-xs text-zinc-400">求职者</span>
         </div>
       </router-link>
@@ -55,30 +64,34 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUserStore } from '../../stores/user'
 import { getBackendAssetUrl } from '../../utils/backend'
-import { 
-  BrainCircuit, 
-  LayoutDashboard, 
-  FileText, 
-  Video, 
-  TrendingUp, 
-  Clock, 
-  Settings 
-} from 'lucide-vue-next'
+import { BrainCircuit, Settings } from 'lucide-vue-next'
+import {
+  getPortalFromPath,
+  getPortalNavItems,
+  isNavPathActive,
+  portalBrandMap,
+} from './navigation'
+
+const props = defineProps({
+  mobile: {
+    type: Boolean,
+    default: false,
+  },
+})
+
+const emit = defineEmits(['navigate'])
 
 const route = useRoute()
 const userStore = useUserStore()
 
-const navigation = [
-  { name: '首页', href: '/student/dashboard', icon: LayoutDashboard },
-  { name: '简历匹配', href: '/student/resume', icon: FileText },
-  { name: '模拟面试', href: '/student/interview', icon: Video },
-  { name: '成长中心', href: '/student/growth', icon: TrendingUp },
-  { name: '面试记录', href: '/student/history', icon: Clock },
-]
+const portal = computed(() => getPortalFromPath(route.path))
+const portalConfig = computed(() => portalBrandMap[portal.value] || portalBrandMap.student)
+const currentNavItems = computed(() => getPortalNavItems(portal.value))
 
-const isActive = (path) => {
-  if (path === '/student/dashboard' && route.path === '/student/dashboard') return true
-  return route.path.startsWith(path) && path !== '/student/dashboard'
+const settingsPath = computed(() => '/' + portal.value + '/settings')
+
+const handleNavigate = () => {
+  if (props.mobile) emit('navigate')
 }
 
 const userInitials = computed(() => {

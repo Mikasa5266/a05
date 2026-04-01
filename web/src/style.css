@@ -17,10 +17,26 @@
 }
 
 @layer base {
+  *,
+  *::before,
+  *::after {
+    -webkit-tap-highlight-color: transparent;
+  }
+
   body {
     @apply antialiased;
     color: var(--app-text-primary);
     background: var(--el-bg-color-page);
+  }
+
+  a,
+  button,
+  summary,
+  [role='button'],
+  [type='button'],
+  [type='submit'],
+  [type='reset'] {
+    touch-action: manipulation;
   }
 }
 

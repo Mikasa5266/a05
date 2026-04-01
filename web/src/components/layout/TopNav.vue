@@ -1,15 +1,25 @@
 <template>
-  <header class="top-nav-surface h-16 border-b sticky top-0 z-50 flex items-center px-6">
+  <header class="top-nav-surface h-16 border-b sticky top-0 z-50 flex items-center px-4 md:px-6">
+    <!-- Mobile Menu -->
+    <button
+      type="button"
+      class="mr-3 inline-flex md:hidden h-10 w-10 items-center justify-center rounded-xl text-zinc-500 active:bg-zinc-100 transition-colors touch-manipulation"
+      aria-label="打开导航菜单"
+      @click="emit('toggle-mobile-menu')"
+    >
+      <Menu class="h-5 w-5" />
+    </button>
+
     <!-- Logo -->
-    <router-link :to="portalHome" class="flex items-center gap-2.5 mr-8">
+    <router-link :to="portalHome" class="flex items-center gap-2.5 mr-3 md:mr-8 touch-manipulation">
       <div class="h-9 w-9 rounded-xl flex items-center justify-center text-white shadow-lg" :class="portalConfig.logoBg">
         <component :is="portalConfig.icon" class="h-5 w-5" />
       </div>
-      <span class="font-bold text-xl tracking-tight" :class="portalConfig.logoText">{{ portalConfig.title }}</span>
+      <span class="font-bold text-lg md:text-xl tracking-tight" :class="portalConfig.logoText">{{ portalConfig.title }}</span>
     </router-link>
 
     <!-- Portal Badge (Center) -->
-    <div class="flex-1 flex justify-center">
+    <div class="hidden md:flex flex-1 justify-center">
       <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium" :class="portalConfig.badgeClass">
         <component :is="portalConfig.icon" class="h-4 w-4" />
         {{ portalConfig.label }}
@@ -17,9 +27,9 @@
     </div>
 
     <!-- Right Actions -->
-    <div class="flex items-center gap-4">
+    <div class="ml-auto flex items-center gap-2 md:gap-4">
       <!-- Notifications -->
-      <button class="relative p-2 rounded-xl text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50 transition-colors">
+      <button class="relative p-2 rounded-xl text-zinc-400 md:hover:text-zinc-600 md:hover:bg-zinc-50 active:text-zinc-600 active:bg-zinc-100 transition-colors touch-manipulation">
         <Bell class="h-5 w-5" />
         <span class="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full ring-2 ring-white"></span>
       </button>
@@ -28,7 +38,7 @@
       <div class="relative" ref="dropdownRef">
         <button
           @click="showDropdown = !showDropdown"
-          class="flex items-center gap-2 p-1.5 rounded-xl hover:bg-zinc-50 transition-colors"
+          class="flex items-center gap-2 p-1.5 rounded-xl md:hover:bg-zinc-50 active:bg-zinc-100 transition-colors touch-manipulation"
         >
           <div class="h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-sm overflow-hidden border-2 border-indigo-200">
             <img v-if="userStore.userInfo?.avatar" :src="avatarUrl" class="w-full h-full object-cover" />
@@ -50,10 +60,10 @@
               <div class="font-medium text-zinc-900 text-sm">{{ userStore.userInfo?.username || 'Guest' }}</div>
               <div class="text-xs text-zinc-400">{{ userStore.userInfo?.email || '' }}</div>
             </div>
-            <router-link :to="settingsPath" @click="showDropdown = false" class="flex items-center gap-3 px-4 py-2.5 text-sm text-zinc-600 hover:bg-zinc-50 transition-colors">
+            <router-link :to="settingsPath" @click="showDropdown = false" class="flex items-center gap-3 px-4 py-2.5 text-sm text-zinc-600 md:hover:bg-zinc-50 active:bg-zinc-100 transition-colors touch-manipulation">
               <Settings class="h-4 w-4" /> 设置
             </router-link>
-            <button @click="handleLogout" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50 transition-colors">
+            <button @click="handleLogout" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-rose-600 md:hover:bg-rose-50 active:bg-rose-100 transition-colors touch-manipulation">
               <LogOut class="h-4 w-4" /> 退出登录
             </button>
           </div>
@@ -68,10 +78,13 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../../stores/user'
 import { getBackendAssetUrl } from '../../utils/backend'
+import { getPortalFromPath, portalBrandMap } from './navigation'
 import {
+  Menu,
   Bell, Settings, LogOut,
-  User, Building2, GraduationCap
 } from 'lucide-vue-next'
+
+const emit = defineEmits(['toggle-mobile-menu'])
 
 const router = useRouter()
 const route = useRoute()
@@ -80,45 +93,13 @@ const showDropdown = ref(false)
 const dropdownRef = ref(null)
 
 // Derive portal from current route
-const currentPortal = computed(() => {
-  const path = route.path
-  if (path.startsWith('/enterprise')) return 'enterprise'
-  if (path.startsWith('/university')) return 'university'
-  return 'student'
-})
+const currentPortal = computed(() => getPortalFromPath(route.path))
 
-const portalConfigs = {
-  student: {
-    title: '智聘AI',
-    label: '学生端',
-    icon: User,
-    logoBg: 'bg-indigo-600 shadow-indigo-200',
-    logoText: 'text-indigo-600',
-    badgeClass: 'bg-indigo-50 text-indigo-600 border border-indigo-100',
-  },
-  enterprise: {
-    title: '智聘AI',
-    label: '企业端',
-    icon: Building2,
-    logoBg: 'bg-emerald-600 shadow-emerald-200',
-    logoText: 'text-emerald-600',
-    badgeClass: 'bg-emerald-50 text-emerald-600 border border-emerald-100',
-  },
-  university: {
-    title: '智聘AI',
-    label: '高校端',
-    icon: GraduationCap,
-    logoBg: 'bg-amber-600 shadow-amber-200',
-    logoText: 'text-amber-600',
-    badgeClass: 'bg-amber-50 text-amber-600 border border-amber-100',
-  }
-}
+const portalConfig = computed(() => portalBrandMap[currentPortal.value] || portalBrandMap.student)
 
-const portalConfig = computed(() => portalConfigs[currentPortal.value])
+const portalHome = computed(() => '/' + currentPortal.value + '/dashboard')
 
-const portalHome = computed(() => `/${currentPortal.value}/dashboard`)
-
-const settingsPath = computed(() => `/${currentPortal.value}/settings`)
+const settingsPath = computed(() => '/' + currentPortal.value + '/settings')
 
 const userInitials = computed(() => {
   const name = userStore.userInfo?.username || 'G'
@@ -134,7 +115,7 @@ const handleLogout = () => {
   showDropdown.value = false
   const role = currentPortal.value
   userStore.logout(role)
-  router.push(`/${role}/login`)
+  router.push('/' + role + '/login')
 }
 
 // Close dropdown on outside click
