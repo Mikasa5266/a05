@@ -21,7 +21,7 @@
           能力模型
         </h3>
         
-        <div class="flex-1 min-h-[300px] relative">
+        <div class="flex-1 min-h-60 md:min-h-75 relative">
           <Radar v-if="radarData" :data="radarData" :options="radarOptions" />
           <div v-else class="absolute inset-0 flex items-center justify-center text-zinc-400">
             暂无足够数据
@@ -37,7 +37,7 @@
             <TrendingUp class="h-5 w-5 text-emerald-600" />
             成长趋势
           </h3>
-          <div class="h-[250px] w-full relative">
+          <div class="h-55 md:h-62.5 w-full relative">
              <Line v-if="lineData" :data="lineData" :options="lineOptions" />
              <div v-else class="absolute inset-0 flex items-center justify-center text-zinc-400">
                完成更多面试以查看趋势
@@ -100,7 +100,7 @@
           <p class="text-sm text-zinc-500 mb-4">基于面试表现与岗位能力图谱，为您生成简历优化建议</p>
           <div class="space-y-3">
             <div v-for="(tip, i) in resumeTips" :key="i" class="flex gap-3 p-3 rounded-xl bg-violet-50/50 border border-violet-100/50">
-              <div class="w-6 h-6 rounded-full bg-violet-100 text-violet-600 text-xs flex items-center justify-center font-bold flex-shrink-0 mt-0.5">{{ i + 1 }}</div>
+              <div class="w-6 h-6 rounded-full bg-violet-100 text-violet-600 text-xs flex items-center justify-center font-bold shrink-0 mt-0.5">{{ i + 1 }}</div>
               <p class="text-sm text-zinc-700">{{ tip }}</p>
             </div>
           </div>
@@ -141,7 +141,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { getGrowthStats } from '../api/growth'
 import { 
@@ -183,6 +183,9 @@ const resumeTips = ref([
   '补充面试中表现突出的沟通协作经历',
 ])
 const resumeTipsLoading = ref(false)
+const isMobile = ref(false)
+
+let mobileMediaQuery = null
 
 const learningPhases = ref([
   { title: '基础巩固期', duration: '第1-2周', color: 'bg-indigo-500', dotColor: 'bg-indigo-400', tasks: ['数据结构与算法复习', '编程语言核心特性回顾', '常见设计模式学习', '代码规范与最佳实践'] },
@@ -190,30 +193,67 @@ const learningPhases = ref([
   { title: '模拟实战期', duration: '第5-6周', color: 'bg-amber-500', dotColor: 'bg-amber-400', tasks: ['每日模拟面试练习', '表达流畅度与逻辑训练', '压力面试应对策略', '综合能力提升冲刺'] },
 ])
 
-const radarOptions = {
+const radarOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
   scales: {
     r: {
       angleLines: { color: '#f4f4f5' },
       grid: { color: '#f4f4f5' },
-      pointLabels: { color: '#71717a', font: { size: 12 } },
-      ticks: { display: false, stepSize: 20 },
+      pointLabels: { color: '#71717a', font: { size: isMobile.value ? 10 : 12 } },
+      ticks: { display: !isMobile.value, stepSize: 20, backdropColor: 'transparent' },
       suggestedMin: 0,
       suggestedMax: 100
     }
   },
-  plugins: { legend: { display: false } }
-}
+  plugins: {
+    legend: {
+      display: true,
+      position: isMobile.value ? 'bottom' : 'top',
+      labels: {
+        boxWidth: isMobile.value ? 10 : 14,
+        boxHeight: isMobile.value ? 10 : 14,
+        padding: isMobile.value ? 10 : 16,
+        font: { size: isMobile.value ? 10 : 12 },
+      },
+    },
+  },
+}))
 
-const lineOptions = {
+const lineOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
   scales: {
-    x: { grid: { display: false }, ticks: { color: '#a1a1aa' } },
+    x: {
+      grid: { display: false },
+      ticks: {
+        color: '#a1a1aa',
+        autoSkip: true,
+        maxTicksLimit: isMobile.value ? 4 : 8,
+        maxRotation: 0,
+        minRotation: 0,
+        font: { size: isMobile.value ? 10 : 12 },
+      },
+    },
     y: { display: false, suggestedMin: 50, suggestedMax: 100 }
   },
-  plugins: { legend: { display: false } }
+  plugins: {
+    legend: {
+      display: true,
+      position: isMobile.value ? 'bottom' : 'top',
+      labels: {
+        boxWidth: isMobile.value ? 10 : 14,
+        boxHeight: isMobile.value ? 10 : 14,
+        padding: isMobile.value ? 10 : 16,
+        font: { size: isMobile.value ? 10 : 12 },
+      },
+    },
+  },
+}))
+
+const syncMobileState = () => {
+  if (!mobileMediaQuery) return
+  isMobile.value = mobileMediaQuery.matches
 }
 
 const generateResumeTips = async () => {
@@ -282,6 +322,23 @@ const fetchGrowthData = async () => {
 }
 
 onMounted(() => {
+  mobileMediaQuery = window.matchMedia('(max-width: 767px)')
+  syncMobileState()
+  if (mobileMediaQuery.addEventListener) {
+    mobileMediaQuery.addEventListener('change', syncMobileState)
+  } else {
+    mobileMediaQuery.addListener(syncMobileState)
+  }
+
   fetchGrowthData()
+})
+
+onBeforeUnmount(() => {
+  if (!mobileMediaQuery) return
+  if (mobileMediaQuery.removeEventListener) {
+    mobileMediaQuery.removeEventListener('change', syncMobileState)
+  } else {
+    mobileMediaQuery.removeListener(syncMobileState)
+  }
 })
 </script>

@@ -1,4 +1,5 @@
 <script setup>
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Shuffle, X } from 'lucide-vue-next'
 
 defineProps({
@@ -13,11 +14,51 @@ defineProps({
 })
 
 const emit = defineEmits(['close'])
+
+const isMobile = ref(false)
+let mobileMediaQuery = null
+
+const revealWrapperClass = computed(() => {
+  const base = 'fixed bottom-6 left-1/2 -translate-x-1/2 z-50'
+  if (isMobile.value) return base
+  return `${base} animate-in fade-in slide-in-from-bottom-4 duration-500`
+})
+
+const revealPanelClass = computed(() => {
+  if (isMobile.value) {
+    return 'bg-white rounded-2xl shadow-xl border border-violet-200 p-4 w-[calc(100vw-1.5rem)] max-w-sm'
+  }
+  return 'bg-white rounded-2xl shadow-2xl border border-violet-200 p-5 min-w-[360px] max-w-md'
+})
+
+const syncMobileState = () => {
+  if (!mobileMediaQuery) return
+  isMobile.value = mobileMediaQuery.matches
+}
+
+onMounted(() => {
+  mobileMediaQuery = window.matchMedia('(max-width: 767px)')
+  syncMobileState()
+  if (mobileMediaQuery.addEventListener) {
+    mobileMediaQuery.addEventListener('change', syncMobileState)
+  } else {
+    mobileMediaQuery.addListener(syncMobileState)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (!mobileMediaQuery) return
+  if (mobileMediaQuery.removeEventListener) {
+    mobileMediaQuery.removeEventListener('change', syncMobileState)
+  } else {
+    mobileMediaQuery.removeListener(syncMobileState)
+  }
+})
 </script>
 
 <template>
-  <div v-if="visible && revealInfo" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-4 duration-500">
-    <div class="bg-white rounded-2xl shadow-2xl border border-violet-200 p-5 min-w-[360px] max-w-md">
+  <div v-if="visible && revealInfo" :class="revealWrapperClass">
+    <div :class="revealPanelClass">
       <div class="flex items-center gap-3 mb-3">
         <div class="p-2 bg-violet-100 rounded-xl">
           <Shuffle class="w-5 h-5 text-violet-600" />
@@ -26,7 +67,7 @@ const emit = defineEmits(['close'])
           <h4 class="font-bold text-zinc-900">🎲 随机面试风格揭晓！</h4>
           <p class="text-xs text-zinc-500">本次面试采用的隐藏风格</p>
         </div>
-        <button @click="emit('close')" class="ml-auto p-1 hover:bg-zinc-100 rounded-lg transition-colors">
+        <button @click="emit('close')" class="ml-auto p-1 md:hover:bg-zinc-100 active:bg-zinc-100 rounded-lg transition-colors touch-manipulation">
           <X class="w-4 h-4 text-zinc-400" />
         </button>
       </div>

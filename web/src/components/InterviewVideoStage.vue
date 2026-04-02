@@ -61,6 +61,9 @@ const emit = defineEmits(['toggle-mic', 'toggle-camera'])
 
 const interviewVideo = ref(null)
 const stageRootRef = ref(null)
+const isMobile = ref(false)
+
+let mobileMediaQuery = null
 
 const isHighPressure = computed(() => ['high', 'extreme'].includes(props.pressureLevel))
 
@@ -92,6 +95,51 @@ const timerText = computed(() => {
   return `${mins}:${String(secs).padStart(2, '0')}`
 })
 
+const stageContainerClass = computed(() => {
+  if (isMobile.value) return 'w-full aspect-video min-h-0 rounded-2xl'
+  return 'flex-1 min-h-[320px] lg:min-h-[420px] rounded-3xl'
+})
+
+const candidatePreviewClass = computed(() => {
+  if (isMobile.value) {
+    return 'absolute bottom-4 left-4 w-32 aspect-[4/3] h-auto rounded-xl overflow-hidden border border-white/20 bg-zinc-950/90 shadow-lg backdrop-blur-sm'
+  }
+  return 'absolute bottom-5 left-5 w-44 h-28 rounded-2xl overflow-hidden border border-white/20 bg-zinc-950/90 shadow-lg backdrop-blur-sm'
+})
+
+const coachPreviewClass = computed(() => {
+  if (isMobile.value) {
+    return 'absolute bottom-4 right-4 w-24 aspect-[3/4] h-auto rounded-xl overflow-hidden border border-emerald-200/35 backdrop-blur-sm bg-zinc-950/90'
+  }
+  return 'absolute bottom-5 right-5 w-36 h-40 rounded-2xl overflow-hidden border border-emerald-200/35 backdrop-blur-sm bg-zinc-950/90'
+})
+
+const coachBubbleClass = computed(() => {
+  if (isMobile.value) {
+    return 'absolute z-[70] left-4 right-4 bottom-24 rounded-2xl border border-emerald-200 bg-white/95 px-4 py-3 text-xs leading-relaxed text-zinc-700 shadow-lg shadow-emerald-100'
+  }
+  return 'absolute z-[70] right-44 bottom-28 max-w-[250px] rounded-2xl border border-emerald-200 bg-white/95 px-4 py-3 text-xs leading-relaxed text-zinc-700 shadow-lg shadow-emerald-100'
+})
+
+const controlDockClass = computed(() => {
+  if (isMobile.value) {
+    return 'absolute z-40 bottom-4 left-1/2 -translate-x-1/2 flex gap-3 pointer-events-auto'
+  }
+  return 'absolute z-40 bottom-8 left-1/2 -translate-x-1/2 flex gap-4 transition-all duration-500 translate-y-4 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 pointer-events-auto'
+})
+
+const controlButtonBaseClass = computed(() => {
+  if (isMobile.value) {
+    return 'h-14 w-14 rounded-full flex items-center justify-center backdrop-blur-md transition-all active:scale-95 shadow-lg border border-white/10 touch-manipulation'
+  }
+  return 'h-12 w-12 rounded-full flex items-center justify-center backdrop-blur-md transition-all hover:scale-110 shadow-lg border border-white/10 touch-manipulation'
+})
+
+const syncMobileState = () => {
+  if (!mobileMediaQuery) return
+  isMobile.value = mobileMediaQuery.matches
+}
+
 const syncVideoStream = () => {
   if (!interviewVideo.value) return
   if (!props.isCameraOn) {
@@ -113,6 +161,13 @@ watch(interviewVideo, () => {
 })
 
 onMounted(() => {
+  mobileMediaQuery = window.matchMedia('(max-width: 767px)')
+  syncMobileState()
+  if (mobileMediaQuery.addEventListener) {
+    mobileMediaQuery.addEventListener('change', syncMobileState)
+  } else {
+    mobileMediaQuery.addListener(syncMobileState)
+  }
   syncVideoStream()
 })
 
@@ -136,12 +191,26 @@ const cleanupStageMedia = () => {
 }
 
 onBeforeUnmount(() => {
+  if (mobileMediaQuery) {
+    if (mobileMediaQuery.removeEventListener) {
+      mobileMediaQuery.removeEventListener('change', syncMobileState)
+    } else {
+      mobileMediaQuery.removeListener(syncMobileState)
+    }
+  }
   cleanupStageMedia()
 })
 </script>
 
 <template>
-  <div ref="stageRootRef" class="flex-1 min-h-[320px] lg:min-h-[420px] rounded-3xl relative overflow-hidden shadow-2xl group ring-1 ring-slate-900/10 bg-gradient-to-br from-slate-900 via-slate-800 to-cyan-900/70">
+  <div
+    ref="stageRootRef"
+    :class="[
+      'relative overflow-hidden shadow-2xl group ring-1 ring-slate-900/10 bg-linear-to-br from-slate-900 via-slate-800 to-cyan-900/70',
+      stageContainerClass,
+      isMobile ? 'mobile-energy-save' : ''
+    ]"
+  >
     <div class="absolute top-6 left-6 flex items-center gap-3 z-10 pointer-events-none">
       <div class="text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-2 shadow-lg" :class="recordingStatusClass">
         <div class="w-2 h-2 bg-white rounded-full animate-pulse"></div>
@@ -164,16 +233,16 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div v-if="isHighPressure" class="absolute inset-0 pointer-events-none z-[5]"
+    <div v-if="isHighPressure" class="absolute inset-0 pointer-events-none z-5"
       :class="pressureLevel === 'extreme'
         ? 'shadow-[inset_0_0_80px_rgba(220,38,38,0.25)]'
         : 'shadow-[inset_0_0_60px_rgba(220,38,38,0.1)]'"
     ></div>
 
     <div class="absolute inset-0 interview-room-scene pointer-events-none">
-      <div class="absolute inset-y-0 left-0 w-32 interview-room-wall interview-room-wall--left pointer-events-none"></div>
-      <div class="absolute inset-y-0 right-0 w-36 interview-room-wall interview-room-wall--right pointer-events-none"></div>
-      <div class="absolute left-0 right-0 bottom-0 h-28 interview-room-floor pointer-events-none"></div>
+      <div v-if="!isMobile" class="absolute inset-y-0 left-0 w-32 interview-room-wall interview-room-wall--left pointer-events-none"></div>
+      <div v-if="!isMobile" class="absolute inset-y-0 right-0 w-36 interview-room-wall interview-room-wall--right pointer-events-none"></div>
+      <div v-if="!isMobile" class="absolute left-0 right-0 bottom-0 h-28 interview-room-floor pointer-events-none"></div>
       <model-viewer
         v-if="modelViewerReady"
         src="/interview3.glb"
@@ -195,7 +264,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div class="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-slate-950/95 via-slate-900/45 to-transparent pointer-events-none"></div>
+      <div class="absolute inset-x-0 bottom-0 h-24 bg-linear-to-t from-slate-950/95 via-slate-900/45 to-transparent pointer-events-none"></div>
       <div class="absolute bottom-8 left-1/2 -translate-x-1/2 w-[56%] h-14 rounded-t-2xl interview-room-desk"></div>
       <div class="absolute top-6 right-6 text-xs px-3 py-1.5 rounded-full border backdrop-blur-sm"
         :class="interviewStyle === 'stress' ? 'bg-rose-500/20 text-rose-100 border-rose-300/40' : 'bg-emerald-500/15 text-emerald-100 border-emerald-300/40'">
@@ -203,7 +272,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="absolute bottom-5 left-5 w-44 h-28 rounded-2xl overflow-hidden border border-white/20 bg-zinc-950/90 shadow-lg backdrop-blur-sm">
+    <div :class="candidatePreviewClass">
       <video ref="interviewVideo" class="w-full h-full object-cover transform scale-x-[-1]" autoplay muted v-if="isCameraOn"></video>
       <div v-else class="w-full h-full flex flex-col items-center justify-center text-zinc-600 bg-zinc-900/70">
         <User class="h-8 w-8 mb-2 opacity-30" />
@@ -212,8 +281,10 @@ onBeforeUnmount(() => {
       <div class="absolute bottom-1 left-1 text-[10px] px-2 py-0.5 rounded-full bg-black/55 text-white border border-white/10">面试者</div>
     </div>
 
-    <div class="absolute bottom-5 right-5 w-36 h-40 rounded-2xl overflow-hidden border border-emerald-200/35 backdrop-blur-sm bg-zinc-950/90"
-      :class="shadowCoachHintPending ? 'ring-2 ring-emerald-300/80 shadow-[0_0_24px_rgba(16,185,129,0.35)]' : ''">
+    <div :class="[
+      coachPreviewClass,
+      shadowCoachHintPending ? 'ring-2 ring-emerald-300/80 shadow-[0_0_24px_rgba(16,185,129,0.35)]' : ''
+    ]">
       <model-viewer
         v-if="modelViewerReady"
         src="/cute_ghost.glb"
@@ -222,7 +293,7 @@ onBeforeUnmount(() => {
         camera-controls
         exposure="1.05"
         shadow-intensity="1"
-        class="w-full h-full bg-gradient-to-b from-zinc-900 to-zinc-800 pointer-events-none"
+        class="w-full h-full bg-linear-to-b from-zinc-900 to-zinc-800 pointer-events-none"
       ></model-viewer>
       <div v-else class="w-full h-full flex items-center justify-center text-[11px] text-emerald-100 bg-zinc-900/70">影子教练加载中</div>
       <div class="absolute bottom-2 left-2 text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/85 text-white border border-emerald-300/60">
@@ -233,29 +304,33 @@ onBeforeUnmount(() => {
     <transition name="coach-bubble">
       <div
         v-if="shadowCoachBubbleVisible && shadowCoachBubbleText"
-        class="absolute z-[70] right-44 bottom-28 max-w-[250px] rounded-2xl border border-emerald-200 bg-white/95 px-4 py-3 text-xs leading-relaxed text-zinc-700 shadow-lg shadow-emerald-100"
+        :class="coachBubbleClass"
       >
         <p class="font-semibold text-emerald-700 mb-1">小幽灵提示</p>
         <p class="whitespace-pre-wrap">{{ shadowCoachBubbleText }}</p>
       </div>
     </transition>
 
-    <div class="absolute z-40 bottom-8 left-1/2 -translate-x-1/2 flex gap-4 transition-all duration-500 translate-y-4 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 pointer-events-auto">
+    <div :class="controlDockClass">
       <button
         @click="emit('toggle-mic')"
-        class="h-12 w-12 rounded-full flex items-center justify-center backdrop-blur-md transition-all hover:scale-110 shadow-lg border border-white/10"
-        :class="isMicOn ? 'bg-white/20 text-white hover:bg-white/30' : 'bg-rose-500 text-white'"
+        :class="[
+          controlButtonBaseClass,
+          isMicOn ? 'bg-white/20 text-white md:hover:bg-white/30' : 'bg-rose-500 text-white'
+        ]"
       >
-        <Mic v-if="isMicOn" class="h-5 w-5" />
-        <MicOff v-else class="h-5 w-5" />
+        <Mic v-if="isMicOn" :class="isMobile ? 'h-6 w-6' : 'h-5 w-5'" />
+        <MicOff v-else :class="isMobile ? 'h-6 w-6' : 'h-5 w-5'" />
       </button>
       <button
         @click="emit('toggle-camera')"
-        class="h-12 w-12 rounded-full flex items-center justify-center backdrop-blur-md transition-all hover:scale-110 shadow-lg border border-white/10"
-        :class="isCameraOn ? 'bg-white/20 text-white hover:bg-white/30' : 'bg-rose-500 text-white'"
+        :class="[
+          controlButtonBaseClass,
+          isCameraOn ? 'bg-white/20 text-white md:hover:bg-white/30' : 'bg-rose-500 text-white'
+        ]"
       >
-        <Video v-if="isCameraOn" class="h-5 w-5" />
-        <VideoOff v-else class="h-5 w-5" />
+        <Video v-if="isCameraOn" :class="isMobile ? 'h-6 w-6' : 'h-5 w-5'" />
+        <VideoOff v-else :class="isMobile ? 'h-6 w-6' : 'h-5 w-5'" />
       </button>
     </div>
   </div>
@@ -369,5 +444,16 @@ onBeforeUnmount(() => {
   0% { transform: translateY(0px) rotate(0deg) scale(1); }
   50% { transform: translateY(-1px) rotate(-0.2deg) scale(1.01); }
   100% { transform: translateY(0px) rotate(0deg) scale(1); }
+}
+
+@media (max-width: 767px) {
+  .mobile-energy-save .interview-room-scene::after {
+    display: none;
+  }
+
+  .mobile-energy-save .interviewer-stage,
+  .mobile-energy-save .interviewer-speaking {
+    animation: none !important;
+  }
 }
 </style>
