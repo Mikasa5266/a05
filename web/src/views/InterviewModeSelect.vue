@@ -14,7 +14,10 @@
           v-for="item in cards"
           :key="item.title"
           type="button"
-          class="group text-left rounded-3xl p-7 bg-white border border-zinc-100 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_14px_28px_rgba(15,23,42,0.08)] hover:border-zinc-200"
+          class="group text-left rounded-3xl p-7 bg-white border border-zinc-100 shadow-sm transition-all duration-300"
+          :class="item.enabled
+            ? 'hover:-translate-y-1 hover:shadow-[0_14px_28px_rgba(15,23,42,0.08)] hover:border-zinc-200 cursor-pointer'
+            : 'opacity-80 cursor-not-allowed'"
           @click="goTo(item)"
         >
           <div class="w-14 h-14 rounded-2xl flex items-center justify-center" :class="item.iconWrapClass">
@@ -22,9 +25,9 @@
           </div>
           <h2 class="mt-6 text-2xl font-bold text-zinc-900">{{ item.title }}</h2>
           <p class="mt-3 text-sm leading-6 text-zinc-500">{{ item.description }}</p>
-          <div class="mt-8 inline-flex items-center text-sm font-semibold text-indigo-600 group-hover:text-indigo-500">
-            进入场景
-            <ChevronRight class="w-4 h-4 ml-1.5 transition-transform duration-300 group-hover:translate-x-1" />
+          <div class="mt-8 inline-flex items-center text-sm font-semibold" :class="item.enabled ? 'text-indigo-600 group-hover:text-indigo-500' : 'text-zinc-400'">
+            {{ item.enabled ? '进入场景' : '即将上线' }}
+            <ChevronRight v-if="item.enabled" class="w-4 h-4 ml-1.5 transition-transform duration-300 group-hover:translate-x-1" />
           </div>
         </button>
       </div>
@@ -34,17 +37,19 @@
 
 <script setup>
 import { useRouter } from 'vue-router'
-import { ChevronRight, Bot, Mic, Binary, Users } from 'lucide-vue-next'
+import { ElMessage } from 'element-plus'
+import { ChevronRight, Bot, UserCheck, Users, Package } from 'lucide-vue-next'
 
 const router = useRouter()
 
 const cards = [
   {
-    title: 'AI 视频模拟',
-    description: '进入 Gemini 驱动的视频模拟面试，激活 3D 面试官与可视化语音交互。',
+    title: 'AI 模拟面试',
+    description: '进入 Gemini 驱动的 AI 全真模拟面试，激活 3D 面试官，还原真实面试全流程。',
     icon: Bot,
-    iconWrapClass: 'bg-violet-100',
+    iconWrapClass: 'bg-indigo-100',
     iconClass: 'text-indigo-600',
+    enabled: true,
     path: '/interview/video',
     query: {
       mode: 'technical',
@@ -54,45 +59,47 @@ const cards = [
     }
   },
   {
-    title: '语音文字模拟',
-    description: '进入轻量语音文字模拟，专注表达结构、回答质量与追问节奏。',
-    icon: Mic,
+    title: '真人面试',
+    description: '进入真人面试工作台，发起面试邀请、实时音视频连线，同步面试状态与记录。',
+    icon: UserCheck,
     iconWrapClass: 'bg-sky-100',
     iconClass: 'text-sky-700',
+    enabled: true,
+    path: '/interview/live/workbench',
+    query: {}
+  },
+  {
+    title: '群面模式',
+    description: '进入 AI 群面模拟场景，还原无领导小组讨论流程，支持多角色 AI 队友/面试官。',
+    icon: Users,
+    iconWrapClass: 'bg-emerald-100',
+    iconClass: 'text-emerald-600',
+    enabled: false,
+    path: '',
+    query: {}
+  },
+  {
+    title: '盲盒模式',
+    description: '进入随机盲盒面试，随机匹配岗位、面试官与面试题型，沉浸式模拟未知场景。',
+    icon: Package,
+    iconWrapClass: 'bg-amber-100',
+    iconClass: 'text-amber-700',
+    enabled: true,
     path: '/interview/standard/setup',
     query: {
-      mode: 'technical',
+      mode: 'blindbox',
       style: 'gentle',
       interviewMode: 'ai',
       presentationMode: 'text_voice'
     }
-  },
-  {
-    title: '算法专项',
-    description: '进入算法专项工作台，聚焦题解路径、复杂度控制与代码实现能力。',
-    icon: Binary,
-    iconWrapClass: 'bg-emerald-100',
-    iconClass: 'text-emerald-600',
-    path: '/interview/algorithm/setup',
-    query: {
-      mode: 'technical',
-      style: 'algorithm',
-      interviewMode: 'ai',
-      presentationMode: 'text_voice'
-    }
-  },
-  {
-    title: '真人面试',
-    description: '进入真人面试工作台，发起邀请、追踪状态并进入实时面试房间。',
-    icon: Users,
-    iconWrapClass: 'bg-amber-100',
-    iconClass: 'text-amber-700',
-    path: '/interview/live/workbench',
-    query: {}
   }
 ]
 
 const goTo = (item) => {
+  if (!item.enabled || !item.path) {
+    ElMessage.info('该模式正在开发中，敬请期待')
+    return
+  }
   router.push({
     path: item.path,
     query: item.query
