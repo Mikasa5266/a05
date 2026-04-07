@@ -1,0 +1,41 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.a05.interviewai",
+  "productName": "Interview AI",
+  "artifactName": "${productName}-Setup-${version}.${ext}",
+  "asar": true,
+  "asarUnpack": ["**/*.node"],
+  "directories": {
+    "output": "release",
+    "buildResources": "build"
+  },
+  "files": ["dist/**", "dist-electron/**", "package.json", "!**/*.map"],
+  "extraMetadata": {
+    "main": "dist-electron/main.js"
+  },
+  "publish": [
+    {
+      "provider": "generic",
+      "url": "https://updates.example.com/interview-ai/latest",
+      "channel": "latest"
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "signAndEditExecutable": false
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "perMachine": false,
+    "createDesktopShortcut": "always",
+    "createStartMenuShortcut": true,
+    "runAfterFinish": true,
+    "include": "build/installer.nsh"
+  }
+}

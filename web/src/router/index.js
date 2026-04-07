@@ -1,136 +1,153 @@
-import { createRouter, createWebHistory } from 'vue-router'
-import { resolveRoleFromPath, useUserStore } from '../stores/user'
-import { commonRoutes } from './routes/common'
-import { studentRoutes } from './routes/student'
-import { enterpriseRoutes } from './routes/enterprise'
-import { universityRoutes } from './routes/university'
+import {
+  createRouter,
+  createWebHashHistory,
+  createWebHistory,
+} from "vue-router";
+import { resolveRoleFromPath, useUserStore } from "../stores/user";
+import { commonRoutes } from "./routes/common";
+import { studentRoutes } from "./routes/student";
+import { enterpriseRoutes } from "./routes/enterprise";
+import { universityRoutes } from "./routes/university";
 
-const ROLE_NAMES = ['student', 'enterprise', 'university']
+const ROLE_NAMES = ["student", "enterprise", "university"];
 const ROLE_DASHBOARD = {
-  student: '/student/dashboard',
-  enterprise: '/enterprise/dashboard',
-  university: '/university/dashboard'
-}
+  student: "/student/dashboard",
+  enterprise: "/enterprise/dashboard",
+  university: "/university/dashboard",
+};
 
 const routes = [
   ...commonRoutes,
   ...studentRoutes,
   ...enterpriseRoutes,
-  ...universityRoutes
-]
+  ...universityRoutes,
+];
+
+const resolveRouterHistory = () => {
+  const routerMode = String(
+    import.meta.env.VITE_ROUTER_MODE || "",
+  ).toLowerCase();
+  const buildTarget = String(
+    import.meta.env.VITE_BUILD_TARGET || "",
+  ).toLowerCase();
+  const useHash = routerMode === "hash" || buildTarget === "electron";
+  return useHash ? createWebHashHistory() : createWebHistory();
+};
 
 const router = createRouter({
-  history: createWebHistory(),
-  routes
-})
+  history: resolveRouterHistory(),
+  routes,
+});
 
-const isKnownRole = (role) => ROLE_NAMES.includes(role)
+const isKnownRole = (role) => ROLE_NAMES.includes(role);
 
 const normalizeRole = (role) => {
-  if (isKnownRole(role)) return role
-  return 'student'
-}
+  if (isKnownRole(role)) return role;
+  return "student";
+};
 
 const readTokenByRole = (userStore, role) => {
-  const safeRole = normalizeRole(role)
-  return userStore.getTokenByRole(safeRole)
-}
+  const safeRole = normalizeRole(role);
+  return userStore.getTokenByRole(safeRole);
+};
 
 const findLoggedRole = (userStore) => {
   for (const role of ROLE_NAMES) {
-    const token = readTokenByRole(userStore, role)
+    const token = readTokenByRole(userStore, role);
     if (token && !userStore.isTokenExpired(token)) {
-      return role
+      return role;
     }
   }
-  return ''
-}
+  return "";
+};
 
 const buildLoginPath = (role, redirectPath) => {
-  const safeRole = normalizeRole(role)
-  const target = String(redirectPath || '/').trim() || '/'
-  return `/${safeRole}/login?redirect=${encodeURIComponent(target)}`
-}
+  const safeRole = normalizeRole(role);
+  const target = String(redirectPath || "/").trim() || "/";
+  return `/${safeRole}/login?redirect=${encodeURIComponent(target)}`;
+};
 
 const buildForbiddenLocation = (to, expectedRoles, actualRole) => {
   return {
-    path: '/403',
+    path: "/403",
     query: {
       from: to.fullPath,
-      expected: expectedRoles.join(','),
-      actual: String(actualRole || '')
-    }
-  }
-}
+      expected: expectedRoles.join(","),
+      actual: String(actualRole || ""),
+    },
+  };
+};
 
 const extractRequiredRoles = (to, fallbackRole) => {
   const matchedRoles = to.matched
     .flatMap((record) => {
-      const roles = record.meta?.roles
-      if (!Array.isArray(roles)) return []
-      return roles
+      const roles = record.meta?.roles;
+      if (!Array.isArray(roles)) return [];
+      return roles;
     })
-    .filter(isKnownRole)
+    .filter(isKnownRole);
 
-  const uniqueRoles = [...new Set(matchedRoles)]
-  if (uniqueRoles.length > 0) return uniqueRoles
+  const uniqueRoles = [...new Set(matchedRoles)];
+  if (uniqueRoles.length > 0) return uniqueRoles;
 
-  return [normalizeRole(fallbackRole)]
-}
+  return [normalizeRole(fallbackRole)];
+};
 
 router.beforeEach((to) => {
-  const userStore = useUserStore()
-  const pathRole = normalizeRole(resolveRoleFromPath(to.path))
-  const requiresAuth = to.matched.some((record) => record.meta?.requiresAuth === true)
+  const userStore = useUserStore();
+  const pathRole = normalizeRole(resolveRoleFromPath(to.path));
+  const requiresAuth = to.matched.some(
+    (record) => record.meta?.requiresAuth === true,
+  );
 
-  if (to.path === '/') {
-    const loggedRole = findLoggedRole(userStore)
+  if (to.path === "/") {
+    const loggedRole = findLoggedRole(userStore);
     if (loggedRole) {
-      return ROLE_DASHBOARD[loggedRole]
+      return ROLE_DASHBOARD[loggedRole];
     }
   }
 
-  if (to.path.endsWith('/login')) {
-    const token = readTokenByRole(userStore, pathRole)
+  if (to.path.endsWith("/login")) {
+    const token = readTokenByRole(userStore, pathRole);
     if (token && !userStore.isTokenExpired(token)) {
-      const redirectTarget = String(to.query?.redirect || '').trim()
+      const redirectTarget = String(to.query?.redirect || "").trim();
       if (redirectTarget) {
-        return redirectTarget
+        return redirectTarget;
       }
-      return ROLE_DASHBOARD[pathRole]
+      return ROLE_DASHBOARD[pathRole];
     }
-    return true
+    return true;
   }
 
   if (!requiresAuth) {
-    return true
+    return true;
   }
 
-  const token = readTokenByRole(userStore, pathRole)
+  const token = readTokenByRole(userStore, pathRole);
   if (!token || userStore.isTokenExpired(token)) {
-    userStore.logout(pathRole)
+    userStore.logout(pathRole);
 
-    const loggedRole = findLoggedRole(userStore)
+    const loggedRole = findLoggedRole(userStore);
     if (loggedRole && loggedRole !== pathRole) {
-      return ROLE_DASHBOARD[loggedRole]
+      return ROLE_DASHBOARD[loggedRole];
     }
 
-    return buildLoginPath(pathRole, to.fullPath)
+    return buildLoginPath(pathRole, to.fullPath);
   }
 
-  const requiredRoles = extractRequiredRoles(to, pathRole)
-  const userInfo = userStore.getUserInfoByRole(pathRole)
-  const actualRole = normalizeRole(userInfo?.role || pathRole)
+  const requiredRoles = extractRequiredRoles(to, pathRole);
+  const userInfo = userStore.getUserInfoByRole(pathRole);
+  const actualRole = normalizeRole(userInfo?.role || pathRole);
 
   if (!requiredRoles.includes(actualRole)) {
-    const fallback = ROLE_DASHBOARD[actualRole]
+    const fallback = ROLE_DASHBOARD[actualRole];
     if (fallback && fallback !== to.path) {
-      return fallback
+      return fallback;
     }
-    return buildForbiddenLocation(to, requiredRoles, actualRole)
+    return buildForbiddenLocation(to, requiredRoles, actualRole);
   }
 
-  return true
-})
+  return true;
+});
 
-export default router
+export default router;

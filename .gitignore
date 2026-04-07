@@ -18,6 +18,8 @@ server/uploads/
 node_modules/
 dist/
 .vite/
+web/dist-electron/
+web/release/
 *.log
 .gocache/
 
