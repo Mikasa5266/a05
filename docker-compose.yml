@@ -147,6 +147,11 @@ services:
         condition: service_healthy
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      # 格式：[服务器上的路径] : [给容器内部看的路径] : [只读]
+      - /home/zhengshu/aiinterview2244.xyz_nginx/aiinterview2244.xyz_bundle.crt:/etc/nginx/ssl/server.crt:ro
+      - /home/zhengshu/aiinterview2244.xyz_nginx/aiinterview2244.xyz.key:/etc/nginx/ssl/server.key:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
       interval: 30s

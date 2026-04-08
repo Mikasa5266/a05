@@ -466,10 +466,6 @@ const beginInterview = async (setupContext = {}) => {
       startPayload.algorithm_focus_tags = Array.isArray(algorithmConfig.focusTags) ? algorithmConfig.focusTags : []
       startPayload.algorithm_language = algorithmConfig.language || ''
     }
-    if (initType === 'standard') {
-      startPayload.resume_data = setupContext?.resumeData || null
-      startPayload.resume_matches = Array.isArray(setupContext?.matchedRoles) ? setupContext.matchedRoles : []
-    }
     if (settings.value.interviewMode === 'human') {
       if (!activeInvitationId.value) {
         throw new Error('请先选择一个已邀请对象')

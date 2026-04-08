@@ -12,8 +12,8 @@
       <div class="lg:col-span-2 relative">
         <div class="overflow-hidden rounded-3xl bg-white border border-zinc-100 shadow-sm">
           <!-- Carousel Slides -->
-          <div class="relative min-h-[420px]">
-            <!-- Slide: Resume Matching -->
+          <div class="relative min-h-105">
+            <!-- Slide: Interview Quick Start -->
             <transition
               enter-active-class="transition-all duration-500 ease-out"
               leave-active-class="transition-all duration-500 ease-in"
@@ -25,19 +25,19 @@
               <div v-if="activeSlide === 0" class="absolute inset-0 p-8">
                 <div class="flex items-center gap-2 mb-6">
                   <Upload class="h-5 w-5 text-indigo-600" />
-                  <h2 class="text-xl font-bold text-zinc-900">简历解析与岗位匹配</h2>
+                  <h2 class="text-xl font-bold text-zinc-900">快速开启模拟面试</h2>
                 </div>
                 <div
                   class="border-2 border-dashed border-zinc-200 rounded-2xl p-12 flex flex-col items-center justify-center hover:border-indigo-300 transition-colors cursor-pointer"
-                  @click="goToResume"
+                  @click="goToInterviewSetup"
                   @dragover.prevent
                   @drop.prevent="handleDrop"
                 >
                   <div class="h-16 w-16 bg-indigo-50 rounded-2xl text-indigo-600 mb-4 flex items-center justify-center">
                     <Upload class="h-8 w-8" />
                   </div>
-                  <h3 class="text-lg font-medium text-zinc-700">点击或拖拽上传简历 (PDF/Word)</h3>
-                  <p class="text-zinc-400 mt-2 text-sm">AI 将为您智能匹配最合适的岗位</p>
+                  <h3 class="text-lg font-medium text-zinc-700">点击进入面试模式选择</h3>
+                  <p class="text-zinc-400 mt-2 text-sm">直接配置岗位与风格，开始完整模拟流程</p>
                 </div>
               </div>
             </transition>
@@ -136,7 +136,7 @@
       <!-- Right: Quick Actions & Activity -->
       <div class="space-y-6">
         <!-- Interview Quick Start -->
-        <div class="bg-gradient-to-br from-indigo-600 to-violet-600 rounded-3xl p-6 text-white relative overflow-hidden shadow-xl shadow-indigo-200">
+        <div class="bg-linear-to-br from-indigo-600 to-violet-600 rounded-3xl p-6 text-white relative overflow-hidden shadow-xl shadow-indigo-200">
           <div class="relative z-10">
             <h3 class="text-lg font-bold mb-1">准备好面试了吗？</h3>
             <p class="text-indigo-200 text-sm mb-5">开启 AI 模拟面试，获取实时反馈与专业评估</p>
@@ -244,7 +244,8 @@ const abilityOverview = ref([
 const prevSlide = () => { activeSlide.value = (activeSlide.value - 1 + 3) % 3 }
 const nextSlide = () => { activeSlide.value = (activeSlide.value + 1) % 3 }
 
-const goToResume = () => router.push('/student/resume')
+const goToInterviewSetup = () => router.push('/interview/mode-select')
+const handleDrop = () => goToInterviewSetup()
 const startMode = (mode) => router.push({ path: '/student/interview', query: { mode } })
 
 const fetchRecentActivity = async () => {

@@ -30,7 +30,7 @@ var openingQuestionEnglishTokenPattern = regexp.MustCompile(`[A-Za-z]{8,}`)
 
 type InterviewService struct {
 	interviewRepo *repository.InterviewRepository
-	questionRepo  *repository.QuestionRepository
+	questionRepo  repository.QuestionRepository
 	userRepo      *repository.UserRepository
 	aiService     aidomain.AIFacade
 	ragService    *RAGService // Add RAG service

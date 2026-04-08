@@ -9,21 +9,55 @@ import (
 	"gorm.io/gorm"
 )
 
-type QuestionRepository struct {
+// QuestionRepository defines question aggregate persistence contracts for service-layer DI.
+type QuestionRepository interface {
+	Create(question *model.Question) error
+	BatchCreate(questions []*model.Question) error
+	GetByID(id uint) (*model.Question, error)
+	GetQuestions(position, difficulty, category string) ([]*model.Question, error)
+	GetQuestionsByPositionAndDifficulty(position, difficulty string) ([]*model.Question, error)
+	GetQuestionsByPositionAndDifficultyWithExclude(position, difficulty string, excludeIDs []uint) ([]*model.Question, error)
+	GetQuestionsForInterviewInit(position, difficulty, category string, limit int) ([]*model.Question, error)
+	GetQuestionsForInterviewInitWithExclude(position, difficulty, category string, limit int, excludeIDs []uint) ([]*model.Question, error)
+	GetRandomQuestionForInterview(position, difficulty string, excludeIDs []uint) (*model.Question, error)
+	FindByKnowledgePoint(position, difficulty, knowledgePoint string, limit int) ([]*model.Question, error)
+	ListRandomByPosition(position string, limit int) ([]*model.Question, error)
+	Update(question *model.Question) error
+	Delete(id uint) error
+	List(page, pageSize int) ([]*model.Question, int64, error)
+	SearchByKeyword(keyword string, page, pageSize int) ([]*model.Question, int64, error)
+	GetQuestionStats() (map[string]interface{}, error)
+}
+
+type GormQuestionRepository struct {
 	db *gorm.DB
 }
 
-func NewQuestionRepository() *QuestionRepository {
-	return &QuestionRepository{
-		db: GetDB(),
-	}
+var _ QuestionRepository = (*GormQuestionRepository)(nil)
+
+func NewQuestionRepository() QuestionRepository {
+	return &GormQuestionRepository{db: GetDB()}
 }
 
-func (r *QuestionRepository) Create(question *model.Question) error {
+func NewQuestionRepositoryWithDB(db *gorm.DB) QuestionRepository {
+	if db == nil {
+		db = GetDB()
+	}
+	return &GormQuestionRepository{db: db}
+}
+
+func (r *GormQuestionRepository) Create(question *model.Question) error {
 	return r.db.Create(question).Error
 }
 
-func (r *QuestionRepository) GetByID(id uint) (*model.Question, error) {
+func (r *GormQuestionRepository) BatchCreate(questions []*model.Question) error {
+	if len(questions) == 0 {
+		return nil
+	}
+	return r.db.Create(&questions).Error
+}
+
+func (r *GormQuestionRepository) GetByID(id uint) (*model.Question, error) {
 	var question model.Question
 	err := r.db.First(&question, id).Error
 	if err != nil {
@@ -32,60 +66,35 @@ func (r *QuestionRepository) GetByID(id uint) (*model.Question, error) {
 	return &question, nil
 }
 
-func (r *QuestionRepository) GetQuestions(position, difficulty, category string) ([]*model.Question, error) {
-	query := r.db.Model(&model.Question{}).
-		Where("(source IS NULL OR source <> ?) AND (rag_eligible IS NULL OR rag_eligible = ?)", "follow_up", true)
-
-	if position != "" {
-		candidates := buildPositionCandidates(position)
-		if len(candidates) > 0 {
-			query = query.Where("position IN ?", candidates)
-		} else {
-			query = query.Where("position = ?", position)
-		}
-	}
-	if difficulty != "" {
-		candidates := buildDifficultyCandidates(difficulty)
-		if len(candidates) > 0 {
-			query = query.Where("difficulty IN ?", candidates)
-		} else {
-			query = query.Where("difficulty = ?", difficulty)
-		}
-	}
-	if category != "" {
-		query = query.Where("category = ?", category)
-	}
-
+func (r *GormQuestionRepository) GetQuestions(position, difficulty, category string) ([]*model.Question, error) {
+	query := applyQuestionBaseFilters(r.db.Model(&model.Question{}), position, difficulty, category, nil)
 	var questions []*model.Question
 	err := query.Find(&questions).Error
 	if err != nil {
 		return nil, err
 	}
-
 	return questions, nil
 }
 
-func (r *QuestionRepository) GetQuestionsByPositionAndDifficulty(position, difficulty string) ([]*model.Question, error) {
+func (r *GormQuestionRepository) GetQuestionsByPositionAndDifficulty(position, difficulty string) ([]*model.Question, error) {
 	return r.GetQuestionsByPositionAndDifficultyWithExclude(position, difficulty, nil)
 }
 
-func (r *QuestionRepository) GetQuestionsByPositionAndDifficultyWithExclude(position, difficulty string, excludeIDs []uint) ([]*model.Question, error) {
+func (r *GormQuestionRepository) GetQuestionsByPositionAndDifficultyWithExclude(position, difficulty string, excludeIDs []uint) ([]*model.Question, error) {
 	var questions []*model.Question
 	query := applyQuestionBaseFilters(r.db.Model(&model.Question{}), position, difficulty, "", excludeIDs)
 	err := query.Order(randomOrderExpression(r.db)).Limit(10).Find(&questions).Error
 	if err != nil {
 		return nil, err
 	}
-
 	return questions, nil
 }
 
-// GetQuestionsForInterviewInit fetches a bounded, deterministic set of questions for fast startup.
-func (r *QuestionRepository) GetQuestionsForInterviewInit(position, difficulty, category string, limit int) ([]*model.Question, error) {
+func (r *GormQuestionRepository) GetQuestionsForInterviewInit(position, difficulty, category string, limit int) ([]*model.Question, error) {
 	return r.GetQuestionsForInterviewInitWithExclude(position, difficulty, category, limit, nil)
 }
 
-func (r *QuestionRepository) GetQuestionsForInterviewInitWithExclude(position, difficulty, category string, limit int, excludeIDs []uint) ([]*model.Question, error) {
+func (r *GormQuestionRepository) GetQuestionsForInterviewInitWithExclude(position, difficulty, category string, limit int, excludeIDs []uint) ([]*model.Question, error) {
 	if limit <= 0 {
 		limit = 12
 	}
@@ -96,11 +105,10 @@ func (r *QuestionRepository) GetQuestionsForInterviewInitWithExclude(position, d
 	if err != nil {
 		return nil, err
 	}
-
 	return questions, nil
 }
 
-func (r *QuestionRepository) GetRandomQuestionForInterview(position, difficulty string, excludeIDs []uint) (*model.Question, error) {
+func (r *GormQuestionRepository) GetRandomQuestionForInterview(position, difficulty string, excludeIDs []uint) (*model.Question, error) {
 	query := applyQuestionBaseFilters(r.db.Model(&model.Question{}), position, difficulty, "", excludeIDs)
 	var question model.Question
 	err := query.Order(randomOrderExpression(r.db)).Limit(1).Take(&question).Error
@@ -110,15 +118,51 @@ func (r *QuestionRepository) GetRandomQuestionForInterview(position, difficulty 
 	return &question, nil
 }
 
-func (r *QuestionRepository) Update(question *model.Question) error {
+// FindByKnowledgePoint maps app.py/SQLite style "按考点查题" into GORM queries.
+func (r *GormQuestionRepository) FindByKnowledgePoint(position, difficulty, knowledgePoint string, limit int) ([]*model.Question, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	kp := strings.TrimSpace(knowledgePoint)
+	query := applyQuestionBaseFilters(r.db.Model(&model.Question{}), position, difficulty, "", nil)
+	if kp != "" {
+		pattern := fmt.Sprintf("%%%s%%", kp)
+		query = query.Where("knowledge_point = ? OR knowledge_area = ? OR category = ? OR tags LIKE ?", kp, kp, kp, pattern)
+	}
+
+	var questions []*model.Question
+	err := query.Order("difficulty_rank DESC, id DESC").Limit(limit).Find(&questions).Error
+	if err != nil {
+		return nil, err
+	}
+	return questions, nil
+}
+
+// ListRandomByPosition maps app.py/SQLite style "按岗位随机抽题" list query.
+func (r *GormQuestionRepository) ListRandomByPosition(position string, limit int) ([]*model.Question, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+
+	query := applyQuestionBaseFilters(r.db.Model(&model.Question{}), position, "", "", nil)
+	var questions []*model.Question
+	err := query.Order(randomOrderExpression(r.db)).Limit(limit).Find(&questions).Error
+	if err != nil {
+		return nil, err
+	}
+	return questions, nil
+}
+
+func (r *GormQuestionRepository) Update(question *model.Question) error {
 	return r.db.Save(question).Error
 }
 
-func (r *QuestionRepository) Delete(id uint) error {
+func (r *GormQuestionRepository) Delete(id uint) error {
 	return r.db.Delete(&model.Question{}, id).Error
 }
 
-func (r *QuestionRepository) List(page, pageSize int) ([]*model.Question, int64, error) {
+func (r *GormQuestionRepository) List(page, pageSize int) ([]*model.Question, int64, error) {
 	var questions []*model.Question
 	var total int64
 
@@ -137,22 +181,21 @@ func (r *QuestionRepository) List(page, pageSize int) ([]*model.Question, int64,
 	return questions, total, nil
 }
 
-func (r *QuestionRepository) SearchByKeyword(keyword string, page, pageSize int) ([]*model.Question, int64, error) {
+func (r *GormQuestionRepository) SearchByKeyword(keyword string, page, pageSize int) ([]*model.Question, int64, error) {
 	var questions []*model.Question
 	var total int64
 
 	offset := (page - 1) * pageSize
-
 	searchPattern := fmt.Sprintf("%%%s%%", keyword)
 
 	err := r.db.Model(&model.Question{}).
-		Where("title LIKE ? OR content LIKE ? OR tags LIKE ?", searchPattern, searchPattern, searchPattern).
+		Where("title LIKE ? OR content LIKE ? OR tags LIKE ? OR knowledge_point LIKE ? OR category LIKE ?", searchPattern, searchPattern, searchPattern, searchPattern, searchPattern).
 		Count(&total).Error
 	if err != nil {
 		return nil, 0, err
 	}
 
-	err = r.db.Where("title LIKE ? OR content LIKE ? OR tags LIKE ?", searchPattern, searchPattern, searchPattern).
+	err = r.db.Where("title LIKE ? OR content LIKE ? OR tags LIKE ? OR knowledge_point LIKE ? OR category LIKE ?", searchPattern, searchPattern, searchPattern, searchPattern, searchPattern).
 		Limit(pageSize).
 		Offset(offset).
 		Find(&questions).Error
@@ -163,7 +206,7 @@ func (r *QuestionRepository) SearchByKeyword(keyword string, page, pageSize int)
 	return questions, total, nil
 }
 
-func (r *QuestionRepository) GetQuestionStats() (map[string]interface{}, error) {
+func (r *GormQuestionRepository) GetQuestionStats() (map[string]interface{}, error) {
 	stats := make(map[string]interface{})
 
 	var totalQuestions int64
@@ -185,6 +228,20 @@ func (r *QuestionRepository) GetQuestionStats() (map[string]interface{}, error) 
 		return nil, err
 	}
 	stats["by_position"] = positionStats
+
+	var knowledgePointStats []struct {
+		KnowledgePoint string
+		Count          int64
+	}
+	err = r.db.Model(&model.Question{}).
+		Select("knowledge_point, COUNT(*) as count").
+		Where("knowledge_point IS NOT NULL AND knowledge_point <> ''").
+		Group("knowledge_point").
+		Scan(&knowledgePointStats).Error
+	if err != nil {
+		return nil, err
+	}
+	stats["by_knowledge_point"] = knowledgePointStats
 
 	var difficultyStats []struct {
 		Difficulty string
@@ -219,7 +276,8 @@ func buildPositionCandidates(position string) []string {
 }
 
 func applyQuestionBaseFilters(query *gorm.DB, position, difficulty, category string, excludeIDs []uint) *gorm.DB {
-	filtered := query.Where("(source IS NULL OR source <> ?) AND (rag_eligible IS NULL OR rag_eligible = ?)", "follow_up", true)
+	filtered := query.Where("is_active = ?", true).
+		Where("(source IS NULL OR source <> ?) AND (rag_eligible IS NULL OR rag_eligible = ?)", "follow_up", true)
 
 	if len(excludeIDs) > 0 {
 		filtered = filtered.Where("id NOT IN ?", excludeIDs)

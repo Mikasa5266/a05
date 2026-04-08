@@ -1,452 +1,161 @@
-# AI Interview Pro (a05)
+<div align="center">
+  <img src="./docs/assets/logo-placeholder.png" width="120" alt="AI Interview Pro Logo" />
 
-Language: **English** | [中文](./README.zh-CN.md)
+  # AI Interview Pro
 
-AI Interview Pro is a full-stack interview training and talent collaboration platform.
-It includes student interview practice, enterprise recruiting workflows, university employment support, and an AI-powered knowledge/community layer.
+  ### 🤖 面向真实求职场景的 AI 面试与能力提升平台
 
-Chinese version: [README.zh-CN.md](./README.zh-CN.md)
+  <p>
+    <a href="./README.zh-CN.md">旧版中文说明</a> ·
+    <a href="./README-zh-CN.md">历史文档</a>
+  </p>
+</div>
 
-## Highlights
+<div align="center">
 
-- Multi-portal system: `student`, `enterprise`, `university`
-- Resume parsing with structured extraction and job matching
-- Mock interview flow with AI follow-up strategy and style controls
-- Voice answer pipeline (recording + ASR transcription via Whisper-compatible API)
-- Interview reports, growth analytics, and historical records
-- Enterprise modules: talent pool, jobs, standards, analytics
-- University modules: student tracking, support actions, talent push
-- Community modules with posts, comments, likes, mentoring bookings
+![Vue](https://img.shields.io/badge/Vue-3-42b883?logo=vuedotjs&logoColor=white)
+![Electron](https://img.shields.io/badge/Electron-Desktop-47848f?logo=electron&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-7.x-646CFF?logo=vite&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-## Tech Stack
+</div>
 
-- Backend: Go, Gin, GORM, MySQL, JWT
-- Frontend: Vue 3, Vite, Pinia, Vue Router, Element Plus
-- AI/Infra: LLM provider abstraction, Whisper-compatible ASR, OCR (Tesseract + pdftoppm)
+## ✨ 一句话简介
 
-## Repository Layout
+**AI Interview Pro** 是一个支持 **Web + Electron 桌面端** 的全栈智能面试系统，集成 AI 追问、语音转写、面试报告、成长分析与多角色协作（学生 / 企业 / 高校），并可通过 Docker 在服务器快速部署。
+
+## 🚀 核心特性
+
+- 🧩 **多端一致体验**：同一套业务能力同时支持 Web 与桌面端。
+- 🎙️ **真实对话式面试**：支持语音作答、实时追问、评分与改进建议。
+- 🧠 **多模型能力编排**：LLM/ASR/TTS 可配置，便于扩展与替换。
+- 🧑‍💼 **多角色系统**：学生训练、企业招聘、高校就业支持一体化。
+- 📊 **闭环成长反馈**：报告、历史记录、能力趋势持续追踪。
+- 🛠️ **工程化落地**：支持 Docker Compose 一键部署与 Electron 安装包分发。
+
+## 🖼️ 演示截图
+<img width="958" height="598" alt="Snipaste_2026-04-07_13-40-03" src="https://github.com/user-attachments/assets/534cfae6-e3b1-49a0-a7cb-e0f925a6cff4" />
+<img width="958" height="598" alt="Snipaste_2026-04-07_13-40-23" src="https://github.com/user-attachments/assets/112a737c-fc5d-459f-a006-e1fc9da1b8ac" />
+<img width="1280" height="764" alt="Snipaste_2026-04-07_13-40-57" src="https://github.com/user-attachments/assets/dc50be45-7b29-48c7-a4f0-e20789c66675" />
+
+
+
+
+## 🏗️ 技术栈与架构
+
+### Tech Stack
+
+| 层级 | 方案 |
+| --- | --- |
+| 前端 Web | Vue 3 + Vite + Pinia + Vue Router + Element Plus |
+| 桌面端 | Electron + vite-plugin-electron + electron-builder |
+| 后端 | Go + Gin + GORM + JWT |
+| 数据层 | MySQL 8 |
+| AI 能力 | LLM 抽象层 + Whisper 兼容 ASR + TTS + OCR |
+| 部署 | Docker Compose + Nginx + 可选 Coturn |
+
+### 架构图
+
+```mermaid
+flowchart LR
+  U[用户] --> W[Web 前端
+Vue3 + Vite]
+  U --> D[Desktop 客户端
+Electron]
+
+  W --> N[Nginx / HTTPS]
+  D --> N
+
+  N --> B[Go API
+Gin + JWT]
+  B --> M[(MySQL)]
+  B --> A[LLM / ASR / TTS]
+  B --> K[Knowledge Base]
+```
+
+## ⚡ 快速开始（傻瓜式）
+
+### 0) 环境准备
+
+- Node.js 18+
+- Go 1.25+
+- Docker + Docker Compose
+
+### 1) 运行 Web 端（开发）
+
+```bash
+cd web
+npm install
+npm run dev:web
+```
+
+默认会启动 Vite 开发服务，打开终端提示地址即可访问。
+
+### 2) 运行 Electron 客户端（开发）
+
+```bash
+cd web
+npm install
+npm run dev:desktop
+```
+
+### 3) 打包 Electron 客户端（Windows .exe）
+
+```bash
+cd web
+npm run dist:win
+```
+
+产物目录：`web/release/`
+
+### 4) Docker Compose 一键启动服务端（推荐部署方式）
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+```
+
+Windows PowerShell：
+
+```powershell
+Copy-Item .env.example .env
+docker compose up -d --build
+```
+
+常用排查命令：
+
+```bash
+docker compose ps
+docker compose logs -f backend
+docker compose logs -f frontend
+```
+
+## 📦 客户端下载
+
+请前往本仓库 **GitHub Releases** 下载最新桌面安装包（`.exe`）：
+
+👉 `https://github.com/<YOUR_ORG>/<YOUR_REPO>/releases`
+
+> 建议发布时同时上传：安装包、`latest.yml`、`.blockmap`，以支持自动更新。
+
+## 📁 项目结构（精简）
 
 ```text
 .
-|- server/                 # Go API service
-|  |- config.yaml          # Runtime config (DB/JWT/LLM/ASR/OCR)
-|  |- main.go              # Service entry
-|  |- router/              # Route registration
-|  |- handler/             # HTTP handlers
-|  |- service/             # Business logic and AI orchestration
-|  |- repository/          # Data access layer
-|  |- model/               # DB models and domain structs
-|  |- pkg/                 # Integrations (ASR, LLM, websocket)
-|  |- utils/               # File parsing and OCR helpers
-|  |- tools/               # Utility scripts
-|
-|- web/                    # Vue frontend
-|  |- src/
-|  |  |- views/            # Pages for all portals
-|  |  |- components/       # Shared UI components
-|  |  |- stores/           # Pinia stores
-|  |  |- api/              # API wrappers
-|  |  |- utils/request.js  # Axios base client
-|
-|- knowledge_base/         # Domain prompts/content used by the platform
-|- scoring_rubrics/        # Scoring configs
+├─ server/                # Go 后端服务
+├─ web/                   # Vue + Electron 前端
+├─ knowledge_base/        # 知识库与提示词
+├─ docker-compose.yml     # 一键部署编排
+└─ README.md
 ```
 
-## Prerequisites
+## 🤝 团队与致谢
 
-- Go `1.25+` (matches `server/go.mod`)
-- Node.js `18+` and npm
-- MySQL `8+`
-- Optional for OCR fallback:
-	- `tesseract` executable
-	- `pdftoppm` (Poppler)
+- 团队：`我们叫什么队`
+- 感谢：所有贡献者、测试同学与开源社区。
 
-## Quick Start
+---
 
-### 1) Backend setup
-
-```bash
-cd server
-go mod tidy
-```
-
-Create local environment file from template and fill your real secrets:
-
-```bash
-cd server
-cp .env.example .env
-```
-
-For Windows PowerShell:
-
-```powershell
-cd server
-Copy-Item .env.example .env
-```
-
-`server/config.yaml` now uses `${ENV}` / `${ENV:-default}` placeholders and `config.LoadConfig` will auto-load `server/.env` if present.
-
-Important:
-- Never commit real DB/JWT/LLM/ASR/TTS credentials.
-- `main.go` loads `config.yaml` from current working directory, so run backend commands inside `server/`.
-
-Start backend:
-
-```bash
-cd server
-go run main.go
-```
-
-Default API base: `http://localhost:8080/api/v1`
-
-### 2) Frontend setup
-
-```bash
-cd web
-npm install
-```
-
-Optional env file (`web/.env.development`):
-
-```env
-VITE_API_URL=http://localhost:8080/api/v1
-```
-
-Start frontend:
-
-```bash
-cd web
-npm run dev
-```
-
-### 3) Open the app
-
-- Visit the Vite URL shown in terminal (usually `http://localhost:5173`)
-- Use portal selection page to enter:
-	- Student portal
-	- Enterprise portal
-	- University portal
-
-## Account Bootstrapping
-
-You can create demo enterprise/university accounts with:
-
-```bash
-cd server
-go run ./tools/create_accounts
-```
-
-The script creates:
-- `enterprise@test.com` / `123456`
-- `university@test.com` / `123456`
-
-Student accounts can be created via register API/UI.
-
-## Common Commands
-
-Backend:
-
-```bash
-cd server
-go test ./...
-go run main.go
-```
-
-Frontend:
-
-```bash
-cd web
-npm run dev
-npm run build
-npm run preview
-```
-
-Cleanup low-quality follow-up questions:
-
-```bash
-cd server
-go run ./tools/cleanup_garbage_questions
-# dry-run by default; add -apply to execute deletion
-```
-
-Repair historical garbled/English question text:
-
-```bash
-cd server
-go run ./tools/repair_question_text
-# dry-run by default; add -apply to execute updates
-```
-
-## Core API Areas
-
-All APIs are under ` /api/v1 `.
-
-- Auth/User: `/register`, `/login`, `/user/*`
-- Interview: `/interview/*`, blindbox, style reveal, speech analyze
-- Resume: `/resume/parse`, `/resume/generate-questions`
-- Reports/Growth: `/reports/*`, `/growth/stats`
-- AI Chat: `/ai/chat`, `/interview/:id/ai-chat`
-- Enterprise: `/enterprise/*`
-- University: `/university/*`
-- Community: `/community/*`
-
-Note: most routes require JWT auth.
-
-## API Examples
-
-Base URL:
-
-```text
-http://localhost:8080/api/v1
-```
-
-### 1) Register (student by default)
-
-```bash
-curl -X POST "http://localhost:8080/api/v1/register" \
-	-H "Content-Type: application/json" \
-	-d '{
-		"username": "demo_student",
-		"email": "demo_student@test.com",
-		"password": "123456",
-		"role": "student"
-	}'
-```
-
-Example response:
-
-```json
-{
-	"message": "User registered successfully",
-	"user": {
-		"id": 1,
-		"username": "demo_student",
-		"email": "demo_student@test.com",
-		"role": "student"
-	}
-}
-```
-
-### 2) Login
-
-```bash
-curl -X POST "http://localhost:8080/api/v1/login" \
-	-H "Content-Type: application/json" \
-	-d '{
-		"email": "demo_student@test.com",
-		"password": "123456",
-		"role": "student"
-	}'
-```
-
-Example response:
-
-```json
-{
-	"message": "Login successful",
-	"token": "<jwt_token>",
-	"user": {
-		"id": 1,
-		"username": "demo_student",
-		"email": "demo_student@test.com",
-		"role": "student"
-	}
-}
-```
-
-### 3) Start interview (JWT required)
-
-```bash
-curl -X POST "http://localhost:8080/api/v1/interview/start" \
-	-H "Authorization: Bearer <jwt_token>" \
-	-H "Content-Type: application/json" \
-	-d '{
-		"type": "technical",
-		"mode": "ai",
-		"difficulty": "medium",
-		"position": "backend"
-	}'
-```
-
-### 4) Parse resume (multipart upload, JWT required)
-
-```bash
-curl -X POST "http://localhost:8080/api/v1/resume/parse" \
-	-H "Authorization: Bearer <jwt_token>" \
-	-F "file=@./sample_resume.pdf"
-```
-
-Example response:
-
-```json
-{
-	"resume": {
-		"name": "Candidate Name",
-		"skills": ["Go", "MySQL", "Vue"]
-	},
-	"matches": [
-		{
-			"jobTitle": "Backend Engineer",
-			"score": 0.89,
-			"reason": "Strong backend stack match"
-		}
-	]
-}
-```
-
-### 5) OCR status check (JWT required)
-
-```bash
-curl -X GET "http://localhost:8080/api/v1/system/ocr/status" \
-	-H "Authorization: Bearer <jwt_token>"
-```
-
-## Deployment
-
-### Option A: Local deployment (single machine)
-
-1. Install MySQL, Go, Node.js.
-2. Configure `server/config.yaml`.
-3. Run backend from `server/`: `go run main.go`.
-4. Build frontend:
-
-```bash
-cd web
-npm install
-npm run build
-```
-
-5. Serve `web/dist` using Nginx/Caddy or any static server.
-6. Set frontend API URL to backend public address via `VITE_API_URL`.
-
-### Option B: Docker deployment (recommended for consistency)
-
-1. Copy `.env.example` to `.env` and fill in real production secrets.
-2. Keep backend private on the host; the bundled compose file binds `8080` to `127.0.0.1` and expects public traffic to go through the frontend reverse proxy.
-3. If you need OCR for scanned resumes in Docker, the backend image now includes `tesseract` and `pdftoppm`.
-4. Use `GET /api/v1/health` for liveness and `GET /api/v1/ready` for readiness checks.
-5. Real-time video interviews now support TURN via the bundled `coturn` service. Fill `TURN_*` and `VITE_WEBRTC_*` values in `.env` before building the frontend image.
-
-Create backend Docker image:
-
-```dockerfile
-# server/Dockerfile
-FROM golang:1.25-alpine AS builder
-WORKDIR /app
-COPY server/go.mod server/go.sum ./
-RUN go mod download
-COPY server/. .
-RUN go build -o app main.go
-
-FROM alpine:3.21
-WORKDIR /app
-COPY --from=builder /app/app ./app
-COPY server/config.yaml ./config.yaml
-EXPOSE 8080
-CMD ["./app"]
-```
-
-Create frontend Docker image:
-
-```dockerfile
-# web/Dockerfile
-FROM node:22-alpine AS builder
-WORKDIR /app
-COPY web/package*.json ./
-RUN npm install
-COPY web/. .
-RUN npm run build
-
-FROM nginx:alpine
-COPY --from=builder /app/dist /usr/share/nginx/html
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
-```
-
-Minimal compose example:
-
-```yaml
-services:
-	mysql:
-		image: mysql:8.4
-		environment:
-			MYSQL_ROOT_PASSWORD: root
-			MYSQL_DATABASE: interview_ai
-		ports:
-			- "3306:3306"
-		volumes:
-			- mysql_data:/var/lib/mysql
-
-	backend:
-		build:
-			context: .
-			dockerfile: server/Dockerfile
-		ports:
-			- "8080:8080"
-		depends_on:
-			- mysql
-
-	frontend:
-		build:
-			context: .
-			dockerfile: web/Dockerfile
-		ports:
-			- "80:80"
-		depends_on:
-			- backend
-
-volumes:
-	mysql_data:
-```
-
-### Option C: Cloud deployment (VM or container platform)
-
-1. Provision managed MySQL and set secure credentials.
-2. Deploy backend service:
-	 - Ensure `config.yaml` uses cloud DB host/port.
-	 - Set `server.host` to `0.0.0.0`.
-	 - Configure reverse proxy and HTTPS.
-3. Deploy frontend static assets (`web/dist`) to CDN/object storage.
-4. Configure domain and CORS policy.
-5. Set up observability:
-	 - access logs
-	 - error alerts
-	 - health checks (`/api/v1/system/ocr/status` and auth smoke tests)
-6. Rotate secrets and enforce least-privilege DB users.
-
-Production checklist:
-
-- Replace all local keys in `server/config.yaml`.
-- Prefer `.env`-driven secrets for Docker deployment instead of editing runtime config in-place.
-- Use environment-specific config management.
-- Enable TLS for public traffic.
-- Add a TURN service before opening live video interviews to external users.
-- Open TURN ports on the server firewall: `3478/tcp`, `3478/udp`, and the relay UDP range you configure (default `49160-49200`).
-- Restrict database network exposure.
-- Back up database and verify restore flow.
-
-## Troubleshooting
-
-- Backend fails when run from repository root:
-	- Cause: `config.yaml` not found by relative path.
-	- Fix: run `go run main.go` inside `server/`.
-
-- Port `8080` already in use:
-	- Change `server.port` in `server/config.yaml`, or stop occupying process.
-
-- Resume OCR does not work for scanned PDFs:
-	- Verify `tesseract_path`, `pdftoppm_path`, and `tessdata_path` in `server/config.yaml`.
-	- Ensure language packs exist (for example `chi_sim`, `eng`).
-
-- Frontend cannot reach backend:
-	- Verify `VITE_API_URL` and backend CORS/network settings.
-
-## Security Notes
-
-- Do not commit real API keys/passwords into version control.
-- Keep `server/config.yaml` environment-specific (local/staging/prod).
-- Rotate JWT secret and all provider credentials before production.
-
-## License
-
-No license file is currently defined in this repository.
+如果你觉得这个项目对你有帮助，欢迎点个 ⭐ Star 支持一下！
