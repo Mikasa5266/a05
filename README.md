@@ -36,12 +36,12 @@
 - 🛠️ **工程化落地**：支持 Docker Compose 一键部署与 Electron 安装包分发。
 
 ## 🖼️ 演示截图
+<img width="958" height="598" alt="Snipaste_2026-04-07_13-40-03" src="https://github.com/user-attachments/assets/534cfae6-e3b1-49a0-a7cb-e0f925a6cff4" />
+<img width="958" height="598" alt="Snipaste_2026-04-07_13-40-23" src="https://github.com/user-attachments/assets/112a737c-fc5d-459f-a006-e1fc9da1b8ac" />
+<img width="1280" height="764" alt="Snipaste_2026-04-07_13-40-57" src="https://github.com/user-attachments/assets/dc50be45-7b29-48c7-a4f0-e20789c66675" />
 
-> 请将下面占位图替换为你的真实动图/高清截图（建议 1920x1080）。
 
-![截图1-工作台总览](./docs/screenshots/01-dashboard.gif)
-![截图2-AI面试交互](./docs/screenshots/02-ai-interview.gif)
-![截图3-报告与成长分析](./docs/screenshots/03-report.png)
+
 
 ## 🏗️ 技术栈与架构
 
@@ -153,7 +153,7 @@ docker compose logs -f frontend
 
 ## 🤝 团队与致谢
 
-- 团队：`<在这里填写团队名称>`
+- 团队：`我们叫什么队`
 - 感谢：所有贡献者、测试同学与开源社区。
 
 ---
