@@ -1,186 +1,220 @@
-import { defineAsyncComponent } from 'vue'
+import { defineAsyncComponent } from "vue";
 
-const Layout = defineAsyncComponent(() => import('../../components/layout/Layout.vue'))
+const Layout = defineAsyncComponent(
+  () => import("../../components/layout/Layout.vue"),
+);
 
-const Home = defineAsyncComponent(() => import('../../views/Home.vue'))
-const ResumeMatching = defineAsyncComponent(() => import('../../views/ResumeMatching.vue'))
-const Interview = defineAsyncComponent(() => import('../../views/Interview.vue'))
-const MockInterview = defineAsyncComponent(() => import('../../views/MockInterview.vue'))
-const InterviewModeSelect = defineAsyncComponent(() => import('../../views/InterviewModeSelect.vue'))
-const GrowthCenter = defineAsyncComponent(() => import('../../views/GrowthCenter.vue'))
-const History = defineAsyncComponent(() => import('../../views/History.vue'))
-const Report = defineAsyncComponent(() => import('../../views/Report.vue'))
-const Settings = defineAsyncComponent(() => import('../../views/Settings.vue'))
-const Community = defineAsyncComponent(() => import('../../views/Community.vue'))
-const CommunityPostDetail = defineAsyncComponent(() => import('../../views/CommunityPostDetail.vue'))
-const StudentLiveInterviewWorkbench = defineAsyncComponent(() => import('../../views/student/LiveInterviewWorkbench.vue'))
-const LiveInterviewRoom = defineAsyncComponent(() => import('../../views/LiveInterviewRoom.vue'))
+const Home = defineAsyncComponent(() => import("../../views/Home.vue"));
+const Interview = defineAsyncComponent(
+  () => import("../../views/Interview.vue"),
+);
+const MockInterview = defineAsyncComponent(
+  () => import("../../views/MockInterview.vue"),
+);
+const InterviewModeSelect = defineAsyncComponent(
+  () => import("../../views/InterviewModeSelect.vue"),
+);
+const GrowthCenter = defineAsyncComponent(
+  () => import("../../views/GrowthCenter.vue"),
+);
+const History = defineAsyncComponent(() => import("../../views/History.vue"));
+const Report = defineAsyncComponent(() => import("../../views/Report.vue"));
+const Settings = defineAsyncComponent(() => import("../../views/Settings.vue"));
+const Community = defineAsyncComponent(
+  () => import("../../views/Community.vue"),
+);
+const CommunityPostDetail = defineAsyncComponent(
+  () => import("../../views/CommunityPostDetail.vue"),
+);
+const StudentLiveInterviewWorkbench = defineAsyncComponent(
+  () => import("../../views/student/LiveInterviewWorkbench.vue"),
+);
+const ResumeCenter = defineAsyncComponent(
+  () => import("../../views/student/ResumeCenter.vue"),
+);
+const QuestionBank = defineAsyncComponent(
+  () => import("../../views/student/QuestionBank.vue"),
+);
+const LiveInterviewRoom = defineAsyncComponent(
+  () => import("../../views/LiveInterviewRoom.vue"),
+);
 
 const roleMeta = {
   requiresAuth: true,
-  roles: ['student']
-}
+  roles: ["student"],
+};
 
 export const studentRoutes = [
   {
-    path: '/student',
+    path: "/student",
     component: Layout,
     meta: roleMeta,
     children: [
       {
-        path: '',
-        redirect: '/student/dashboard',
-        meta: roleMeta
+        path: "",
+        redirect: "/student/dashboard",
+        meta: roleMeta,
       },
       {
-        path: 'dashboard',
-        name: 'StudentDashboard',
+        path: "dashboard",
+        name: "StudentDashboard",
         component: Home,
-        meta: roleMeta
+        meta: roleMeta,
       },
       {
-        path: 'resume',
-        name: 'ResumeMatching',
-        component: ResumeMatching,
-        meta: roleMeta
+        path: "resume-center",
+        name: "ResumeCenter",
+        component: ResumeCenter,
+        meta: roleMeta,
       },
       {
-        path: 'interview',
-        redirect: '/interview/mode-select',
-        meta: roleMeta
+        path: "question-bank",
+        name: "QuestionBank",
+        component: QuestionBank,
+        meta: roleMeta,
       },
       {
-        path: 'live-interview',
+        path: "interview",
+        redirect: "/interview/mode-select",
+        meta: roleMeta,
+      },
+      {
+        path: "live-interview",
         redirect: (to) => {
-          const invitationId = String(to.query?.invitation_id || '').trim()
+          const invitationId = String(to.query?.invitation_id || "").trim();
           if (!invitationId) {
-            return '/interview/live/workbench'
+            return "/interview/live/workbench";
           }
-          const invitationCode = String(to.query?.invitation_code || '').trim()
+          const invitationCode = String(to.query?.invitation_code || "").trim();
           if (!invitationCode) {
-            return `/interview/live/room?invitation_id=${invitationId}`
+            return `/interview/live/room?invitation_id=${invitationId}`;
           }
-          return `/interview/live/room?invitation_id=${invitationId}&invitation_code=${encodeURIComponent(invitationCode)}`
+          return `/interview/live/room?invitation_id=${invitationId}&invitation_code=${encodeURIComponent(invitationCode)}`;
         },
-        meta: roleMeta
+        meta: roleMeta,
       },
       {
-        path: 'growth',
-        name: 'GrowthCenter',
+        path: "growth",
+        name: "GrowthCenter",
         component: GrowthCenter,
-        meta: roleMeta
+        meta: roleMeta,
       },
       {
-        path: 'history',
-        name: 'History',
+        path: "history",
+        name: "History",
         component: History,
-        meta: roleMeta
+        meta: roleMeta,
       },
       {
-        path: 'report/:id',
-        name: 'Report',
+        path: "report/:id",
+        name: "Report",
         component: Report,
-        meta: roleMeta
+        meta: roleMeta,
       },
       {
-        path: 'community',
-        name: 'Community',
+        path: "community",
+        name: "Community",
         component: Community,
-        meta: roleMeta
+        meta: roleMeta,
       },
       {
-        path: 'community/posts/:id',
-        name: 'CommunityPostDetail',
+        path: "community/posts/:id",
+        name: "CommunityPostDetail",
         component: CommunityPostDetail,
-        meta: roleMeta
+        meta: roleMeta,
       },
       {
-        path: 'settings',
-        name: 'StudentSettings',
+        path: "settings",
+        name: "StudentSettings",
         component: Settings,
-        meta: roleMeta
-      }
-    ]
+        meta: roleMeta,
+      },
+    ],
   },
   {
-    path: '/interview',
+    path: "/interview",
     component: Layout,
     meta: roleMeta,
     children: [
       {
-        path: 'mode-select',
-        name: 'InterviewModeSelect',
+        path: "mode-select",
+        name: "InterviewModeSelect",
         component: InterviewModeSelect,
-        meta: roleMeta
+        meta: roleMeta,
       },
       {
-        path: 'standard/setup',
-        name: 'MockInterview',
+        path: "standard/setup",
+        name: "MockInterview",
         component: MockInterview,
-        meta: roleMeta
+        meta: roleMeta,
       },
       {
-        path: 'video',
-        name: 'InterviewVideoMode',
+        path: "video",
+        name: "InterviewVideoMode",
         component: Interview,
         beforeEnter: (to) => {
           const normalized = {
             ...to.query,
-            mode: String(to.query?.mode || 'technical'),
-            style: String(to.query?.style || 'gentle'),
-            interviewMode: String(to.query?.interviewMode || 'ai'),
-            presentationMode: String(to.query?.presentationMode || 'video_avatar')
-          }
+            mode: String(to.query?.mode || "technical"),
+            style: String(to.query?.style || "gentle"),
+            interviewMode: String(to.query?.interviewMode || "ai"),
+            presentationMode: String(
+              to.query?.presentationMode || "video_avatar",
+            ),
+          };
 
-          const sameMode = String(to.query?.mode || '') === normalized.mode
-          const sameStyle = String(to.query?.style || '') === normalized.style
-          const sameInterviewMode = String(to.query?.interviewMode || '') === normalized.interviewMode
-          const samePresentation = String(to.query?.presentationMode || '') === normalized.presentationMode
+          const sameMode = String(to.query?.mode || "") === normalized.mode;
+          const sameStyle = String(to.query?.style || "") === normalized.style;
+          const sameInterviewMode =
+            String(to.query?.interviewMode || "") === normalized.interviewMode;
+          const samePresentation =
+            String(to.query?.presentationMode || "") ===
+            normalized.presentationMode;
 
           if (sameMode && sameStyle && sameInterviewMode && samePresentation) {
-            return true
+            return true;
           }
 
           return {
             path: to.path,
-            query: normalized
-          }
+            query: normalized,
+          };
         },
-        meta: roleMeta
+        meta: roleMeta,
       },
       {
-        path: 'algorithm/setup',
-        name: 'AlgorithmInterviewSetup',
+        path: "algorithm/setup",
+        name: "AlgorithmInterviewSetup",
         component: MockInterview,
         beforeEnter: (to) => {
-          const mode = String(to.query?.mode || '').trim()
-          const style = String(to.query?.style || '').trim()
-          if (mode === 'technical' && style === 'algorithm') {
-            return true
+          const mode = String(to.query?.mode || "").trim();
+          const style = String(to.query?.style || "").trim();
+          if (mode === "technical" && style === "algorithm") {
+            return true;
           }
           return {
             path: to.path,
             query: {
               ...to.query,
-              mode: mode || 'technical',
-              style: style || 'algorithm'
-            }
-          }
+              mode: mode || "technical",
+              style: style || "algorithm",
+            },
+          };
         },
-        meta: roleMeta
+        meta: roleMeta,
       },
       {
-        path: 'live/workbench',
-        name: 'StudentLiveInterviewWorkbench',
+        path: "live/workbench",
+        name: "StudentLiveInterviewWorkbench",
         component: StudentLiveInterviewWorkbench,
-        meta: roleMeta
+        meta: roleMeta,
       },
       {
-        path: 'live/room/:id?',
-        name: 'StudentLiveInterviewRoom',
+        path: "live/room/:id?",
+        name: "StudentLiveInterviewRoom",
         component: LiveInterviewRoom,
-        meta: roleMeta
-      }
-    ]
-  }
-]
+        meta: roleMeta,
+      },
+    ],
+  },
+];

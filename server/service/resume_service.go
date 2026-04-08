@@ -2,567 +2,744 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sort"
+	"strconv"
 	"strings"
-	"time"
 
+	"your-project/config"
 	"your-project/model"
+	"your-project/pkg/llm"
+	promptpkg "your-project/pkg/prompt"
 	"your-project/repository"
-	aidomain "your-project/service/ai"
 )
 
-type ResumeService struct {
-	aiService          aidomain.AIFacade
-	resumeRepo         repository.ResumeRepository
-	lastPipelineResult *ResumePipelineResult
+const (
+	resumeMinLength = 60
+	resumeMaxLength = 32000
+)
+
+type ResumeService interface {
+	AnalyzeOnly(ctx context.Context, input ResumeAnalysisInput) (*ResumeAnalysisResult, error)
+	AnalyzeAndPersist(ctx context.Context, input ResumeAnalysisInput) (*ResumeAnalysisResult, *model.ResumeParseResult, error)
+	GetLatestAnalysis(ctx context.Context, userID uint) (*ResumeAnalysisResult, *model.ResumeParseResult, error)
 }
 
-type ResumeServiceInterface interface {
-	ParseResume(fileContent string) (*model.ResumeData, error)
-	MatchJobs(resumeData *model.ResumeData) ([]*model.JobMatch, error)
-	GenerateInterviewQuestions(resumeData *model.ResumeData, jobTitle string) (map[string][]string, error)
-	AnalyzeAuthenticity(resumeData *model.ResumeData, rawText string, targetRole string) (*model.ResumeAuthenticityReport, error)
-	GenerateOptimizationSuggestions(resumeData *model.ResumeData, targetRole string) (*model.ResumeOptimizationReport, error)
-	GenerateResumeTemplate(targetRole string, seniority string, language string) (*model.ResumeTemplate, error)
+type ResumeAnalysisInput struct {
+	UserID   uint
+	FileName string
+	RawText  string
+	Source   string
 }
 
-var _ ResumeServiceInterface = (*ResumeService)(nil)
-
-type ResumePipelineResult struct {
-	Validation *model.ResumeValidationResult
-	Extracted  *model.ResumeExtractedData
-	Match      *model.ResumeMatchResult
-	Resume     *model.ResumeData
-	Matches    []*model.JobMatch
+type ResumeProfile struct {
+	Name            string `json:"name"`
+	Email           string `json:"email,omitempty"`
+	Phone           string `json:"phone,omitempty"`
+	YearsExperience string `json:"years_experience,omitempty"`
+	Education       string `json:"education,omitempty"`
+	TargetPosition  string `json:"target_position,omitempty"`
+	Summary         string `json:"summary,omitempty"`
 }
 
-func NewResumeService() *ResumeService {
-	return NewResumeServiceWithDeps(MustGetAIService(), repository.NewResumeRepository())
+type ResumeSkill struct {
+	Name     string `json:"name"`
+	Level    string `json:"level,omitempty"`
+	Evidence string `json:"evidence,omitempty"`
 }
 
-func NewResumeServiceWithDeps(aiService aidomain.AIFacade, resumeRepo repository.ResumeRepository) *ResumeService {
-	if aiService == nil {
-		aiService = MustGetAIService()
+type ResumeProject struct {
+	Name        string   `json:"name"`
+	Role        string   `json:"role,omitempty"`
+	Description string   `json:"description,omitempty"`
+	TechStack   []string `json:"tech_stack,omitempty"`
+	Highlights  []string `json:"highlights,omitempty"`
+}
+
+type ResumePositionFit struct {
+	PositionCode string   `json:"position_code"`
+	PositionName string   `json:"position_name"`
+	Score        int      `json:"score"`
+	Reasons      []string `json:"reasons,omitempty"`
+}
+
+type ResumeAnalysisResult struct {
+	Profile                ResumeProfile       `json:"profile"`
+	Skills                 []ResumeSkill       `json:"skills"`
+	Projects               []ResumeProject     `json:"projects"`
+	StrengthHighlights     []string            `json:"strength_highlights"`
+	MissingSkills          []string            `json:"missing_skills"`
+	SuggestedPositions     []ResumePositionFit `json:"suggested_positions"`
+	RecommendedQuestionIDs []uint              `json:"recommended_question_ids"`
+	ConfidenceScore        int                 `json:"confidence_score"`
+	ModelVersion           string              `json:"model_version"`
+}
+
+type resumeExtractionPayload struct {
+	Profile            ResumeProfile   `json:"profile"`
+	Skills             []ResumeSkill   `json:"skills"`
+	Projects           []ResumeProject `json:"projects"`
+	StrengthHighlights []string        `json:"strength_highlights"`
+	PotentialGaps      []string        `json:"potential_gaps"`
+	ConfidenceScore    int             `json:"confidence_score"`
+}
+
+type resumeFitPayload struct {
+	SuggestedPositions []ResumePositionFit `json:"suggested_positions"`
+	MissingSkills      []string            `json:"missing_skills"`
+	StrengthHighlights []string            `json:"strength_highlights"`
+	ConfidenceScore    int                 `json:"confidence_score"`
+}
+
+type LLMResumeService struct {
+	llmClient    llm.LLMClient
+	promptMgr    *promptpkg.PromptManager
+	positionRepo repository.PositionRepository
+	questionRepo repository.QuestionRepository
+	resumeRepo   repository.ResumeParseResultRepository
+}
+
+var _ ResumeService = (*LLMResumeService)(nil)
+
+func NewResumeService() ResumeService {
+	pm, _ := promptpkg.NewPromptManager()
+	return NewResumeServiceWithDeps(
+		llm.NewDeepSeekClient(config.GetConfig()),
+		pm,
+		repository.NewPositionRepository(),
+		repository.NewQuestionRepository(),
+		repository.NewResumeParseResultRepository(),
+	)
+}
+
+func NewResumeServiceWithDeps(
+	llmClient llm.LLMClient,
+	promptMgr *promptpkg.PromptManager,
+	positionRepo repository.PositionRepository,
+	questionRepo repository.QuestionRepository,
+	resumeRepo repository.ResumeParseResultRepository,
+) ResumeService {
+	if llmClient == nil {
+		llmClient = llm.NewDeepSeekClient(config.GetConfig())
+	}
+	if promptMgr == nil {
+		promptMgr, _ = promptpkg.NewPromptManager()
+	}
+	if positionRepo == nil {
+		positionRepo = repository.NewPositionRepository()
+	}
+	if questionRepo == nil {
+		questionRepo = repository.NewQuestionRepository()
 	}
 	if resumeRepo == nil {
-		resumeRepo = repository.NewResumeRepository()
+		resumeRepo = repository.NewResumeParseResultRepository()
 	}
 
-	return &ResumeService{
-		aiService:  aiService,
-		resumeRepo: resumeRepo,
+	return &LLMResumeService{
+		llmClient:    llmClient,
+		promptMgr:    promptMgr,
+		positionRepo: positionRepo,
+		questionRepo: questionRepo,
+		resumeRepo:   resumeRepo,
 	}
 }
 
-func (s *ResumeService) ParseResume(fileContent string) (*model.ResumeData, error) {
-	pipelineResult, err := s.AnalyzeResume(fileContent)
+func (s *LLMResumeService) AnalyzeOnly(ctx context.Context, input ResumeAnalysisInput) (*ResumeAnalysisResult, error) {
+	raw := normalizeResumeText(input.RawText)
+	if len([]rune(raw)) < resumeMinLength {
+		return nil, fmt.Errorf("resume text is too short")
+	}
+
+	positions, err := s.positionRepo.ListActive()
+	if err != nil || len(positions) == 0 {
+		positions = append([]model.JobPosition{}, model.DefaultJobPositions...)
+	}
+
+	extracted, err := s.extractResume(ctx, raw)
 	if err != nil {
-		return nil, err
-	}
-	s.lastPipelineResult = pipelineResult
-	return pipelineResult.Resume, nil
-}
-
-func (s *ResumeService) AnalyzeResume(fileContent string) (*ResumePipelineResult, error) {
-	start := time.Now()
-	log.Printf("resume pipeline started, raw content length=%d", len(fileContent))
-
-	const maxContentLength = 50000
-	if len(fileContent) > maxContentLength {
-		log.Printf("resume pipeline content truncated from %d to %d", len(fileContent), maxContentLength)
-		fileContent = fileContent[:maxContentLength] + "\n...(content truncated)..."
+		extracted = fallbackResumeExtraction(raw)
 	}
 
-	ctx := context.Background()
-
-	validatorStart := time.Now()
-	validatorPrompt, err := s.aiService.RenderPrompt("resume/01_validator.tmpl", map[string]interface{}{
-		"RawText": fileContent,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("render validator prompt failed: %w", err)
-	}
-	validatorResp, err := s.aiService.ChatWithTask(ctx, validatorPrompt, "resume")
-	if err != nil {
-		return nil, fmt.Errorf("validator llm call failed: %w", err)
-	}
-	validatorJSON := CleanJSON(validatorResp)
-	var validation model.ResumeValidationResult
-	if err := json.Unmarshal([]byte(validatorJSON), &validation); err != nil {
-		log.Printf("validator unmarshal failed, response=%s", validatorJSON)
-		return nil, fmt.Errorf("validator json unmarshal failed: %w", err)
-	}
-	log.Printf("resume validator completed in %s, is_resume=%v, confidence_score=%d", time.Since(validatorStart), validation.IsResume, validation.ConfidenceScore)
-
-	if !validation.IsResume || validation.ConfidenceScore < 60 {
-		rejectReason := strings.TrimSpace(validation.RejectReason)
-		if rejectReason == "" {
-			if !validation.IsResume {
-				rejectReason = "输入内容不是可用于岗位匹配的简历文本"
-			} else {
-				rejectReason = "简历置信度不足，无法继续解析"
-			}
-		}
-		log.Printf("resume pipeline rejected, reason=%s", rejectReason)
-		return nil, fmt.Errorf("%s", rejectReason)
+	fit, fitErr := s.analyzePositionFit(ctx, raw, extracted, positions)
+	if fitErr != nil {
+		fit = fallbackResumeFit(extracted, positions)
 	}
 
-	extractorStart := time.Now()
-	extractorPrompt, err := s.aiService.RenderPrompt("resume/02_extractor.tmpl", map[string]interface{}{
-		"ValidatedResumeText": fileContent,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("render extractor prompt failed: %w", err)
-	}
-	extractorResp, err := s.aiService.ChatWithTask(ctx, extractorPrompt, "resume")
-	if err != nil {
-		return nil, fmt.Errorf("extractor llm call failed: %w", err)
-	}
-	extractorJSON := CleanJSON(extractorResp)
-	var extracted model.ResumeExtractedData
-	if err := json.Unmarshal([]byte(extractorJSON), &extracted); err != nil {
-		log.Printf("extractor unmarshal failed, response=%s", extractorJSON)
-		return nil, fmt.Errorf("extractor json unmarshal failed: %w", err)
-	}
-	log.Printf("resume extractor completed in %s, skills=%d, projects=%d", time.Since(extractorStart), len(extracted.CoreSkills), len(extracted.ProjectHighlights))
-
-	matcherStart := time.Now()
-	matchResult, err := s.runMatcher(ctx, &extracted)
-	if err != nil {
-		return nil, err
-	}
-	log.Printf("resume matcher completed in %s, matched_roles=%d, question_banks=%d", time.Since(matcherStart), len(matchResult.MatchedRoles), len(matchResult.TargetQuestionBanks))
-
-	resumeData := convertExtractedToResumeData(&extracted)
-	matches := convertMatchResultToJobMatches(matchResult)
-
-	log.Printf("resume pipeline completed in %s, legacy_resume_experience=%d, legacy_matches=%d", time.Since(start), len(resumeData.Experience), len(matches))
-
-	return &ResumePipelineResult{
-		Validation: &validation,
-		Extracted:  &extracted,
-		Match:      matchResult,
-		Resume:     resumeData,
-		Matches:    matches,
-	}, nil
-}
-
-func (s *ResumeService) MatchJobs(resumeData *model.ResumeData) ([]*model.JobMatch, error) {
-	if resumeData == nil {
-		return nil, fmt.Errorf("resume data is required")
-	}
-
-	if s.lastPipelineResult != nil && s.lastPipelineResult.Resume != nil && isSameResumeData(resumeData, s.lastPipelineResult.Resume) {
-		log.Printf("resume matcher returned cached pipeline result, matches=%d", len(s.lastPipelineResult.Matches))
-		return s.lastPipelineResult.Matches, nil
-	}
-
-	start := time.Now()
-	log.Printf("resume matcher started from legacy resume input, techStack=%v", resumeData.TechStack)
-	extracted := convertResumeDataToExtracted(resumeData)
-	matchResult, err := s.runMatcher(context.Background(), extracted)
-	if err != nil {
-		return nil, err
-	}
-	matches := convertMatchResultToJobMatches(matchResult)
-	log.Printf("resume matcher completed in %s from legacy resume input, matches=%d", time.Since(start), len(matches))
-	return matches, nil
-}
-
-func (s *ResumeService) runMatcher(ctx context.Context, extracted *model.ResumeExtractedData) (*model.ResumeMatchResult, error) {
-	extractedJSONBytes, err := json.Marshal(extracted)
-	if err != nil {
-		return nil, fmt.Errorf("marshal extracted resume failed: %w", err)
-	}
-	roles := s.loadAvailableRoles()
-	questionBanks := s.loadAvailableQuestionBanks()
-	rolesJSONBytes, err := json.Marshal(roles)
-	if err != nil {
-		return nil, fmt.Errorf("marshal available roles failed: %w", err)
-	}
-	questionBanksJSONBytes, err := json.Marshal(questionBanks)
-	if err != nil {
-		return nil, fmt.Errorf("marshal available question banks failed: %w", err)
-	}
-
-	matcherPrompt, err := s.aiService.RenderPrompt("resume/03_matcher.tmpl", map[string]interface{}{
-		"ExtractedResumeJSON":    string(extractedJSONBytes),
-		"AvailableRoles":         string(rolesJSONBytes),
-		"AvailableQuestionBanks": string(questionBanksJSONBytes),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("render matcher prompt failed: %w", err)
-	}
-
-	matcherResp, err := s.aiService.ChatWithTask(ctx, matcherPrompt, "resume")
-	if err != nil {
-		return nil, fmt.Errorf("matcher llm call failed: %w", err)
-	}
-	matcherJSON := CleanJSON(matcherResp)
-	var matchResult model.ResumeMatchResult
-	if err := json.Unmarshal([]byte(matcherJSON), &matchResult); err != nil {
-		log.Printf("matcher unmarshal failed, response=%s", matcherJSON)
-		return nil, fmt.Errorf("matcher json unmarshal failed: %w", err)
-	}
-	return &matchResult, nil
-}
-
-func (s *ResumeService) loadAvailableRoles() []string {
-	if s.resumeRepo == nil {
-		return []string{}
-	}
-
-	roles, err := s.resumeRepo.ListDistinctQuestionPositions()
-	if err != nil {
-		log.Printf("load available roles failed: %v", err)
-		return []string{}
-	}
-	return uniqueSortedNonEmpty(roles)
-}
-
-func (s *ResumeService) loadAvailableQuestionBanks() []string {
-	if s.resumeRepo == nil {
-		return []string{}
-	}
-
-	questionBanks, err := s.resumeRepo.ListDistinctQuestionCategories()
-	if err != nil {
-		log.Printf("load available question banks failed: %v", err)
-		return []string{}
-	}
-	return uniqueSortedNonEmpty(questionBanks)
-}
-
-func convertExtractedToResumeData(extracted *model.ResumeExtractedData) *model.ResumeData {
-	if extracted == nil {
-		return &model.ResumeData{}
-	}
-	experience := make([]struct {
-		Title       string   `json:"title"`
-		Description string   `json:"description"`
-		Highlights  []string `json:"highlights"`
-	}, 0, len(extracted.ProjectHighlights))
-	for _, project := range extracted.ProjectHighlights {
-		experience = append(experience, struct {
-			Title       string   `json:"title"`
-			Description string   `json:"description"`
-			Highlights  []string `json:"highlights"`
-		}{
-			Title:       strings.TrimSpace(project.Name),
-			Description: strings.TrimSpace(project.CoreContribution),
-			Highlights:  uniqueSortedNonEmpty(project.TechStack),
-		})
-	}
-	return &model.ResumeData{
-		TechStack:  uniqueSortedNonEmpty(extracted.CoreSkills),
-		Experience: experience,
-		Intent:     strings.TrimSpace(extracted.BasicInfo.TargetDirection),
-		SoftSkills: []string{},
-	}
-}
-
-func convertResumeDataToExtracted(resumeData *model.ResumeData) *model.ResumeExtractedData {
-	if resumeData == nil {
-		return &model.ResumeExtractedData{}
-	}
-	projects := make([]model.ResumeProjectHighlight, 0, len(resumeData.Experience))
-	for _, exp := range resumeData.Experience {
-		projects = append(projects, model.ResumeProjectHighlight{
-			Name:             strings.TrimSpace(exp.Title),
-			TechStack:        uniqueSortedNonEmpty(exp.Highlights),
-			CoreContribution: strings.TrimSpace(exp.Description),
-		})
-	}
-	return &model.ResumeExtractedData{
-		BasicInfo: model.ResumeBasicInfo{
-			TargetDirection: strings.TrimSpace(resumeData.Intent),
-		},
-		CoreSkills:        uniqueSortedNonEmpty(resumeData.TechStack),
-		ProjectHighlights: projects,
-	}
-}
-
-func convertMatchResultToJobMatches(matchResult *model.ResumeMatchResult) []*model.JobMatch {
-	if matchResult == nil {
-		return []*model.JobMatch{}
-	}
-	matches := make([]*model.JobMatch, 0, len(matchResult.MatchedRoles))
-	requirements := uniqueSortedNonEmpty(matchResult.TargetQuestionBanks)
-	for _, role := range matchResult.MatchedRoles {
-		matches = append(matches, &model.JobMatch{
-			JobTitle:     strings.TrimSpace(role.RoleName),
-			MatchScore:   role.MatchDegree,
-			Reason:       strings.TrimSpace(role.Reason),
-			Requirements: requirements,
-		})
-	}
-	return matches
-}
-
-func uniqueSortedNonEmpty(values []string) []string {
-	seen := make(map[string]struct{})
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		trimmed := strings.TrimSpace(value)
-		if trimmed == "" {
-			continue
-		}
-		if _, exists := seen[trimmed]; exists {
-			continue
-		}
-		seen[trimmed] = struct{}{}
-		result = append(result, trimmed)
-	}
-	sort.Strings(result)
-	return result
-}
-
-func isSameResumeData(left, right *model.ResumeData) bool {
-	if left == nil || right == nil {
-		return false
-	}
-	leftJSON, err := json.Marshal(left)
-	if err != nil {
-		return false
-	}
-	rightJSON, err := json.Marshal(right)
-	if err != nil {
-		return false
-	}
-	return string(leftJSON) == string(rightJSON)
-}
-
-// GenerateInterviewQuestions generates personalized questions based on resume and job title
-func (s *ResumeService) GenerateInterviewQuestions(resumeData *model.ResumeData, jobTitle string) (map[string][]string, error) {
-	resumeJson, _ := json.Marshal(resumeData)
-
-	// 1. Get RAG context for the job title
-	ragSvc := GetRAGService()
-	var ragContext string
-	if ragSvc != nil {
-		context, err := ragSvc.SearchKnowledgeBase(jobTitle)
-		if err == nil && context != "" {
-			ragContext = context
-		}
-	}
-
-	prompt := fmt.Sprintf(`
-你是一位资深技术面试官。请根据候选人的简历和目标岗位，生成一份个性化的面试题库。
-
-【岗位知识库上下文】
-%s
-
-【候选人简历】
-%s
-
-【目标岗位】
-%s
-
-【生成要求】
-1. **深挖追问题库** (3题)：针对简历中的项目经历，设计能考察深度和真实性的追问（例如：“在这个项目中你提到的高并发优化，具体是采用了什么策略？有什么数据支撑？”）。
-2. **岗位高频考点题库** (3题)：基于目标岗位的能力模型，生成该岗位面试中高频出现的核心技术问题。
-3. **基础补漏题库** (3题)：基于简历中技术栈的薄弱点或未提及但该岗位必备的基础知识（例如：如果简历没写并发，就问并发基础）。
-
-【输出格式】
-请直接返回 JSON 对象，不要包含 Markdown 标记：
-{
-  "deep_dive": ["问题1", "问题2", "问题3"],
-  "high_freq": ["问题1", "问题2", "问题3"],
-  "basic_check": ["问题1", "问题2", "问题3"]
-}
-`, ragContext, string(resumeJson), jobTitle)
-
-	log.Printf("Generating interview questions for job: %s", jobTitle)
-
-	resp, err := s.aiService.ChatWithTask(context.Background(), prompt, "chat") // Use chat model for generation
-	if err != nil {
-		return nil, fmt.Errorf("AI generation failed: %w", err)
-	}
-
-	jsonStr := CleanJSON(resp)
-	var result map[string][]string
-	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
-		log.Printf("Failed to parse AI response: %v, response: %s", err, jsonStr)
-		return nil, fmt.Errorf("failed to parse AI response: %w, response: %s", err, jsonStr)
-	}
+	result := mergeResumeAnalysis(extracted, fit)
+	recommended, _ := s.recommendQuestions(result, positions)
+	result.RecommendedQuestionIDs = recommended
+	result.ModelVersion = "resume-v2"
 
 	return result, nil
 }
 
-// AnalyzeAuthenticity evaluates claim credibility from resume content and returns a risk report.
-func (s *ResumeService) AnalyzeAuthenticity(resumeData *model.ResumeData, rawText string, targetRole string) (*model.ResumeAuthenticityReport, error) {
-	resumeJSON, _ := json.Marshal(resumeData)
-
-	prompt := fmt.Sprintf(`
-你是一位招聘风控顾问。请基于候选人的简历结构化信息和原文，做“真实性风险分析”。
-
-【目标岗位】
-%s
-
-【结构化简历】
-%s
-
-【简历原文】
-"""
-%s
-"""
-
-【重要约束】
-1. 必须使用简体中文。
-2. 你不能断言候选人“造假”，只能输出“潜在风险”和“核验建议”。
-3. 仅根据输入内容分析，不得编造外部信息。
-4. 输出必须是 JSON，不要 Markdown。
-
-输出 JSON 结构：
-{
-  "overallRiskScore": 0,
-  "summary": "整体判断",
-  "verifiableItems": ["可核验点1"],
-  "potentialRiskItems": [
-    {
-      "claim": "某条经历或数据",
-      "riskLevel": "low|medium|high",
-      "reason": "为什么存在风险",
-      "verificationTip": "如何在面试/背调中核验"
-    }
-  ],
-  "interviewChecks": ["可直接用于面试的核验问题1"],
-  "disclaimer": "免责声明"
-}
-`, targetRole, string(resumeJSON), rawText)
-
-	resp, err := s.aiService.ChatWithTask(context.Background(), prompt, "resume_authenticity")
+func (s *LLMResumeService) AnalyzeAndPersist(ctx context.Context, input ResumeAnalysisInput) (*ResumeAnalysisResult, *model.ResumeParseResult, error) {
+	result, err := s.AnalyzeOnly(ctx, input)
 	if err != nil {
-		return nil, fmt.Errorf("authenticity analysis failed: %w", err)
+		return nil, nil, err
 	}
 
-	jsonStr := CleanJSON(resp)
-	var result model.ResumeAuthenticityReport
-	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
-		return nil, fmt.Errorf("failed to parse authenticity report: %w", err)
-	}
-
-	if result.Disclaimer == "" {
-		result.Disclaimer = "该分析仅用于面试核验参考，不构成事实认定或法律结论。"
-	}
-
-	return &result, nil
-}
-
-// GenerateOptimizationSuggestions provides actionable resume improvements and rewrite demos.
-func (s *ResumeService) GenerateOptimizationSuggestions(resumeData *model.ResumeData, targetRole string) (*model.ResumeOptimizationReport, error) {
-	resumeJSON, _ := json.Marshal(resumeData)
-
-	prompt := fmt.Sprintf(`
-你是一位资深简历教练。请根据候选人的简历信息输出“可执行的简历优化建议”。
-
-【目标岗位】
-%s
-
-【简历信息】
-%s
-
-【要求】
-1. 必须使用简体中文。
-2. 建议必须具体、可执行，不要空话。
-3. 重点关注：项目描述量化、技术深度表达、关键词覆盖、结构层次。
-4. 输出必须是 JSON，不要 Markdown。
-
-输出 JSON：
-{
-  "overallScore": 0,
-  "strengths": ["优势1"],
-  "weaknesses": ["问题1"],
-  "suggestions": ["改进建议1"],
-  "rewriteDemo": ["原句 -> 改写句"],
-  "keywords": ["岗位关键词1"]
-}
-`, targetRole, string(resumeJSON))
-
-	resp, err := s.aiService.ChatWithTask(context.Background(), prompt, "resume_optimization")
+	persisted, err := s.persistResult(input, result)
 	if err != nil {
-		return nil, fmt.Errorf("resume optimization failed: %w", err)
+		return nil, nil, err
 	}
 
-	jsonStr := CleanJSON(resp)
-	var result model.ResumeOptimizationReport
-	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
-		return nil, fmt.Errorf("failed to parse optimization report: %w", err)
-	}
-
-	return &result, nil
+	return result, persisted, nil
 }
 
-// GenerateResumeTemplate creates a role-specific resume template in markdown.
-func (s *ResumeService) GenerateResumeTemplate(targetRole string, seniority string, language string) (*model.ResumeTemplate, error) {
-	if strings.TrimSpace(language) == "" {
-		language = "zh-CN"
-	}
+func (s *LLMResumeService) GetLatestAnalysis(ctx context.Context, userID uint) (*ResumeAnalysisResult, *model.ResumeParseResult, error) {
+	_ = ctx
 
-	prompt := fmt.Sprintf(`
-你是一位招聘专家，请生成一份高质量的简历范本。
-
-【参数】
-- 目标岗位: %s
-- 经验级别: %s
-- 输出语言: %s
-
-【要求】
-1. 输出适合该岗位的真实可用模板，结构清晰，包含：个人信息、职业摘要、核心技能、工作经历、项目经历、教育背景、证书/加分项。
-2. 工作经历与项目经历要包含“结果导向”的表达示例（含量化指标占位符）。
-3. 输出必须是 JSON，不要 Markdown 代码块。
-
-输出 JSON：
-{
-  "targetRole": "岗位名",
-  "templateMarkdown": "完整 Markdown 模板文本",
-  "writingGuides": ["撰写建议1"],
-  "commonMistakes": ["常见错误1"]
-}
-`, targetRole, seniority, language)
-
-	resp, err := s.aiService.ChatWithTask(context.Background(), prompt, "resume_template")
+	record, err := s.resumeRepo.GetLatestByUser(userID)
 	if err != nil {
-		return nil, fmt.Errorf("resume template generation failed: %w", err)
+		return nil, nil, err
 	}
 
-	jsonStr := CleanJSON(resp)
-	var result model.ResumeTemplate
-	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
-		return nil, fmt.Errorf("failed to parse resume template: %w", err)
+	parsed := &ResumeAnalysisResult{}
+	if err := parseStrictJSON(record.StructuredJSON, parsed); err != nil {
+		return nil, nil, fmt.Errorf("invalid structured resume payload: %w", err)
 	}
-
-	if strings.TrimSpace(result.TargetRole) == "" {
-		result.TargetRole = targetRole
-	}
-
-	return &result, nil
+	return parsed, record, nil
 }
 
-// Helper to clean markdown code blocks if AI returns them
-func CleanJSON(s string) string {
-	s = strings.TrimSpace(s)
-	// Remove markdown code blocks
-	if strings.HasPrefix(s, "```json") {
-		s = s[7:]
-	} else if strings.HasPrefix(s, "```") {
-		s = s[3:]
-	}
-	if strings.HasSuffix(s, "```") {
-		s = s[:len(s)-3]
-	}
-	s = strings.TrimSpace(s)
+func (s *LLMResumeService) extractResume(ctx context.Context, rawText string) (*resumeExtractionPayload, error) {
+	prompt := s.renderPrompt(
+		"resume/extract_structured.tmpl",
+		map[string]interface{}{"RawText": rawText},
+		buildResumeExtractionPromptFallback(rawText),
+	)
 
-	// Ensure we only have JSON content by finding the first '{' or '[' and last '}' or ']'
-	firstBrace := strings.IndexAny(s, "{[")
-	lastBrace := strings.LastIndexAny(s, "}]")
-
-	if firstBrace != -1 && lastBrace != -1 && lastBrace > firstBrace {
-		s = s[firstBrace : lastBrace+1]
+	resp, err := s.chatJSON(ctx, prompt, "resume")
+	if err != nil {
+		return nil, err
 	}
 
-	return s
+	payload := &resumeExtractionPayload{}
+	if err := parseStrictJSON(resp, payload); err != nil {
+		return nil, err
+	}
+	payload.StrengthHighlights = uniqueNonEmpty(payload.StrengthHighlights)
+	payload.PotentialGaps = uniqueNonEmpty(payload.PotentialGaps)
+	payload.Skills = normalizeSkillList(payload.Skills)
+	payload.Projects = normalizeProjectList(payload.Projects)
+	payload.ConfidenceScore = clampResumeScore(payload.ConfidenceScore)
+	return payload, nil
+}
+
+func (s *LLMResumeService) analyzePositionFit(ctx context.Context, rawText string, extracted *resumeExtractionPayload, positions []model.JobPosition) (*resumeFitPayload, error) {
+	extractedJSON, _ := json.Marshal(extracted)
+	positionsJSON, _ := json.Marshal(positions)
+
+	prompt := s.renderPrompt(
+		"resume/analyze_fit.tmpl",
+		map[string]interface{}{
+			"RawText":       rawText,
+			"ExtractedJSON": string(extractedJSON),
+			"PositionsJSON": string(positionsJSON),
+		},
+		buildResumeFitPromptFallback(rawText, string(extractedJSON), string(positionsJSON)),
+	)
+
+	resp, err := s.chatJSON(ctx, prompt, "resume")
+	if err != nil {
+		return nil, err
+	}
+
+	payload := &resumeFitPayload{}
+	if err := parseStrictJSON(resp, payload); err != nil {
+		return nil, err
+	}
+
+	payload.MissingSkills = uniqueNonEmpty(payload.MissingSkills)
+	payload.StrengthHighlights = uniqueNonEmpty(payload.StrengthHighlights)
+	payload.SuggestedPositions = normalizePositionFit(payload.SuggestedPositions, positions)
+	payload.ConfidenceScore = clampResumeScore(payload.ConfidenceScore)
+
+	return payload, nil
+}
+
+func (s *LLMResumeService) recommendQuestions(result *ResumeAnalysisResult, positions []model.JobPosition) ([]uint, error) {
+	if result == nil {
+		return []uint{}, nil
+	}
+
+	targetCode := ""
+	targetName := ""
+	if len(result.SuggestedPositions) > 0 {
+		targetCode = strings.TrimSpace(result.SuggestedPositions[0].PositionCode)
+		targetName = strings.TrimSpace(result.SuggestedPositions[0].PositionName)
+	}
+	if targetName == "" {
+		targetName = resolvePositionName(targetCode, positions)
+	}
+	if targetName == "" {
+		targetName = "Java后端工程师"
+	}
+
+	questionIDs := make([]uint, 0, 12)
+	seen := map[uint]struct{}{}
+	appendQuestions := func(list []*model.Question) {
+		for _, q := range list {
+			if q == nil || q.ID == 0 {
+				continue
+			}
+			if _, ok := seen[q.ID]; ok {
+				continue
+			}
+			seen[q.ID] = struct{}{}
+			questionIDs = append(questionIDs, q.ID)
+			if len(questionIDs) >= 12 {
+				return
+			}
+		}
+	}
+
+	knowledgeSeeds := make([]string, 0, len(result.MissingSkills)+len(result.Skills))
+	knowledgeSeeds = append(knowledgeSeeds, result.MissingSkills...)
+	for _, skill := range result.Skills {
+		if len(knowledgeSeeds) >= 8 {
+			break
+		}
+		knowledgeSeeds = append(knowledgeSeeds, skill.Name)
+	}
+
+	for _, seed := range uniqueNonEmpty(knowledgeSeeds) {
+		if len(questionIDs) >= 12 {
+			break
+		}
+		list, err := s.questionRepo.FindByKnowledgePoint(targetName, "", seed, 4)
+		if err != nil {
+			continue
+		}
+		appendQuestions(list)
+	}
+
+	if len(questionIDs) < 12 {
+		fallback, err := s.questionRepo.ListRandomByPosition(targetName, 16)
+		if err == nil {
+			appendQuestions(fallback)
+		}
+	}
+
+	return questionIDs, nil
+}
+
+func (s *LLMResumeService) persistResult(input ResumeAnalysisInput, result *ResumeAnalysisResult) (*model.ResumeParseResult, error) {
+	structuredJSONBytes, err := json.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("marshal structured payload failed: %w", err)
+	}
+
+	targetCode := ""
+	targetName := ""
+	if len(result.SuggestedPositions) > 0 {
+		targetCode = strings.TrimSpace(result.SuggestedPositions[0].PositionCode)
+		targetName = strings.TrimSpace(result.SuggestedPositions[0].PositionName)
+	}
+
+	questionIDs := make([]string, 0, len(result.RecommendedQuestionIDs))
+	for _, id := range result.RecommendedQuestionIDs {
+		if id == 0 {
+			continue
+		}
+		questionIDs = append(questionIDs, strconv.FormatUint(uint64(id), 10))
+	}
+
+	knowledgePayload, _ := json.Marshal(map[string]interface{}{
+		"missing_skills":      result.MissingSkills,
+		"strength_highlights": result.StrengthHighlights,
+	})
+
+	rawText := normalizeResumeText(input.RawText)
+	record := &model.ResumeParseResult{
+		UserID:               input.UserID,
+		FileName:             strings.TrimSpace(input.FileName),
+		FileHash:             hashText(rawText),
+		RawText:              rawText,
+		StructuredJSON:       string(structuredJSONBytes),
+		MatchedPositionCode:  targetCode,
+		MatchedPositionName:  targetName,
+		MatchedQuestionIDs:   strings.Join(questionIDs, ","),
+		MatchedKnowledgeJSON: string(knowledgePayload),
+		ConfidenceScore:      clampResumeScore(result.ConfidenceScore),
+		ParserVersion:        result.ModelVersion,
+		Source:               strings.TrimSpace(input.Source),
+	}
+	if record.Source == "" {
+		record.Source = "upload"
+	}
+
+	if err := s.resumeRepo.Create(record); err != nil {
+		return nil, err
+	}
+	return record, nil
+}
+
+func (s *LLMResumeService) chatJSON(ctx context.Context, prompt string, taskType string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if s.llmClient == nil {
+		return "", fmt.Errorf("llm client is not initialized")
+	}
+
+	request := llm.ChatRequest{
+		Model:          resolveModelForTask(taskType),
+		Messages:       []llm.ChatMessage{{Role: "user", Content: prompt}},
+		Temperature:    0.15,
+		ResponseFormat: &llm.ResponseFormat{Type: llm.ResponseFormatJSON},
+	}
+	return s.llmClient.Chat(ctx, request)
+}
+
+func (s *LLMResumeService) renderPrompt(templateName string, data interface{}, fallback string) string {
+	if s.promptMgr == nil {
+		return fallback
+	}
+	rendered, err := s.promptMgr.Render(templateName, data)
+	if err != nil {
+		return fallback
+	}
+	trimmed := strings.TrimSpace(rendered)
+	if trimmed == "" {
+		return fallback
+	}
+	return trimmed
+}
+
+func resolveModelForTask(taskType string) string {
+	cfg := config.GetConfig()
+	if cfg == nil {
+		return config.DefaultDeepSeekModel
+	}
+	if model := strings.TrimSpace(cfg.LLM.Models[taskType]); model != "" {
+		return model
+	}
+	if model := strings.TrimSpace(cfg.LLM.Model); model != "" {
+		return model
+	}
+	return config.DefaultDeepSeekModel
+}
+
+func mergeResumeAnalysis(extracted *resumeExtractionPayload, fit *resumeFitPayload) *ResumeAnalysisResult {
+	result := &ResumeAnalysisResult{
+		Profile:            extracted.Profile,
+		Skills:             normalizeSkillList(extracted.Skills),
+		Projects:           normalizeProjectList(extracted.Projects),
+		StrengthHighlights: uniqueNonEmpty(append([]string{}, extracted.StrengthHighlights...)),
+		MissingSkills:      uniqueNonEmpty(append([]string{}, extracted.PotentialGaps...)),
+		SuggestedPositions: append([]ResumePositionFit{}, fit.SuggestedPositions...),
+		ConfidenceScore:    clampResumeScore(maxInt(extracted.ConfidenceScore, fit.ConfidenceScore)),
+	}
+	result.StrengthHighlights = uniqueNonEmpty(append(result.StrengthHighlights, fit.StrengthHighlights...))
+	result.MissingSkills = uniqueNonEmpty(append(result.MissingSkills, fit.MissingSkills...))
+	return result
+}
+
+func fallbackResumeExtraction(rawText string) *resumeExtractionPayload {
+	skills := inferSkillsFromText(rawText)
+	profile := ResumeProfile{
+		Summary: truncateString(rawText, 240),
+	}
+	return &resumeExtractionPayload{
+		Profile:            profile,
+		Skills:             skills,
+		Projects:           []ResumeProject{},
+		StrengthHighlights: firstNStrings(extractSentences(rawText), 4),
+		PotentialGaps:      []string{},
+		ConfidenceScore:    55,
+	}
+}
+
+func fallbackResumeFit(extracted *resumeExtractionPayload, positions []model.JobPosition) *resumeFitPayload {
+	scoreByCode := map[string]int{}
+	for _, pos := range positions {
+		scoreByCode[pos.Code] = 50
+	}
+
+	for _, skill := range extracted.Skills {
+		low := strings.ToLower(skill.Name)
+		switch {
+		case strings.Contains(low, "go"), strings.Contains(low, "java"), strings.Contains(low, "mysql"), strings.Contains(low, "redis"):
+			scoreByCode[string(model.PositionBackend)] += 12
+		case strings.Contains(low, "vue"), strings.Contains(low, "react"), strings.Contains(low, "typescript"), strings.Contains(low, "css"):
+			scoreByCode[string(model.PositionFrontend)] += 12
+		case strings.Contains(low, "algorithm"), strings.Contains(low, "leetcode"), strings.Contains(low, "复杂度"):
+			scoreByCode[string(model.PositionAlgorithm)] += 14
+		case strings.Contains(low, "llm"), strings.Contains(low, "pytorch"), strings.Contains(low, "tensorflow"), strings.Contains(low, "machine learning"):
+			scoreByCode[string(model.PositionAI)] += 14
+		}
+	}
+
+	list := make([]ResumePositionFit, 0, len(positions))
+	for _, pos := range positions {
+		score := clampResumeScore(scoreByCode[pos.Code])
+		list = append(list, ResumePositionFit{
+			PositionCode: pos.Code,
+			PositionName: pos.Name,
+			Score:        score,
+			Reasons:      []string{"rule-based fallback scoring"},
+		})
+	}
+	sort.SliceStable(list, func(i, j int) bool { return list[i].Score > list[j].Score })
+
+	return &resumeFitPayload{
+		SuggestedPositions: list,
+		MissingSkills:      []string{},
+		StrengthHighlights: uniqueNonEmpty(extracted.StrengthHighlights),
+		ConfidenceScore:    60,
+	}
+}
+
+func normalizePositionFit(items []ResumePositionFit, positions []model.JobPosition) []ResumePositionFit {
+	nameByCode := map[string]string{}
+	for _, pos := range positions {
+		nameByCode[strings.TrimSpace(pos.Code)] = strings.TrimSpace(pos.Name)
+	}
+
+	out := make([]ResumePositionFit, 0, len(items))
+	for _, item := range items {
+		code := strings.TrimSpace(item.PositionCode)
+		name := strings.TrimSpace(item.PositionName)
+		if code == "" && name != "" {
+			code = inferPositionCodeByName(name)
+		}
+		if name == "" {
+			name = nameByCode[code]
+		}
+		if code == "" {
+			continue
+		}
+		out = append(out, ResumePositionFit{
+			PositionCode: code,
+			PositionName: name,
+			Score:        clampResumeScore(item.Score),
+			Reasons:      uniqueNonEmpty(item.Reasons),
+		})
+	}
+
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Score == out[j].Score {
+			return out[i].PositionCode < out[j].PositionCode
+		}
+		return out[i].Score > out[j].Score
+	})
+
+	return out
+}
+
+func normalizeSkillList(skills []ResumeSkill) []ResumeSkill {
+	out := make([]ResumeSkill, 0, len(skills))
+	seen := map[string]struct{}{}
+	for _, skill := range skills {
+		name := strings.TrimSpace(skill.Name)
+		if name == "" {
+			continue
+		}
+		key := strings.ToLower(name)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, ResumeSkill{
+			Name:     name,
+			Level:    strings.TrimSpace(skill.Level),
+			Evidence: strings.TrimSpace(skill.Evidence),
+		})
+	}
+	return out
+}
+
+func normalizeProjectList(projects []ResumeProject) []ResumeProject {
+	out := make([]ResumeProject, 0, len(projects))
+	for _, project := range projects {
+		name := strings.TrimSpace(project.Name)
+		desc := strings.TrimSpace(project.Description)
+		if name == "" && desc == "" {
+			continue
+		}
+		out = append(out, ResumeProject{
+			Name:        name,
+			Role:        strings.TrimSpace(project.Role),
+			Description: desc,
+			TechStack:   uniqueNonEmpty(project.TechStack),
+			Highlights:  uniqueNonEmpty(project.Highlights),
+		})
+	}
+	return out
+}
+
+func parseStrictJSON(raw string, dest interface{}) error {
+	cleaned := strings.TrimSpace(raw)
+	if cleaned == "" {
+		return fmt.Errorf("empty json payload")
+	}
+	if strings.HasPrefix(cleaned, "```") {
+		cleaned = strings.TrimPrefix(cleaned, "```json")
+		cleaned = strings.TrimPrefix(cleaned, "```")
+		cleaned = strings.TrimSuffix(cleaned, "```")
+		cleaned = strings.TrimSpace(cleaned)
+	}
+	if start := strings.IndexAny(cleaned, "{["); start >= 0 {
+		if end := strings.LastIndexAny(cleaned, "}]"); end > start {
+			cleaned = cleaned[start : end+1]
+		}
+	}
+	decoder := json.NewDecoder(strings.NewReader(cleaned))
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(dest)
+}
+
+func normalizeResumeText(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	runes := []rune(trimmed)
+	if len(runes) > resumeMaxLength {
+		runes = runes[:resumeMaxLength]
+	}
+	return strings.TrimSpace(string(runes))
+}
+
+func hashText(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
+
+func clampResumeScore(score int) int {
+	if score < 0 {
+		return 0
+	}
+	if score > 100 {
+		return 100
+	}
+	return score
+}
+
+func maxInt(a, b int) int {
+	if a >= b {
+		return a
+	}
+	return b
+}
+
+func uniqueNonEmpty(items []string) []string {
+	if len(items) == 0 {
+		return []string{}
+	}
+	out := make([]string, 0, len(items))
+	seen := map[string]struct{}{}
+	for _, item := range items {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func resolvePositionName(code string, positions []model.JobPosition) string {
+	for _, pos := range positions {
+		if strings.EqualFold(strings.TrimSpace(pos.Code), strings.TrimSpace(code)) {
+			return pos.Name
+		}
+	}
+	for _, pos := range model.DefaultJobPositions {
+		if strings.EqualFold(strings.TrimSpace(pos.Code), strings.TrimSpace(code)) {
+			return pos.Name
+		}
+	}
+	return ""
+}
+
+func inferPositionCodeByName(name string) string {
+	low := strings.ToLower(strings.TrimSpace(name))
+	switch {
+	case strings.Contains(low, "前端"), strings.Contains(low, "frontend"):
+		return string(model.PositionFrontend)
+	case strings.Contains(low, "算法"), strings.Contains(low, "algorithm"):
+		return string(model.PositionAlgorithm)
+	case strings.Contains(low, "ai"), strings.Contains(low, "模型"), strings.Contains(low, "machine"):
+		return string(model.PositionAI)
+	default:
+		return string(model.PositionBackend)
+	}
+}
+
+func inferSkillsFromText(raw string) []ResumeSkill {
+	candidates := []string{
+		"Go", "Java", "Python", "MySQL", "Redis", "Kafka", "Docker", "Kubernetes",
+		"Vue", "React", "TypeScript", "Node.js", "CSS", "HTML",
+		"Machine Learning", "Deep Learning", "PyTorch", "TensorFlow", "LLM",
+	}
+	low := strings.ToLower(raw)
+	out := make([]ResumeSkill, 0, 8)
+	for _, candidate := range candidates {
+		if strings.Contains(low, strings.ToLower(candidate)) {
+			out = append(out, ResumeSkill{Name: candidate, Level: "unknown", Evidence: "text matched"})
+		}
+	}
+	return out
+}
+
+func extractSentences(raw string) []string {
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		switch r {
+		case '\n', '\r', '。', '.', ';', '；', '!', '！', '?', '？':
+			return true
+		default:
+			return false
+		}
+	})
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func firstNStrings(items []string, n int) []string {
+	if n <= 0 || len(items) == 0 {
+		return []string{}
+	}
+	if len(items) <= n {
+		return uniqueNonEmpty(items)
+	}
+	return uniqueNonEmpty(items[:n])
+}
+
+func truncateString(s string, max int) string {
+	runes := []rune(strings.TrimSpace(s))
+	if len(runes) <= max {
+		return string(runes)
+	}
+	return strings.TrimSpace(string(runes[:max]))
+}
+
+func buildResumeExtractionPromptFallback(rawText string) string {
+	return "你是一名资深招聘顾问。请从简历文本中提取结构化信息，只输出 JSON。\n" +
+		"字段: profile{name,email,phone,years_experience,education,target_position,summary}, skills[{name,level,evidence}], projects[{name,role,description,tech_stack,highlights}], strength_highlights[], potential_gaps[], confidence_score(0-100)。\n" +
+		"必须基于原文证据，不得编造。\n简历原文:\n" + rawText
+}
+
+func buildResumeFitPromptFallback(rawText, extractedJSON, positionsJSON string) string {
+	return "你是一名面试题库调度专家。请根据简历与岗位列表给出岗位匹配分析，只输出 JSON。\n" +
+		"字段: suggested_positions[{position_code,position_name,score,reasons}], missing_skills[], strength_highlights[], confidence_score(0-100)。\n" +
+		"position_code 必须来自岗位列表。\n简历原文:\n" + rawText +
+		"\n结构化简历:\n" + extractedJSON +
+		"\n岗位列表:\n" + positionsJSON
 }

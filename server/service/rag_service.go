@@ -23,7 +23,7 @@ type KnowledgeChunk struct {
 }
 
 type RAGService struct {
-	questionRepo *repository.QuestionRepository
+	questionRepo repository.QuestionRepository
 	vectorStore  ragpkg.VectorStore
 	embedder     ragpkg.Embedder
 	splitter     ragpkg.DocumentSplitter

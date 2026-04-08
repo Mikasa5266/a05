@@ -66,7 +66,7 @@ func createUserWithRoleTx(tx *gorm.DB, username, email, password, role string) (
 	if err == nil {
 		return nil, fmt.Errorf("email already exists")
 	}
-	if err != nil && err != gorm.ErrRecordNotFound {
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
 
@@ -399,7 +399,7 @@ func GenerateInterviewReport(userID, interviewID uint) (*model.Report, error) {
 
 var (
 	userRepo     *repository.UserRepository
-	questionRepo *repository.QuestionRepository
+	questionRepo repository.QuestionRepository
 	reportRepo   repository.ReportRepository
 )
 

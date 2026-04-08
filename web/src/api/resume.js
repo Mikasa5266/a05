@@ -1,44 +1,27 @@
-import request from '../utils/request'
+import request from "../utils/request";
 
-export function parseResume(formData) {
+export function parseResume(formData, source = "web") {
+  const data = formData instanceof FormData ? formData : new FormData();
+  if (!(formData instanceof FormData) && formData?.file) {
+    data.append("file", formData.file);
+  }
+  if (source) {
+    data.append("source", source);
+  }
+
   return request({
-    url: '/resume/parse',
-    method: 'post',
-    data: formData,
+    url: "/resume/parse",
+    method: "post",
+    data,
     headers: {
-      'Content-Type': 'multipart/form-data'
-    }
-  })
+      "Content-Type": "multipart/form-data",
+    },
+  });
 }
 
-export function analyzeResumeAuthenticity(payload) {
+export function getLatestResumeAnalysis() {
   return request({
-    url: '/resume/authenticity',
-    method: 'post',
-    data: payload
-  })
-}
-
-export function getResumeOptimizationSuggestions(payload) {
-  return request({
-    url: '/resume/optimize',
-    method: 'post',
-    data: payload
-  })
-}
-
-export function generateResumeTemplate(payload) {
-  return request({
-    url: '/resume/template',
-    method: 'post',
-    data: payload
-  })
-}
-
-export function aiChatFallback(payload) {
-  return request({
-    url: '/ai/chat',
-    method: 'post',
-    data: payload
-  })
+    url: "/resume/latest",
+    method: "get",
+  });
 }

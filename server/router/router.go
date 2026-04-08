@@ -3,7 +3,6 @@ package router
 import (
 	"your-project/handler"
 	"your-project/middleware"
-	"your-project/repository"
 	"your-project/service"
 	aidomain "your-project/service/ai"
 
@@ -12,7 +11,8 @@ import (
 
 func SetupRouter(aiService aidomain.AIFacade) *gin.Engine {
 	handler.SetAIService(aiService)
-	handler.SetResumeService(service.NewResumeServiceWithDeps(aiService, repository.NewResumeRepository()))
+	handler.SetResumeService(service.NewResumeService())
+	handler.SetQuestionBankService(service.NewQuestionBankService())
 	router := gin.New()
 	router.MaxMultipartMemory = 512 << 20
 
@@ -81,22 +81,24 @@ func SetupRouter(aiService aidomain.AIFacade) *gin.Engine {
 			protected.GET("/interview/invitations/received", handler.GetReceivedHumanInvitations)
 			protected.POST("/interview/invitations/:id/respond", handler.RespondHumanInvitation)
 
-			protected.GET("/questions", handler.GetQuestions)
-			protected.GET("/questions/:id", handler.GetQuestion)
-			protected.POST("/questions", handler.CreateQuestion)
+			protected.POST("/resume/parse", handler.ParseResume)
+			protected.GET("/resume/latest", handler.GetLatestResumeAnalysis)
+
+			protected.GET("/question-bank/positions", handler.GetQuestionBankPositions)
+			protected.GET("/question-bank/positions/:positionCode/questions", handler.GetPositionQuestionList)
+			protected.POST("/question-bank/resume/:resumeResultID/questions", handler.GenerateResumeQuestionList)
+			protected.GET("/question-bank/questions/:id", handler.GetQuestion)
+			protected.POST("/question-bank/questions/:id/evaluate", handler.EvaluateQuestion)
+			protected.POST("/question-bank/questions/:id/favorite", handler.SetQuestionFavorite)
+			protected.GET("/question-bank/favorites", handler.ListFavoriteQuestions)
+			protected.POST("/question-bank/questions/:id/wrong", handler.MarkQuestionWrong)
+			protected.DELETE("/question-bank/questions/:id/wrong", handler.ClearQuestionWrong)
+			protected.GET("/question-bank/wrong-questions", handler.ListWrongQuestions)
 
 			protected.GET("/reports", handler.GetReports)
 			protected.GET("/reports/:id", handler.GetReport)
 			protected.GET("/reports/:id/download", handler.DownloadReport)
 			protected.POST("/reports/generate", handler.GenerateReport)
-
-			// Resume
-			protected.POST("/resume/parse", handler.ParseResume)
-			protected.POST("/resume/generate-questions", handler.GenerateQuestions)
-			protected.POST("/resume/authenticity", handler.AnalyzeResumeAuthenticity)
-			protected.POST("/resume/optimize", handler.GetResumeOptimizationSuggestions)
-			protected.POST("/resume/template", handler.GenerateResumeTemplate)
-			// protected.POST("/resume/match", handler.MatchJobs) // Merged into ParseResume for now
 
 			// Growth
 			protected.GET("/growth/stats", handler.GetGrowthStats)

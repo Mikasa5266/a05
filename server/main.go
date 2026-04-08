@@ -15,6 +15,7 @@ import (
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 )
 
@@ -36,6 +37,10 @@ func main() {
 
 	if err := autoMigrate(db); err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
+	}
+
+	if err := repository.NewPositionRepository().EnsureDefaults(); err != nil {
+		log.Printf("Warning: Failed to ensure default job positions: %v", err)
 	}
 
 	// Initialize sample questions
@@ -86,12 +91,14 @@ func autoMigrate(db *gorm.DB) error {
 
 	return db.AutoMigrate(
 		&model.User{},
+		&model.JobPosition{},
 		&model.Question{},
+		&model.UserQuestionState{},
+		&model.ResumeParseResult{},
 		&model.Interview{},
 		&model.InterviewQuestion{},
 		&model.AnswerResult{},
 		&model.Report{},
-		&model.ResumeRecord{},
 		&model.HumanInterviewer{},
 		&model.InterviewBooking{},
 		&model.HumanInterviewInvitation{},
@@ -116,6 +123,9 @@ func autoMigrate(db *gorm.DB) error {
 }
 
 func normalizeLegacyMigrationData(db *gorm.DB) error {
+	if err := normalizeLegacyQuestionPositionCode(db); err != nil {
+		return err
+	}
 	if err := normalizeLegacyUserUUID(db); err != nil {
 		return err
 	}
@@ -125,6 +135,81 @@ func normalizeLegacyMigrationData(db *gorm.DB) error {
 	if err := normalizeLegacyHumanInvitationCode(db); err != nil {
 		return err
 	}
+	return nil
+}
+
+func normalizeLegacyQuestionPositionCode(db *gorm.DB) error {
+	if err := db.AutoMigrate(&model.JobPosition{}); err != nil {
+		return fmt.Errorf("failed to prepare job_positions table before question FK migration: %w", err)
+	}
+
+	defaults := append([]model.JobPosition{}, model.DefaultJobPositions...)
+	if err := db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "code"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"name",
+			"domain",
+			"description",
+			"is_active",
+			"updated_at",
+		}),
+	}).Create(&defaults).Error; err != nil {
+		return fmt.Errorf("failed to upsert default job positions before question FK migration: %w", err)
+	}
+
+	if !db.Migrator().HasTable(&model.Question{}) {
+		return nil
+	}
+	if !db.Migrator().HasColumn(&model.Question{}, "PositionCode") {
+		return nil
+	}
+
+	if err := db.Exec(`
+		UPDATE questions
+		SET position_code = LOWER(TRIM(position_code))
+		WHERE position_code IS NOT NULL
+	`).Error; err != nil {
+		return fmt.Errorf("failed to normalize case of questions.position_code: %w", err)
+	}
+
+	if err := db.Exec(`
+		UPDATE questions
+		SET position_code = CASE
+			WHEN position_code IN ('backend', 'java', 'go', 'python_backend', 'java_backend', '后端', '后端工程师', 'java后端工程师') THEN 'backend'
+			WHEN position_code IN ('frontend', 'fe', 'web', '前端', '前端工程师', '前端开发工程师') THEN 'frontend'
+			WHEN position_code IN ('algorithm', 'algo', '算法', '算法工程师') THEN 'algorithm'
+			WHEN position_code IN ('ai', 'ml', 'llm', 'ai_engineer', 'machine_learning', '深度学习', 'ai工程师') THEN 'ai'
+			ELSE position_code
+		END
+	`).Error; err != nil {
+		return fmt.Errorf("failed to map legacy questions.position_code aliases: %w", err)
+	}
+
+	if db.Migrator().HasColumn(&model.Question{}, "Position") {
+		if err := db.Exec(`
+			UPDATE questions q
+			LEFT JOIN job_positions jp ON jp.code = q.position_code
+			SET q.position_code = CASE
+				WHEN LOWER(COALESCE(q.position, '')) LIKE '%frontend%' OR COALESCE(q.position, '') LIKE '%前端%' THEN 'frontend'
+				WHEN LOWER(COALESCE(q.position, '')) LIKE '%algorithm%' OR COALESCE(q.position, '') LIKE '%算法%' THEN 'algorithm'
+				WHEN LOWER(COALESCE(q.position, '')) LIKE '%ai%' OR LOWER(COALESCE(q.position, '')) LIKE '%llm%' OR LOWER(COALESCE(q.position, '')) LIKE '%machine learning%' OR COALESCE(q.position, '') LIKE '%模型%' THEN 'ai'
+				ELSE 'backend'
+			END
+			WHERE q.position_code IS NULL OR TRIM(q.position_code) = '' OR jp.code IS NULL
+		`).Error; err != nil {
+			return fmt.Errorf("failed to backfill invalid questions.position_code by position text: %w", err)
+		}
+	}
+
+	if err := db.Exec(`
+		UPDATE questions q
+		LEFT JOIN job_positions jp ON jp.code = q.position_code
+		SET q.position_code = 'backend'
+		WHERE q.position_code IS NULL OR TRIM(q.position_code) = '' OR jp.code IS NULL
+	`).Error; err != nil {
+		return fmt.Errorf("failed to fallback questions.position_code to backend: %w", err)
+	}
+
 	return nil
 }
 
