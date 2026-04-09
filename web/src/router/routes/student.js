@@ -17,6 +17,12 @@ const InterviewModeSelect = defineAsyncComponent(
 const GrowthCenter = defineAsyncComponent(
   () => import("../../views/GrowthCenter.vue"),
 );
+const ResumeCenter = defineAsyncComponent(
+  () => import("../../views/student/ResumeCenter.vue"),
+);
+const QuestionBank = defineAsyncComponent(
+  () => import("../../views/student/QuestionBank.vue"),
+);
 const History = defineAsyncComponent(() => import("../../views/History.vue"));
 const Report = defineAsyncComponent(() => import("../../views/Report.vue"));
 const Settings = defineAsyncComponent(() => import("../../views/Settings.vue"));
@@ -28,12 +34,6 @@ const CommunityPostDetail = defineAsyncComponent(
 );
 const StudentLiveInterviewWorkbench = defineAsyncComponent(
   () => import("../../views/student/LiveInterviewWorkbench.vue"),
-);
-const ResumeCenter = defineAsyncComponent(
-  () => import("../../views/student/ResumeCenter.vue"),
-);
-const QuestionBank = defineAsyncComponent(
-  () => import("../../views/student/QuestionBank.vue"),
 );
 const LiveInterviewRoom = defineAsyncComponent(
   () => import("../../views/LiveInterviewRoom.vue"),
@@ -62,18 +62,6 @@ export const studentRoutes = [
         meta: roleMeta,
       },
       {
-        path: "resume-center",
-        name: "ResumeCenter",
-        component: ResumeCenter,
-        meta: roleMeta,
-      },
-      {
-        path: "question-bank",
-        name: "QuestionBank",
-        component: QuestionBank,
-        meta: roleMeta,
-      },
-      {
         path: "interview",
         redirect: "/interview/mode-select",
         meta: roleMeta,
@@ -97,6 +85,18 @@ export const studentRoutes = [
         path: "growth",
         name: "GrowthCenter",
         component: GrowthCenter,
+        meta: roleMeta,
+      },
+      {
+        path: "resume",
+        name: "ResumeCenter",
+        component: ResumeCenter,
+        meta: roleMeta,
+      },
+      {
+        path: "question-bank",
+        name: "StudentQuestionBank",
+        component: QuestionBank,
         meta: roleMeta,
       },
       {

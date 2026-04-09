@@ -1,27 +1,24 @@
-import request from "../utils/request";
+import request from '../utils/request'
 
-export function parseResume(formData, source = "web") {
-  const data = formData instanceof FormData ? formData : new FormData();
-  if (!(formData instanceof FormData) && formData?.file) {
-    data.append("file", formData.file);
-  }
-  if (source) {
-    data.append("source", source);
-  }
-
+export function uploadResumeForAnalysis(formData) {
   return request({
-    url: "/resume/parse",
-    method: "post",
-    data,
+    url: '/resume/parse',
+    method: 'post',
+    data: formData,
     headers: {
-      "Content-Type": "multipart/form-data",
+      'Content-Type': 'multipart/form-data',
+      'X-Skip-Error-Toast': 'true',
     },
-  });
+    timeout: 120000,
+  })
 }
 
 export function getLatestResumeAnalysis() {
   return request({
-    url: "/resume/latest",
-    method: "get",
-  });
+    url: '/resume/latest',
+    method: 'get',
+    headers: {
+      'X-Skip-Error-Toast': 'true',
+    },
+  })
 }

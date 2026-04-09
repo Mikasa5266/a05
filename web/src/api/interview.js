@@ -12,47 +12,28 @@ export function startInterview(data) {
   })
 }
 
-const shouldFallbackToLegacyStart = (error) => {
-  const status = Number(error?.response?.status || 0)
-  return status === 404 || status === 405
+export function startStandardInterview(data) {
+  return request({
+    url: '/interview/start/standard',
+    method: 'post',
+    data,
+    headers: {
+      'X-Skip-Error-Toast': 'true'
+    },
+    timeout: 12000
+  })
 }
 
-export async function startStandardInterview(data) {
-  try {
-    return await request({
-      url: '/interview/start/standard',
-      method: 'post',
-      data,
-      headers: {
-        'X-Skip-Error-Toast': 'true'
-      },
-      timeout: 12000
-    })
-  } catch (error) {
-    if (!shouldFallbackToLegacyStart(error)) {
-      throw error
-    }
-    return startInterview(data)
-  }
-}
-
-export async function startAlgorithmInterview(data) {
-  try {
-    return await request({
-      url: '/interview/start/algorithm',
-      method: 'post',
-      data,
-      headers: {
-        'X-Skip-Error-Toast': 'true'
-      },
-      timeout: 12000
-    })
-  } catch (error) {
-    if (!shouldFallbackToLegacyStart(error)) {
-      throw error
-    }
-    return startInterview(data)
-  }
+export function startAlgorithmInterview(data) {
+  return request({
+    url: '/interview/start/algorithm',
+    method: 'post',
+    data,
+    headers: {
+      'X-Skip-Error-Toast': 'true'
+    },
+    timeout: 12000
+  })
 }
 
 export function getInterview(id) {
@@ -94,14 +75,6 @@ export function uploadInterviewRecording(id, formData) {
     headers: {
       'Content-Type': 'multipart/form-data'
     }
-  })
-}
-
-export function getQuestions(params) {
-  return request({
-    url: '/questions',
-    method: 'get',
-    params
   })
 }
 

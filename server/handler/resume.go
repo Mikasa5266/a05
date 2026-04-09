@@ -10,7 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ParseResume handles resume upload, extraction, structured analysis and persistence.
 func ParseResume(c *gin.Context) {
 	userID := c.GetUint("user_id")
 	if userID == 0 {
@@ -38,10 +37,11 @@ func ParseResume(c *gin.Context) {
 	}
 
 	analysis, record, err := mustResumeService().AnalyzeAndPersist(c.Request.Context(), service.ResumeAnalysisInput{
-		UserID:   userID,
-		FileName: file.Filename,
-		RawText:  rawText,
-		Source:   strings.TrimSpace(c.PostForm("source")),
+		UserID:     userID,
+		FileName:   file.Filename,
+		RawText:    rawText,
+		Source:     strings.TrimSpace(c.PostForm("source")),
+		ParserMode: "text",
 	})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -55,7 +55,6 @@ func ParseResume(c *gin.Context) {
 	})
 }
 
-// GetLatestResumeAnalysis returns latest stored analysis snapshot for current user.
 func GetLatestResumeAnalysis(c *gin.Context) {
 	userID := c.GetUint("user_id")
 	if userID == 0 {

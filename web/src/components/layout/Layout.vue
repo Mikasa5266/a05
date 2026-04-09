@@ -88,7 +88,17 @@ const mobileDrawerOpen = ref(false)
 const portal = computed(() => getPortalFromPath(route.path))
 const portalConfig = computed(() => portalBrandMap[portal.value] || portalBrandMap.student)
 
-const mobileNavItems = computed(() => getPortalNavItems(portal.value).slice(0, 5))
+const mobileNavItems = computed(() => {
+  const items = getPortalNavItems(portal.value)
+  const primary = items.slice(0, 5)
+  const active = items.find((item) => isNavPathActive(route.path, item.href))
+
+  if (!active || primary.some((item) => item.href === active.href) || primary.length < 5) {
+    return primary
+  }
+
+  return [...primary.slice(0, 4), active]
+})
 
 const mobileActiveClass = computed(() => portalConfig.value.activeBg + ' ' + portalConfig.value.activeText)
 

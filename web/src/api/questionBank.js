@@ -1,81 +1,81 @@
 import request from "../utils/request";
 
-export function getQuestionBankPositions() {
-  return request({
-    url: "/question-bank/positions",
+export const getQuestionBankMeta = () =>
+  request({
+    url: "/question-bank/meta",
     method: "get",
   });
-}
 
-export function getPositionQuestionList(positionCode, params = {}) {
-  return request({
-    url: `/question-bank/positions/${encodeURIComponent(positionCode)}/questions`,
+export const getQuestionBankFilterOptions = (positionCode) =>
+  request({
+    url: "/question-bank/options",
     method: "get",
-    params,
-  });
-}
-
-export function generateResumeQuestionList(resumeResultID, payload = {}) {
-  return request({
-    url: `/question-bank/resume/${encodeURIComponent(resumeResultID)}/questions`,
-    method: "post",
     params: {
-      difficulty: payload?.difficulty || "",
-      limit: payload?.limit || 12,
+      position_code: positionCode,
     },
   });
-}
 
-export function getQuestionById(questionID) {
-  return request({
-    url: `/question-bank/questions/${encodeURIComponent(questionID)}`,
-    method: "get",
-  });
-}
-
-export function evaluateQuestion(questionID, answer) {
-  return request({
-    url: `/question-bank/questions/${encodeURIComponent(questionID)}/evaluate`,
-    method: "post",
-    data: { answer },
-  });
-}
-
-export function setQuestionFavorite(questionID, isFavorite) {
-  return request({
-    url: `/question-bank/questions/${encodeURIComponent(questionID)}/favorite`,
-    method: "post",
-    data: { is_favorite: Boolean(isFavorite) },
-  });
-}
-
-export function listFavoriteQuestions(params = {}) {
-  return request({
-    url: "/question-bank/favorites",
+export const listQuestionBankQuestions = (params = {}) =>
+  request({
+    url: "/question-bank/questions",
     method: "get",
     params,
   });
-}
 
-export function markQuestionWrong(questionID, note = "") {
-  return request({
-    url: `/question-bank/questions/${encodeURIComponent(questionID)}/wrong`,
-    method: "post",
-    data: { note },
+export const getQuestionBankLists = (positionCode) =>
+  request({
+    url: "/question-bank/lists",
+    method: "get",
+    params: {
+      position_code: positionCode,
+    },
   });
-}
 
-export function clearQuestionWrong(questionID) {
-  return request({
-    url: `/question-bank/questions/${encodeURIComponent(questionID)}/wrong`,
-    method: "delete",
-  });
-}
-
-export function listWrongQuestions(params = {}) {
-  return request({
-    url: "/question-bank/wrong-questions",
+export const drawQuestionBankQuestion = (params = {}) =>
+  request({
+    url: "/question-bank/random",
     method: "get",
     params,
   });
-}
+
+export const submitQuestionBankAnswer = (data) =>
+  request({
+    url: "/question-bank/answer",
+    method: "post",
+    data,
+  });
+
+export const getQuestionBankSolution = (questionId) =>
+  request({
+    url: `/question-bank/questions/${questionId}/solution`,
+    method: "get",
+  });
+
+export const getQuestionBankPointSummary = (point, positionCode) =>
+  request({
+    url: `/question-bank/points/${encodeURIComponent(point)}/summary`,
+    method: "get",
+    params: {
+      position_code: positionCode,
+    },
+  });
+
+export const startQuestionBankAssessment = (data) =>
+  request({
+    url: "/question-bank/assessment/start",
+    method: "post",
+    data,
+  });
+
+export const submitQuestionBankAssessmentAnswer = (data) =>
+  request({
+    url: "/question-bank/assessment/answer",
+    method: "post",
+    data,
+  });
+
+export const completeQuestionBankAssessment = (assessmentId) =>
+  request({
+    url: `/question-bank/assessment/${assessmentId}/complete`,
+    method: "post",
+  });
