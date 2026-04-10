@@ -46,9 +46,19 @@ const normalizeBackendErrorMessage = (msg = "") => {
   return text;
 };
 
+const unwrapBackendErrorMessage = (payload) => {
+  if (!payload) return "";
+  if (typeof payload === "string") return payload;
+  if (typeof payload?.message === "string") return payload.message;
+  if (typeof payload?.error === "string") return payload.error;
+  if (typeof payload?.error?.message === "string") return payload.error.message;
+  return "";
+};
+
 const extractNormalizedErrorMessage = (error) => {
   const message =
-    error?.response?.data?.error ||
+    unwrapBackendErrorMessage(error?.response?.data) ||
+    unwrapBackendErrorMessage(error?.response?.data?.error) ||
     error?.response?.data?.message ||
     error?.message ||
     "";
@@ -186,7 +196,17 @@ service.interceptors.response.use(
     const skipErrorToast = shouldSkipErrorToast(error);
 
     if (res?.data?.error) {
-      res.data.error = normalizeBackendErrorMessage(res.data.error);
+      const normalizedError = normalizeBackendErrorMessage(
+        unwrapBackendErrorMessage(res.data.error) || res.data.error,
+      );
+      if (typeof res.data.error === "object" && res.data.error !== null) {
+        res.data.error = {
+          ...res.data.error,
+          message: normalizedError,
+        };
+      } else {
+        res.data.error = normalizedError;
+      }
     }
     if (normalizedMessage) {
       error.message = normalizedMessage;

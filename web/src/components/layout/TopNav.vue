@@ -28,6 +28,16 @@
 
     <!-- Right Actions -->
     <div class="ml-auto flex items-center gap-2 md:gap-4">
+      <router-link
+        v-if="showPracticeModeEntry"
+        :to="practiceModeTarget"
+        class="top-nav-practice-entry inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-white shadow-sm transition-all touch-manipulation"
+      >
+        <BookOpen class="h-4 w-4" />
+        <span class="hidden sm:inline">进入刷题模式</span>
+        <span class="sm:hidden">刷题</span>
+      </router-link>
+
       <!-- Notifications -->
       <button class="relative p-2 rounded-xl text-zinc-400 md:hover:text-zinc-600 md:hover:bg-zinc-50 active:text-zinc-600 active:bg-zinc-100 transition-colors touch-manipulation">
         <Bell class="h-5 w-5" />
@@ -80,6 +90,7 @@ import { useUserStore } from '../../stores/user'
 import { getBackendAssetUrl } from '../../utils/backend'
 import { getPortalFromPath, portalBrandMap } from './navigation'
 import {
+  BookOpen,
   Menu,
   Bell, Settings, LogOut,
 } from 'lucide-vue-next'
@@ -99,7 +110,17 @@ const portalConfig = computed(() => portalBrandMap[currentPortal.value] || porta
 
 const portalHome = computed(() => '/' + currentPortal.value + '/dashboard')
 
+const practiceModePath = '/student/practice-mode'
+const practiceModeTarget = computed(() => ({
+  path: practiceModePath,
+  query: {
+    from: route.fullPath,
+  },
+}))
+
 const settingsPath = computed(() => '/' + currentPortal.value + '/settings')
+
+const showPracticeModeEntry = computed(() => currentPortal.value === 'student')
 
 const userInitials = computed(() => {
   const name = userStore.userInfo?.username || 'G'
@@ -135,5 +156,14 @@ onBeforeUnmount(() => document.removeEventListener('click', handleClickOutside))
   border-color: var(--el-border-color-lighter);
   backdrop-filter: blur(6px);
   box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+}
+
+.top-nav-practice-entry {
+  background: linear-gradient(135deg, #165d86 0%, #2f8fc5 100%);
+}
+
+.top-nav-practice-entry:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px rgba(22, 93, 134, 0.22);
 }
 </style>

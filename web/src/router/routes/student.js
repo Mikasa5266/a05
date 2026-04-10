@@ -3,6 +3,9 @@ import { defineAsyncComponent } from "vue";
 const Layout = defineAsyncComponent(
   () => import("../../components/layout/Layout.vue"),
 );
+const PracticeModeLayout = defineAsyncComponent(
+  () => import("../../components/layout/PracticeModeLayout.vue"),
+);
 
 const Home = defineAsyncComponent(() => import("../../views/Home.vue"));
 const Interview = defineAsyncComponent(
@@ -20,9 +23,6 @@ const GrowthCenter = defineAsyncComponent(
 const ResumeCenter = defineAsyncComponent(
   () => import("../../views/student/ResumeCenter.vue"),
 );
-const QuestionBank = defineAsyncComponent(
-  () => import("../../views/student/QuestionBank.vue"),
-);
 const History = defineAsyncComponent(() => import("../../views/History.vue"));
 const Report = defineAsyncComponent(() => import("../../views/Report.vue"));
 const Settings = defineAsyncComponent(() => import("../../views/Settings.vue"));
@@ -38,6 +38,9 @@ const StudentLiveInterviewWorkbench = defineAsyncComponent(
 const LiveInterviewRoom = defineAsyncComponent(
   () => import("../../views/LiveInterviewRoom.vue"),
 );
+const PracticeModeIndex = defineAsyncComponent(
+  () => import("../../views/student/PracticeMode/Index.vue"),
+);
 
 const roleMeta = {
   requiresAuth: true,
@@ -45,6 +48,19 @@ const roleMeta = {
 };
 
 export const studentRoutes = [
+  {
+    path: "/student/practice-mode",
+    component: PracticeModeLayout,
+    meta: roleMeta,
+    children: [
+      {
+        path: "",
+        name: "StudentPracticeMode",
+        component: PracticeModeIndex,
+        meta: roleMeta,
+      },
+    ],
+  },
   {
     path: "/student",
     component: Layout,
@@ -91,12 +107,6 @@ export const studentRoutes = [
         path: "resume",
         name: "ResumeCenter",
         component: ResumeCenter,
-        meta: roleMeta,
-      },
-      {
-        path: "question-bank",
-        name: "StudentQuestionBank",
-        component: QuestionBank,
         meta: roleMeta,
       },
       {

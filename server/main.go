@@ -34,6 +34,7 @@ func main() {
 	}
 
 	repository.SetDB(db)
+	service.SetPracticeQuestionRepository(repository.NewPracticeQuestionRepository())
 
 	if err := autoMigrate(db); err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
@@ -96,6 +97,12 @@ func autoMigrate(db *gorm.DB) error {
 		&model.QuestionPracticeRecord{},
 		&model.QuestionAssessment{},
 		&model.QuestionAssessmentItem{},
+		&model.PracticeQuestionFavorite{},
+		&model.PracticeWrongBookEntry{},
+		&model.PracticeQuestionList{},
+		&model.PracticeQuestionListItem{},
+		&model.PracticeAssessmentAnswer{},
+		&model.PracticeInterviewSyncLog{},
 		&model.ResumeParseResult{},
 		&model.Interview{},
 		&model.InterviewQuestion{},

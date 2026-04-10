@@ -5,10 +5,12 @@ import (
 	"strings"
 
 	"your-project/pkg/llm"
+	"your-project/repository"
 	aidomain "your-project/service/ai"
 )
 
 var defaultAIService aidomain.AIFacade
+var defaultPracticeQuestionRepo repository.PracticeQuestionRepository
 
 // SetAIService registers the shared AIFacade instance for packages that need AI capabilities.
 func SetAIService(ai aidomain.AIFacade) {
@@ -21,6 +23,19 @@ func MustGetAIService() aidomain.AIFacade {
 		panic("AIFacade is not initialized; call SetAIService first")
 	}
 	return defaultAIService
+}
+
+// SetPracticeQuestionRepository registers the shared practice-mode repository.
+func SetPracticeQuestionRepository(repo repository.PracticeQuestionRepository) {
+	defaultPracticeQuestionRepo = repo
+}
+
+// MustGetPracticeQuestionRepository returns the shared practice-mode repository.
+func MustGetPracticeQuestionRepository() repository.PracticeQuestionRepository {
+	if defaultPracticeQuestionRepo == nil {
+		defaultPracticeQuestionRepo = repository.NewPracticeQuestionRepository()
+	}
+	return defaultPracticeQuestionRepo
 }
 
 // MustNewAIService initializes AIFacade with a provided LLM client and sets it as default.
