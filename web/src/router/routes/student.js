@@ -3,6 +3,9 @@ import { defineAsyncComponent } from "vue";
 const Layout = defineAsyncComponent(
   () => import("../../components/layout/Layout.vue"),
 );
+const PracticeModeLayout = defineAsyncComponent(
+  () => import("../../components/layout/PracticeModeLayout.vue"),
+);
 
 const Home = defineAsyncComponent(() => import("../../views/Home.vue"));
 const Interview = defineAsyncComponent(
@@ -17,6 +20,9 @@ const InterviewModeSelect = defineAsyncComponent(
 const GrowthCenter = defineAsyncComponent(
   () => import("../../views/GrowthCenter.vue"),
 );
+const ResumeCenter = defineAsyncComponent(
+  () => import("../../views/student/ResumeCenter.vue"),
+);
 const History = defineAsyncComponent(() => import("../../views/History.vue"));
 const Report = defineAsyncComponent(() => import("../../views/Report.vue"));
 const Settings = defineAsyncComponent(() => import("../../views/Settings.vue"));
@@ -29,14 +35,11 @@ const CommunityPostDetail = defineAsyncComponent(
 const StudentLiveInterviewWorkbench = defineAsyncComponent(
   () => import("../../views/student/LiveInterviewWorkbench.vue"),
 );
-const ResumeCenter = defineAsyncComponent(
-  () => import("../../views/student/ResumeCenter.vue"),
-);
-const QuestionBank = defineAsyncComponent(
-  () => import("../../views/student/QuestionBank.vue"),
-);
 const LiveInterviewRoom = defineAsyncComponent(
   () => import("../../views/LiveInterviewRoom.vue"),
+);
+const PracticeModeIndex = defineAsyncComponent(
+  () => import("../../views/student/PracticeMode/Index.vue"),
 );
 
 const roleMeta = {
@@ -45,6 +48,19 @@ const roleMeta = {
 };
 
 export const studentRoutes = [
+  {
+    path: "/student/practice-mode",
+    component: PracticeModeLayout,
+    meta: roleMeta,
+    children: [
+      {
+        path: "",
+        name: "StudentPracticeMode",
+        component: PracticeModeIndex,
+        meta: roleMeta,
+      },
+    ],
+  },
   {
     path: "/student",
     component: Layout,
@@ -59,18 +75,6 @@ export const studentRoutes = [
         path: "dashboard",
         name: "StudentDashboard",
         component: Home,
-        meta: roleMeta,
-      },
-      {
-        path: "resume-center",
-        name: "ResumeCenter",
-        component: ResumeCenter,
-        meta: roleMeta,
-      },
-      {
-        path: "question-bank",
-        name: "QuestionBank",
-        component: QuestionBank,
         meta: roleMeta,
       },
       {
@@ -97,6 +101,12 @@ export const studentRoutes = [
         path: "growth",
         name: "GrowthCenter",
         component: GrowthCenter,
+        meta: roleMeta,
+      },
+      {
+        path: "resume",
+        name: "ResumeCenter",
+        component: ResumeCenter,
         meta: roleMeta,
       },
       {

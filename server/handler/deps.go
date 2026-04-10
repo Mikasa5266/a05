@@ -7,7 +7,7 @@ import (
 
 var aiService aidomain.AIFacade
 var resumeService service.ResumeService
-var questionBankService service.QuestionBankService
+var practiceService service.PracticeService
 
 func SetAIService(svc aidomain.AIFacade) {
 	aiService = svc
@@ -31,13 +31,13 @@ func mustResumeService() service.ResumeService {
 	return service.NewResumeService()
 }
 
-func SetQuestionBankService(svc service.QuestionBankService) {
-	questionBankService = svc
+func SetPracticeService(svc service.PracticeService) {
+	practiceService = svc
 }
 
-func mustQuestionBankService() service.QuestionBankService {
-	if questionBankService != nil {
-		return questionBankService
+func mustPracticeService() service.PracticeService {
+	if practiceService != nil {
+		return practiceService
 	}
-	return service.NewQuestionBankService()
+	return service.NewPracticeService()
 }

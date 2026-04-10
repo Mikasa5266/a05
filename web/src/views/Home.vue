@@ -115,22 +115,6 @@
           <ChevronRight class="h-5 w-5" />
         </button>
 
-        <div class="mt-6 rounded-3xl border border-zinc-100 bg-white shadow-sm p-6">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="text-base font-bold text-zinc-900 flex items-center gap-2">
-              <FileText class="h-4 w-4 text-indigo-500" />
-              今日练习建议
-            </h3>
-            <span class="text-xs text-zinc-400">建议用时 18 分钟</span>
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div v-for="item in practicePlan" :key="item.title" class="rounded-2xl p-4 border border-zinc-100 bg-zinc-50/60 hover:bg-indigo-50/60 transition-colors cursor-pointer" @click="item.action">
-              <p class="text-xs text-zinc-400">{{ item.tag }}</p>
-              <p class="text-sm font-semibold text-zinc-800 mt-1">{{ item.title }}</p>
-              <p class="text-xs text-zinc-500 mt-1 leading-relaxed">{{ item.desc }}</p>
-            </div>
-          </div>
-        </div>
       </div>
 
       <!-- Right: Quick Actions & Activity -->
@@ -204,8 +188,7 @@ import {
   Upload, BrainCircuit, Video, TrendingUp,
   ChevronLeft, ChevronRight, Clock, Target,
   Monitor, Users, Shuffle, UserCheck,
-  BarChart3, PlayCircle, BookOpen,
-  FileText
+  BarChart3, PlayCircle, BookOpen
 } from 'lucide-vue-next'
 import { getInterviews } from '../api/interview'
 import dayjs from 'dayjs'
@@ -225,12 +208,6 @@ const growthFeatures = [
   { label: '综合报告', desc: '可视化分析', icon: BarChart3, action: () => router.push('/student/history') },
   { label: '面试回放', desc: '对比优化', icon: PlayCircle, action: () => router.push('/student/history') },
   { label: '学习地图', desc: '技能提升', icon: BookOpen, action: () => router.push('/student/growth') },
-]
-
-const practicePlan = [
-  { tag: '表达热身', title: '90 秒项目复述', desc: '选一个项目，用 STAR 结构快速复述。', action: () => router.push({ path: '/student/interview', query: { mode: 'hr' } }) },
-  { tag: '技术深挖', title: '核心原理追问', desc: '围绕岗位高频技术点做 1 轮深挖。', action: () => router.push({ path: '/student/interview', query: { mode: 'technical' } }) },
-  { tag: '复盘巩固', title: '查看上次薄弱项', desc: '根据上次报告优先练习短板模块。', action: () => router.push('/student/history') },
 ]
 
 const activities = ref([])

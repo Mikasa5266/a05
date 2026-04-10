@@ -332,47 +332,6 @@ func UpdateUserPassword(userID uint, oldPassword, newPassword string) error {
 	return nil
 }
 
-func GetQuestions(position, difficulty, category string) ([]*model.Question, error) {
-	ensureRepos()
-	return questionRepo.GetQuestions(position, difficulty, category)
-}
-
-func GetQuestionByID(questionID uint) (*model.Question, error) {
-	ensureRepos()
-	return questionRepo.GetByID(questionID)
-}
-
-func CreateQuestion(title, content, position, difficulty, category string, tags []string, expectedAnswer string) (*model.Question, error) {
-	ensureRepos()
-	validator := MustGetAIService()
-	candidate := &model.Question{
-		Title:    strings.TrimSpace(title),
-		Content:  strings.TrimSpace(content),
-		Category: strings.TrimSpace(category),
-	}
-	if validator.IsContextDependentOpeningQuestion(candidate) {
-		return nil, fmt.Errorf("question looks like follow-up/context-dependent and cannot be added to official bank")
-	}
-
-	question := &model.Question{
-		Title:          title,
-		Content:        content,
-		Position:       position,
-		Difficulty:     difficulty,
-		Category:       category,
-		Source:         "standard",
-		RAGEligible:    true,
-		Tags:           strings.Join(tags, ","),
-		ExpectedAnswer: expectedAnswer,
-	}
-
-	if err := questionRepo.Create(question); err != nil {
-		return nil, fmt.Errorf("failed to create question: %w", err)
-	}
-
-	return question, nil
-}
-
 func GetUserReports(userID uint, page, pageSize int) ([]*model.Report, int64, error) {
 	ensureRepos()
 	return reportRepo.ListByUserPaged(userID, page, pageSize)
@@ -398,19 +357,17 @@ func GenerateInterviewReport(userID, interviewID uint) (*model.Report, error) {
 }
 
 var (
-	userRepo     *repository.UserRepository
-	questionRepo repository.QuestionRepository
-	reportRepo   repository.ReportRepository
+	userRepo   *repository.UserRepository
+	reportRepo repository.ReportRepository
 )
 
 func initRepos() {
 	userRepo = repository.NewUserRepository()
-	questionRepo = repository.NewQuestionRepository()
 	reportRepo = repository.NewReportRepository()
 }
 
 func ensureRepos() {
-	if userRepo == nil || questionRepo == nil || reportRepo == nil {
+	if userRepo == nil || reportRepo == nil {
 		initRepos()
 	}
 }
