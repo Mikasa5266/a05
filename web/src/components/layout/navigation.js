@@ -175,6 +175,71 @@ export const portalNavMap = {
 export const getPortalNavItems = (portal = "student") =>
   portalNavMap[portal] || portalNavMap.student;
 
+export const portalTopNavMap = {
+  student: [
+    {
+      name: "首页",
+      href: "/student/dashboard",
+      icon: LayoutDashboard,
+      exact: true,
+    },
+    {
+      name: "模拟面试",
+      href: "/student/interview",
+      icon: Video,
+    },
+    {
+      name: "刷题/错题本",
+      href: "/student/practice-mode",
+      icon: BookOpen,
+    },
+    {
+      name: "复盘报告",
+      href: "/student/history",
+      icon: BarChart3,
+    },
+  ],
+  enterprise: [
+    {
+      name: "首页",
+      href: "/enterprise/dashboard",
+      icon: LayoutDashboard,
+      exact: true,
+    },
+    {
+      name: "面试工作台",
+      href: "/enterprise/interview-workbench",
+      icon: ClipboardList,
+    },
+    {
+      name: "数据分析",
+      href: "/enterprise/analytics",
+      icon: BarChart3,
+    },
+  ],
+  university: [
+    {
+      name: "首页",
+      href: "/university/dashboard",
+      icon: LayoutDashboard,
+      exact: true,
+    },
+    {
+      name: "面试工作台",
+      href: "/university/interview-workbench",
+      icon: ClipboardList,
+    },
+    {
+      name: "就业数据",
+      href: "/university/employment",
+      icon: BarChart3,
+    },
+  ],
+};
+
+export const getPortalTopNavItems = (portal = "student") =>
+  portalTopNavMap[portal] || portalTopNavMap.student;
+
 export const isNavPathActive = (currentPath, navPath) => {
   if (navPath.endsWith("/dashboard")) return currentPath === navPath;
   return currentPath.startsWith(navPath);
