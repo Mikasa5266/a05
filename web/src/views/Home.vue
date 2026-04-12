@@ -207,7 +207,7 @@ const interviewModes = [
 const growthFeatures = [
   { label: '综合报告', desc: '可视化分析', icon: BarChart3, action: () => router.push('/student/history') },
   { label: '面试回放', desc: '对比优化', icon: PlayCircle, action: () => router.push('/student/history') },
-  { label: '学习地图', desc: '技能提升', icon: BookOpen, action: () => router.push('/student/growth') },
+  { label: '学习地图', desc: '技能提升', icon: BookOpen, action: () => router.push('/student/practice-mode') },
 ]
 
 const activities = ref([])

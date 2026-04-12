@@ -28,9 +28,6 @@ const backLabel = computed(() => {
   if (from.includes("/student/resume")) {
     return "返回简历中心";
   }
-  if (from.includes("/student/growth")) {
-    return "返回成长中心";
-  }
   return "返回学生端";
 });
 

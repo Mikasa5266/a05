@@ -11,7 +11,6 @@ import {
   Send,
   Shield,
   Target,
-  TrendingUp,
   User,
   UserCheck,
   Users,
@@ -60,42 +59,32 @@ export const portalBrandMap = {
 export const portalNavMap = {
   student: [
     {
-      name: "\u4e2a\u4eba\u9996\u9875",
+      name: "首页",
       href: "/student/dashboard",
       icon: LayoutDashboard,
     },
     {
-      name: "\u6a21\u62df\u9762\u8bd5",
-      href: "/student/interview",
-      icon: Video,
-    },
-    {
-      name: "\u771f\u4eba\u9762\u8bd5",
-      href: "/interview/live/workbench",
-      icon: ClipboardList,
-    },
-    {
-      name: "\u5237\u9898\u4e2d\u5fc3",
-      href: "/student/practice-mode",
-      icon: BookOpen,
-    },
-    {
-      name: "\u6210\u957f\u4e2d\u5fc3",
-      href: "/student/growth",
-      icon: TrendingUp,
-    },
-    {
-      name: "\u7b80\u5386\u5206\u6790",
+      name: "简历解析",
       href: "/student/resume",
       icon: FileText,
     },
     {
-      name: "\u590d\u76d8\u62a5\u544a",
+      name: "刷题",
+      href: "/student/practice-mode",
+      icon: BookOpen,
+    },
+    {
+      name: "模拟面试",
+      href: "/student/interview",
+      icon: Video,
+    },
+    {
+      name: "复盘报告",
       href: "/student/history",
       icon: BarChart3,
     },
     {
-      name: "\u6821\u53cb\u793e\u533a",
+      name: "校友社区",
       href: "/student/community",
       icon: Users,
     },
@@ -184,19 +173,29 @@ export const portalTopNavMap = {
       exact: true,
     },
     {
+      name: "简历解析",
+      href: "/student/resume",
+      icon: FileText,
+    },
+    {
+      name: "刷题",
+      href: "/student/practice-mode",
+      icon: BookOpen,
+    },
+    {
       name: "模拟面试",
       href: "/student/interview",
       icon: Video,
     },
     {
-      name: "刷题/错题本",
-      href: "/student/practice-mode",
-      icon: BookOpen,
-    },
-    {
       name: "复盘报告",
       href: "/student/history",
       icon: BarChart3,
+    },
+    {
+      name: "校友社区",
+      href: "/student/community",
+      icon: Users,
     },
   ],
   enterprise: [

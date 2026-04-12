@@ -245,10 +245,30 @@ func AuditApplication(role string, applicationID uint, status, remark string, ad
 	}
 }
 
-func AuthenticateUser(email, password string) (*model.User, error) {
+func AuthenticateUser(account, password string) (*model.User, error) {
 	service := NewUserService()
+	account = strings.TrimSpace(account)
+	if account == "" {
+		return nil, fmt.Errorf("invalid credentials")
+	}
 
-	user, err := service.userRepo.GetByEmail(email)
+	var (
+		user *model.User
+		err  error
+	)
+
+	if strings.Contains(account, "@") {
+		user, err = service.userRepo.GetByEmail(account)
+		if err != nil {
+			user, err = service.userRepo.GetByUsername(account)
+		}
+	} else {
+		user, err = service.userRepo.GetByUsername(account)
+		if err != nil {
+			user, err = service.userRepo.GetByEmail(account)
+		}
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("invalid credentials")
 	}

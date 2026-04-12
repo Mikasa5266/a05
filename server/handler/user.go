@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"your-project/middleware"
@@ -151,7 +152,8 @@ func AuditApplication(c *gin.Context) {
 
 func Login(c *gin.Context) {
 	var req struct {
-		Email    string `json:"email" binding:"required,email"`
+		Account  string `json:"account"`
+		Email    string `json:"email"`
 		Password string `json:"password" binding:"required"`
 		Role     string `json:"role"`
 	}
@@ -161,7 +163,16 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	user, err := service.AuthenticateUser(req.Email, req.Password)
+	account := strings.TrimSpace(req.Account)
+	if account == "" {
+		account = strings.TrimSpace(req.Email)
+	}
+	if account == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "account is required"})
+		return
+	}
+
+	user, err := service.AuthenticateUser(account, req.Password)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return

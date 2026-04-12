@@ -35,7 +35,7 @@
               <img v-if="userStore.userInfo?.avatar" :src="avatarUrl" class="h-full w-full object-cover" />
               <span v-else>{{ userInitials }}</span>
             </div>
-            <span class="max-w-35 truncate text-sm font-semibold text-zinc-700">{{ userStore.userInfo?.username || 'Guest' }}</span>
+            <span class="max-w-35 truncate text-sm font-semibold text-zinc-700">{{ displayName }}</span>
             <ChevronDown class="h-4 w-4 text-zinc-400" />
           </button>
 
@@ -49,7 +49,7 @@
           >
             <div v-if="showDropdown" class="absolute right-0 top-12 z-50 w-56 rounded-2xl border border-zinc-100 bg-white py-2 shadow-xl">
               <div class="border-b border-zinc-100 px-4 py-3">
-                <div class="text-sm font-medium text-zinc-900">{{ userStore.userInfo?.username || 'Guest' }}</div>
+                <div class="text-sm font-medium text-zinc-900">{{ displayName }}</div>
                 <div class="text-xs text-zinc-400">{{ userStore.userInfo?.email || '' }}</div>
               </div>
               <router-link
@@ -92,9 +92,7 @@ const userStore = useUserStore()
 const showDropdown = ref(false)
 const dropdownRef = ref(null)
 
-// Derive portal from current route
 const currentPortal = computed(() => getPortalFromPath(route.path))
-
 const portalConfig = computed(() => portalBrandMap[currentPortal.value] || portalBrandMap.student)
 const topNavItems = computed(() => getPortalTopNavItems(currentPortal.value))
 
@@ -103,8 +101,18 @@ const portalHome = computed(() => '/' + currentPortal.value + '/dashboard')
 const settingsPath = computed(() => '/' + currentPortal.value + '/settings')
 const menuActiveClass = computed(() => portalConfig.value.activeBg + ' ' + portalConfig.value.activeText)
 
+const displayName = computed(() => {
+  const username = String(userStore.userInfo?.username || '').trim()
+  if (username) return username
+  const email = String(userStore.userInfo?.email || '').trim()
+  if (email) return email.split('@')[0] || email
+  const id = userStore.userInfo?.id
+  if (id) return `用户#${id}`
+  return 'Guest'
+})
+
 const userInitials = computed(() => {
-  const name = userStore.userInfo?.username || 'G'
+  const name = displayName.value || 'G'
   return name.substring(0, 2).toUpperCase()
 })
 

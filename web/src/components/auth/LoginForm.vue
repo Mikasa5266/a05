@@ -1,12 +1,12 @@
 <template>
   <form class="space-y-5" @submit.prevent="handleSubmit" novalidate>
     <div class="space-y-1.5">
-      <label class="text-xs font-semibold tracking-wide text-slate-500">邮箱</label>
+      <label class="text-xs font-semibold tracking-wide text-slate-500">账号（邮箱或用户名）</label>
       <input
         v-model.trim="form.email"
-        type="email"
-        autocomplete="email"
-        placeholder="name@company.com"
+        type="text"
+        autocomplete="username"
+        placeholder="请输入邮箱或用户名"
         class="w-full cursor-text rounded-xl border bg-white/80 px-4 py-3 text-sm text-slate-800 outline-none transition-all focus:shadow-sm"
         :class="inputClass(errors.email)"
       />
@@ -122,12 +122,10 @@ const validate = () => {
   errors.email = ''
   errors.password = ''
 
-  const email = String(form.email || '').trim()
+  const account = String(form.email || '').trim()
   const password = String(form.password || '')
-  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 
-  if (!email) errors.email = '请输入邮箱'
-  else if (!emailOk) errors.email = '邮箱格式不正确'
+  if (!account) errors.email = '请输入账号（邮箱或用户名）'
 
   if (!password) errors.password = '请输入密码'
   else if (password.length < 6) errors.password = '密码至少 6 位'
@@ -138,6 +136,7 @@ const validate = () => {
 const handleSubmit = () => {
   if (!validate() || props.loading) return
   emit('submit', {
+    account: form.email,
     email: form.email,
     password: form.password
   })

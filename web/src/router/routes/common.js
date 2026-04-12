@@ -1,51 +1,53 @@
-import { defineAsyncComponent } from 'vue'
+import { defineAsyncComponent } from "vue";
 
-const Login = defineAsyncComponent(() => import('../../views/Login.vue'))
-const Forbidden = defineAsyncComponent(() => import('../../views/Forbidden.vue'))
+const Login = defineAsyncComponent(() => import("../../views/Login.vue"));
+const Forbidden = defineAsyncComponent(
+  () => import("../../views/Forbidden.vue"),
+);
 
 const publicMeta = {
   requiresAuth: false,
-  roles: ['public']
-}
+  roles: ["public"],
+};
 
 export const commonRoutes = [
   {
-    path: '/',
-    redirect: '/student/login',
-    meta: publicMeta
+    path: "/",
+    redirect: "/student/login",
+    meta: publicMeta,
   },
   {
-    path: '/student/login',
-    name: 'StudentLogin',
+    path: "/student/login",
+    name: "StudentLogin",
     component: Login,
-    meta: publicMeta
+    meta: publicMeta,
   },
   {
-    path: '/enterprise/login',
-    name: 'EnterpriseLogin',
+    path: "/enterprise/login",
+    name: "EnterpriseLogin",
     component: Login,
-    meta: publicMeta
+    meta: publicMeta,
   },
   {
-    path: '/university/login',
-    name: 'UniversityLogin',
+    path: "/university/login",
+    name: "UniversityLogin",
     component: Login,
-    meta: publicMeta
+    meta: publicMeta,
   },
   {
-    path: '/403',
-    name: 'Forbidden',
+    path: "/403",
+    name: "Forbidden",
     component: Forbidden,
-    meta: publicMeta
+    meta: publicMeta,
   },
   {
-    path: '/login',
-    redirect: '/student/login',
-    meta: publicMeta
+    path: "/login",
+    redirect: "/student/login",
+    meta: publicMeta,
   },
   {
-    path: '/dashboard',
-    redirect: '/student/dashboard',
-    meta: publicMeta
-  }
-]
+    path: "/dashboard",
+    redirect: "/student/dashboard",
+    meta: publicMeta,
+  },
+];

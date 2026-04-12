@@ -9,6 +9,9 @@ var aiService aidomain.AIFacade
 var resumeService service.ResumeService
 var practiceService service.PracticeService
 
+// 平台瘦身后仅保留学生核心模块依赖。
+// Enterprise/University 相关 Handler 不再通过此处注入初始化。
+
 func SetAIService(svc aidomain.AIFacade) {
 	aiService = svc
 }

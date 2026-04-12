@@ -51,7 +51,7 @@
           <span v-else>{{ userInitials }}</span>
         </div>
         <div class="flex flex-col">
-          <span class="text-sm font-medium text-zinc-900 md:group-hover:text-indigo-600 transition-colors">{{ userStore.userInfo?.username || 'Guest' }}</span>
+          <span class="text-sm font-medium text-zinc-900 md:group-hover:text-indigo-600 transition-colors">{{ displayName }}</span>
           <span class="text-xs text-zinc-400">求职者</span>
         </div>
       </router-link>
@@ -95,8 +95,18 @@ const handleNavigate = () => {
 }
 
 const userInitials = computed(() => {
-  const name = userStore.userInfo?.username || 'G'
+  const name = displayName.value || 'G'
   return name.substring(0, 2).toUpperCase()
+})
+
+const displayName = computed(() => {
+  const username = String(userStore.userInfo?.username || '').trim()
+  if (username) return username
+  const email = String(userStore.userInfo?.email || '').trim()
+  if (email) return email.split('@')[0] || email
+  const id = userStore.userInfo?.id
+  if (id) return `用户#${id}`
+  return 'Guest'
 })
 
 const avatarUrl = computed(() => {
