@@ -83,7 +83,16 @@ Gin + JWT]
 - Go 1.25+
 - Docker + Docker Compose
 
-### 1) 运行 Web 端（开发）
+### 1) 重置演示数据环境（推荐先执行）
+
+```bash
+cd server
+go run ./tools/create_accounts
+```
+
+说明：该工具会清理并重建演示数据（学生/企业/高校账号、岗位、题库、社区样例内容）。
+
+### 2) 运行 Web 端（开发）
 
 ```bash
 cd web
@@ -93,7 +102,7 @@ npm run dev:web
 
 默认会启动 Vite 开发服务，打开终端提示地址即可访问。
 
-### 2) 运行 Electron 客户端（开发）
+### 3) 运行 Electron 客户端（开发）
 
 ```bash
 cd web
@@ -101,7 +110,7 @@ npm install
 npm run dev:desktop
 ```
 
-### 3) 打包 Electron 客户端（Windows .exe）
+### 4) 打包 Electron 客户端（Windows .exe）
 
 ```bash
 cd web
@@ -110,7 +119,7 @@ npm run dist:win
 
 产物目录：`web/release/`
 
-### 4) Docker Compose 一键启动服务端（推荐部署方式）
+### 5) Docker Compose 一键启动服务端（推荐部署方式）
 
 ```bash
 cp .env.example .env
@@ -131,6 +140,24 @@ docker compose ps
 docker compose logs -f backend
 docker compose logs -f frontend
 ```
+
+## 👤 演示账号
+
+统一密码：`123456`
+
+- 学生端
+  - `student01@test.com`
+  - `student02@test.com`
+  - `student03@test.com`
+  - `student04@test.com`
+  - `student05@test.com`
+- 企业端
+  - `enterprise01@test.com`
+  - `enterprise02@test.com`
+  - `enterprise03@test.com`
+- 高校端
+  - `university01@test.com`
+  - `university02@test.com`
 
 ## 📦 客户端下载
 

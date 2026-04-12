@@ -91,30 +91,15 @@ export const portalNavMap = {
   ],
   enterprise: [
     {
-      name: "\u4f01\u4e1a\u603b\u89c8",
-      href: "/enterprise/dashboard",
-      icon: Building2,
-    },
-    {
-      name: "\u9762\u8bd5\u5de5\u4f5c\u53f0",
-      href: "/enterprise/interview-workbench",
-      icon: ClipboardList,
-    },
-    { name: "\u4eba\u624d\u6c60", href: "/enterprise/talent", icon: UserCheck },
-    {
       name: "\u5c97\u4f4d\u7ba1\u7406",
       href: "/enterprise/jobs",
       icon: Briefcase,
     },
+    { name: "\u4eba\u624d\u6c60", href: "/enterprise/talent", icon: UserCheck },
     {
       name: "HR \u9762\u8bd5\u53f0",
       href: "/enterprise/hr-panel",
       icon: Video,
-    },
-    {
-      name: "\u6570\u636e\u5206\u6790",
-      href: "/enterprise/analytics",
-      icon: BarChart3,
     },
     {
       name: "\u6807\u51c6\u5171\u5efa",
@@ -124,19 +109,14 @@ export const portalNavMap = {
   ],
   university: [
     {
-      name: "\u7ba1\u7406\u603b\u89c8",
-      href: "/university/dashboard",
-      icon: GraduationCap,
-    },
-    {
-      name: "\u9762\u8bd5\u5de5\u4f5c\u53f0",
-      href: "/university/interview-workbench",
-      icon: ClipboardList,
-    },
-    {
       name: "\u5b66\u751f\u8ddf\u8e2a",
       href: "/university/tracking",
       icon: Target,
+    },
+    {
+      name: "\u4eba\u624d\u63a8\u9001",
+      href: "/university/talent-push",
+      icon: Send,
     },
     {
       name: "\u5e2e\u6276\u4f53\u7cfb",
@@ -152,11 +132,6 @@ export const portalNavMap = {
       name: "\u5c31\u4e1a\u6570\u636e",
       href: "/university/employment",
       icon: BarChart3,
-    },
-    {
-      name: "\u4eba\u624d\u63a8\u9001",
-      href: "/university/talent-push",
-      icon: Send,
     },
   ],
 };
@@ -211,6 +186,16 @@ export const portalTopNavMap = {
       icon: ClipboardList,
     },
     {
+      name: "岗位管理",
+      href: "/enterprise/jobs",
+      icon: Briefcase,
+    },
+    {
+      name: "人才池",
+      href: "/enterprise/talent",
+      icon: UserCheck,
+    },
+    {
       name: "数据分析",
       href: "/enterprise/analytics",
       icon: BarChart3,
@@ -227,6 +212,16 @@ export const portalTopNavMap = {
       name: "面试工作台",
       href: "/university/interview-workbench",
       icon: ClipboardList,
+    },
+    {
+      name: "学生跟踪",
+      href: "/university/tracking",
+      icon: Target,
+    },
+    {
+      name: "人才推送",
+      href: "/university/talent-push",
+      icon: Send,
     },
     {
       name: "就业数据",

@@ -76,7 +76,20 @@ func (r *GormPositionRepository) UpsertDefaults(defaults []model.JobPosition) er
 }
 
 func (r *GormPositionRepository) EnsureDefaults() error {
-	return r.UpsertDefaults(model.DefaultJobPositions)
+	defaults := append([]model.JobPosition{}, model.DefaultJobPositions...)
+	defaults = append(defaults,
+		model.JobPosition{Code: "go_backend", Name: "Go后端工程师", Domain: "backend", Description: "高并发后端服务开发", IsActive: true},
+		model.JobPosition{Code: "python_backend", Name: "Python后端工程师", Domain: "backend", Description: "数据与服务端应用开发", IsActive: true},
+		model.JobPosition{Code: "fullstack", Name: "全栈工程师", Domain: "frontend", Description: "前后端协同开发", IsActive: true},
+		model.JobPosition{Code: "ios", Name: "iOS开发工程师", Domain: "mobile", Description: "iOS客户端开发", IsActive: true},
+		model.JobPosition{Code: "android", Name: "Android开发工程师", Domain: "mobile", Description: "Android客户端开发", IsActive: true},
+		model.JobPosition{Code: "devops", Name: "DevOps工程师", Domain: "infrastructure", Description: "发布与运维自动化", IsActive: true},
+		model.JobPosition{Code: "data_engineer", Name: "数据工程师", Domain: "data", Description: "数据链路与数据平台建设", IsActive: true},
+		model.JobPosition{Code: "test_engineer", Name: "测试开发工程师", Domain: "qa", Description: "质量保障与自动化测试", IsActive: true},
+		model.JobPosition{Code: "product_manager", Name: "产品经理", Domain: "product", Description: "产品规划与需求管理", IsActive: true},
+		model.JobPosition{Code: "uiux_designer", Name: "UI/UX设计师", Domain: "design", Description: "交互与视觉体验设计", IsActive: true},
+	)
+	return r.UpsertDefaults(defaults)
 }
 
 func (r *GormPositionRepository) Update(position *model.JobPosition) error {

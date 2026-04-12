@@ -50,7 +50,7 @@
             <div v-if="showDropdown" class="absolute right-0 top-12 z-50 w-56 rounded-2xl border border-zinc-100 bg-white py-2 shadow-xl">
               <div class="border-b border-zinc-100 px-4 py-3">
                 <div class="text-sm font-medium text-zinc-900">{{ displayName }}</div>
-                <div class="text-xs text-zinc-400">{{ userStore.userInfo?.email || '' }}</div>
+                <div class="text-xs text-zinc-400">{{ displayEmail }}</div>
               </div>
               <router-link
                 :to="settingsPath"
@@ -102,13 +102,24 @@ const settingsPath = computed(() => '/' + currentPortal.value + '/settings')
 const menuActiveClass = computed(() => portalConfig.value.activeBg + ' ' + portalConfig.value.activeText)
 
 const displayName = computed(() => {
-  const username = String(userStore.userInfo?.username || '').trim()
+  if (!userStore.userInfoLoaded || !userStore.userInfo) {
+    return '加载中...'
+  }
+
+  const username = String(userStore.userInfo.username || '').trim()
   if (username) return username
-  const email = String(userStore.userInfo?.email || '').trim()
+
+  const email = String(userStore.userInfo.email || '').trim()
   if (email) return email.split('@')[0] || email
-  const id = userStore.userInfo?.id
+
+  const id = userStore.userInfo.id
   if (id) return `用户#${id}`
-  return 'Guest'
+  return '未命名用户'
+})
+
+const displayEmail = computed(() => {
+  if (!userStore.userInfoLoaded || !userStore.userInfo) return '加载中...'
+  return String(userStore.userInfo.email || '').trim()
 })
 
 const userInitials = computed(() => {
