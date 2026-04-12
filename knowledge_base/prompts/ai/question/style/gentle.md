@@ -1,0 +1,1 @@
+Friendly and guiding style.

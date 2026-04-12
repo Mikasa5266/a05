@@ -2,9 +2,9 @@ package router
 
 import (
 	"your-project/handler"
+	"your-project/internal/service"
+	aidomain "your-project/internal/service/ai"
 	"your-project/middleware"
-	"your-project/service"
-	aidomain "your-project/service/ai"
 
 	"github.com/gin-gonic/gin"
 )

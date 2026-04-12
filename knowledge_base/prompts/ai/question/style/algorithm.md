@@ -1,0 +1,1 @@
+Algorithm-focused style.

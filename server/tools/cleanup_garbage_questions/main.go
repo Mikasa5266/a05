@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	"your-project/config"
-	"your-project/model"
-	"your-project/repository"
-	aidomain "your-project/service/ai"
+	"your-project/internal/model"
+	"your-project/internal/repository"
+	aidomain "your-project/internal/service/ai"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -209,7 +209,7 @@ func likelyGarbageQuestion(q model.Question) bool {
 		return true
 	}
 	lower := strings.ToLower(all)
-	generic := []string{"继续说", "再说一下", "展开说说", "补充一下", "还有吗", "请继续"}
+	generic := []string{"继续", "再说一次", "展开说说", "补充一下", "还有吗", "请继续"}
 	for _, g := range generic {
 		if strings.Contains(lower, g) && len([]rune(q.Content)) < 18 {
 			return true

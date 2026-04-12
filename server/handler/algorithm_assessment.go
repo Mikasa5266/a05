@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"your-project/service"
+	"your-project/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -48,7 +48,7 @@ func buildAlgorithmProblemsByDifficulty(difficulty string) []algorithmProblem {
 				Prompt:          "给定 n 个点和带权无向边，返回 1 到 n 的最短路径长度；若有多条最短路径，返回其中边数最少的一条。",
 				Level:           "hard",
 				Tags:            []string{"图论", "Dijkstra", "最短路"},
-				MethodHint:      "Dijkstra + 状态维护",
+				MethodHint:      "Dijkstra + 状态维度",
 				RequirementHint: "时间复杂度 O((n+m)logn)",
 				TestCaseCount:   6,
 				JudgeToken:      "priority_queue",
@@ -73,7 +73,7 @@ func buildAlgorithmProblemsByDifficulty(difficulty string) []algorithmProblem {
 		{
 			ID:              "alg-mid-1",
 			Title:           "两数之和 II",
-			Prompt:          "给定有序数组 nums 和目标值 target，返回两个下标使 nums[i] + nums[j] = target。",
+			Prompt:          "给定有序数组 nums 和目标 target，返回两个下标使 nums[i] + nums[j] = target。",
 			Level:           "easy",
 			Tags:            []string{"双指针", "数组"},
 			MethodHint:      "双指针",

@@ -1,8 +1,8 @@
 package handler
 
 import (
-	"your-project/service"
-	aidomain "your-project/service/ai"
+	"your-project/internal/service"
+	aidomain "your-project/internal/service/ai"
 )
 
 var aiService aidomain.AIFacade

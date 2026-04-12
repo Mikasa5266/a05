@@ -2,7 +2,7 @@ package handler
 
 import (
 	"net/http"
-	"your-project/repository"
+	"your-project/internal/repository"
 	"your-project/utils"
 
 	"github.com/gin-gonic/gin"

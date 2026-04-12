@@ -1,0 +1,1 @@
+Standard interview style.

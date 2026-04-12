@@ -1,17 +1,14 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
-import axios from 'axios'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { startStandardInterview as apiStartStandardInterview, startAlgorithmInterview as apiStartAlgorithmInterview, endInterview as apiEndInterview, getShadowCoachHint as apiGetShadowCoachHint, getInterviewConfig as apiGetInterviewConfig, revealRandomStyle as apiRevealRandomStyle, synthesizeInterviewSpeech as apiSynthesizeInterviewSpeech } from '../api/interview'
+import { ElMessage } from 'element-plus'
+import { startStandardInterview as apiStartStandardInterview, startAlgorithmInterview as apiStartAlgorithmInterview, endInterview as apiEndInterview, getShadowCoachHint as apiGetShadowCoachHint, getInterviewConfig as apiGetInterviewConfig, revealRandomStyle as apiRevealRandomStyle } from '../api/interview'
 import { generateReport as apiGenerateReport } from '../api/report'
 import InterviewContainer from '../components/InterviewContainer.vue'
-import { useMediaDevices } from '../composables/useMediaDevices'
 import { useInterviewConfig } from '../composables/useInterviewConfig'
 import { useInterviewChat } from '../composables/useInterviewChat'
-import { useBlindBox } from '../composables/useBlindBox'
-import { useInterviewRecording } from '../composables/useInterviewRecording'
+import { useInterviewCore } from '../composables/useInterviewCore'
 import { useInterviewStore } from '../stores/useInterviewStore'
 
 const route = useRoute()
@@ -55,8 +52,40 @@ const {
   toggleCamera,
   toggleMic,
   startCamera,
-  stopCamera
-} = useMediaDevices({
+  stopCamera,
+  blindBoxScenario,
+  blindBoxRevealing,
+  blindBoxRevealed,
+  questionTimeLimit,
+  questionTimer,
+  pressureLevel,
+  pressureColors,
+  pressureLabels,
+  drawBlindBox,
+  reDrawBlindBox,
+  startQuestionTimer,
+  stopQuestionTimer,
+  recordingStatus,
+  startInterviewRecording,
+  stopAndUploadInterviewRecording,
+  isAvatarSpeaking,
+  stopAISpeech,
+  speakAIText,
+  registerManagedTimeout,
+  initLoadingStageText,
+  initLoadingStageIndex,
+  initLoadingElapsedSeconds,
+  initLoadingStageTotal,
+  startInterviewInitLoadingFlow,
+  stopInterviewInitLoadingFlow,
+  markInterviewInitReady,
+  isInterviewInitTimeoutError,
+  showInterviewInitTimeoutDialog,
+  cleanupInterviewCore,
+  bindProcessingState
+} = useInterviewCore({
+  settings,
+  interviewId,
   getAdditionalStreams: () => getChatAdditionalStreams(),
   onCameraStopped: () => {
     stopChatSpeechAnalysis()
@@ -70,35 +99,6 @@ const isSubmitting = ref(false)
 const isFinishing = ref(false)
 const reportNavigationLocked = ref(false)
 const finishLoadingText = '正在为您深度生成面试报告与多维评分，请耐心等待...'
-const isAvatarSpeaking = ref(false)
-let currentSpeechAudio = null
-
-const {
-  blindBoxScenario,
-  blindBoxRevealing,
-  blindBoxRevealed,
-  questionTimeLimit,
-  questionTimer,
-  pressureLevel,
-  pressureColors,
-  pressureLabels,
-  drawBlindBox,
-  reDrawBlindBox,
-  startQuestionTimer,
-  stopQuestionTimer
-} = useBlindBox()
-
-const {
-  recordingStatus,
-  startInterviewRecording,
-  stopAndUploadInterviewRecording,
-  cleanupInterviewRecording
-} = useInterviewRecording({
-  interviewId,
-  settings,
-  stream,
-  isMicOn
-})
 
 const {
   messages,
@@ -149,6 +149,10 @@ const {
 
 getChatAdditionalStreams = getAdditionalStreams
 stopChatSpeechAnalysis = stopSpeechAnalysis
+bindProcessingState({
+  isProcessing,
+  processingHint
+})
 
 const isAlgorithmStyle = computed(() => settings.value.style === 'algorithm')
 const setupType = computed(() => route.path.includes('/interview/algorithm/setup') ? 'algorithm' : 'standard')
@@ -188,44 +192,8 @@ const revealedStyleInfo = ref(null)
 const modelViewerReady = ref(false)
 const mockInterviewRootRef = ref(null)
 
-const managedTimeouts = new Set()
 let modelViewerScript = null
 let modelViewerLoadListener = null
-let initLoadingStageTimer = null
-let initLoadingElapsedTimer = null
-
-const interviewInitStageTexts = [
-  '正在分析您的岗位需求...',
-  '正在从题库匹配核心考察点...',
-  'AI 面试官正在生成专属考题...'
-]
-const interviewInitReadyText = '准备就绪！'
-const initLoadingStageText = ref('')
-const initLoadingStageIndex = ref(0)
-const initLoadingElapsedSeconds = ref(0)
-
-const registerManagedTimeout = (callback, delay) => {
-  const timer = window.setTimeout(() => {
-    managedTimeouts.delete(timer)
-    try {
-      const maybePromise = callback()
-      if (maybePromise && typeof maybePromise.then === 'function') {
-        maybePromise.catch((err) => {
-          console.error('Delayed task failed:', err)
-        })
-      }
-    } catch (err) {
-      console.error('Delayed task failed:', err)
-    }
-  }, delay)
-  managedTimeouts.add(timer)
-  return timer
-}
-
-const clearManagedTimeouts = () => {
-  managedTimeouts.forEach((timer) => window.clearTimeout(timer))
-  managedTimeouts.clear()
-}
 
 const detachModelViewerLoadListener = () => {
   if (modelViewerScript && modelViewerLoadListener) {
@@ -284,147 +252,6 @@ const ensureModelViewerScript = () => {
     detachModelViewerLoadListener()
   }
   document.head.appendChild(script)
-}
-
-const stopAISpeech = () => {
-  if (currentSpeechAudio) {
-    currentSpeechAudio.pause()
-    currentSpeechAudio = null
-  }
-  isAvatarSpeaking.value = false
-}
-
-const clearInitLoadingTimers = () => {
-  if (initLoadingStageTimer) {
-    window.clearInterval(initLoadingStageTimer)
-    initLoadingStageTimer = null
-  }
-  if (initLoadingElapsedTimer) {
-    window.clearInterval(initLoadingElapsedTimer)
-    initLoadingElapsedTimer = null
-  }
-}
-
-const startInterviewInitLoadingFlow = () => {
-  clearInitLoadingTimers()
-  initLoadingStageIndex.value = 0
-  initLoadingElapsedSeconds.value = 0
-  initLoadingStageText.value = interviewInitStageTexts[0]
-  processingHint.value = interviewInitStageTexts[0]
-
-  initLoadingElapsedTimer = window.setInterval(() => {
-    initLoadingElapsedSeconds.value += 1
-  }, 1000)
-
-  initLoadingStageTimer = window.setInterval(() => {
-    if (!isProcessing.value) return
-    initLoadingStageIndex.value = (initLoadingStageIndex.value + 1) % interviewInitStageTexts.length
-    const nextStage = interviewInitStageTexts[initLoadingStageIndex.value]
-    initLoadingStageText.value = nextStage
-    processingHint.value = nextStage
-  }, 4000)
-}
-
-const stopInterviewInitLoadingFlow = () => {
-  clearInitLoadingTimers()
-  initLoadingStageText.value = ''
-  initLoadingStageIndex.value = 0
-  initLoadingElapsedSeconds.value = 0
-}
-
-const markInterviewInitReady = async () => {
-  clearInitLoadingTimers()
-  initLoadingStageIndex.value = interviewInitStageTexts.length
-  initLoadingStageText.value = interviewInitReadyText
-  processingHint.value = interviewInitReadyText
-  await new Promise((resolve) => {
-    registerManagedTimeout(resolve, 520)
-  })
-}
-
-const isInterviewInitTimeoutError = (error) => {
-  if (!axios.isAxiosError(error)) {
-    return false
-  }
-  const status = Number(error?.response?.status || 0)
-  const code = String(error?.code || '').toUpperCase()
-  const message = String(error?.message || '').toLowerCase()
-  return status === 504 || code === 'ECONNABORTED' || code === 'ETIMEDOUT' || message.includes('timeout') || message.includes('超时')
-}
-
-const showInterviewInitTimeoutDialog = async () => {
-  try {
-    await ElMessageBox.confirm(
-      '当前面试初始化耗时较长，可能是 AI 服务排队或网络波动。你可以立即重试，系统会保留刚才的配置。',
-      '启动超时',
-      {
-        type: 'warning',
-        confirmButtonText: '立即重试',
-        cancelButtonText: '稍后再试',
-        closeOnClickModal: false,
-        distinguishCancelAndClose: true
-      }
-    )
-    return true
-  } catch {
-    return false
-  }
-}
-
-const speakAIText = async (text) => {
-  if (settings.value.interviewMode === 'human') return
-  if (settings.value.presentationMode !== 'video_avatar') return
-  if (!interviewId.value || !text) return
-
-  try {
-    const res = await apiSynthesizeInterviewSpeech(interviewId.value, { text })
-    if (!res?.audio_base64) return
-    stopAISpeech()
-    const audio = new Audio(`data:audio/mpeg;base64,${res.audio_base64}`)
-    currentSpeechAudio = audio
-    isAvatarSpeaking.value = true
-    audio.onended = () => {
-      isAvatarSpeaking.value = false
-      currentSpeechAudio = null
-    }
-    audio.onerror = () => {
-      isAvatarSpeaking.value = false
-      currentSpeechAudio = null
-    }
-    await audio.play()
-  } catch (err) {
-    isAvatarSpeaking.value = false
-    console.warn('TTS playback failed:', err)
-  }
-}
-
-const setPresentationMode = async (mode) => {
-  if (mode === 'video_avatar' && settings.value.interviewMode === 'human') {
-    settings.value.presentationMode = 'text_voice'
-    stopAISpeech()
-    stopCamera()
-    ElMessage.warning('真人面试模式不展示 AI 虚拟面试官，请使用文字语音模式或进入实时面试间')
-    return
-  }
-
-  settings.value.presentationMode = mode
-  if (mode === 'video_avatar') {
-    await startCamera()
-    return
-  }
-  stopAISpeech()
-  stopCamera()
-}
-
-const setInterviewMode = (mode) => {
-  settings.value.interviewMode = mode
-  if (mode === 'human') {
-    if (settings.value.presentationMode === 'video_avatar') {
-      settings.value.presentationMode = 'text_voice'
-      stopAISpeech()
-      stopCamera()
-    }
-  }
 }
 
 // Interview Logic
@@ -878,7 +705,7 @@ const setupProps = computed(() => ({
   isProcessing: isProcessing.value,
   initLoadingStageText: initLoadingStageText.value,
   initLoadingStageIndex: initLoadingStageIndex.value,
-  initLoadingStageTotal: interviewInitStageTexts.length + 1,
+  initLoadingStageTotal: initLoadingStageTotal.value,
   initLoadingElapsedSeconds: initLoadingElapsedSeconds.value
 }))
 
@@ -952,8 +779,7 @@ const cleanupInterviewPageSideEffects = () => {
   isSubmitting.value = false
   isFinishing.value = false
   reportNavigationLocked.value = false
-  clearManagedTimeouts()
-  clearInitLoadingTimers()
+  cleanupInterviewCore()
   detachModelViewerLoadListener()
   destroyModelViewerInstances()
 
@@ -961,11 +787,7 @@ const cleanupInterviewPageSideEffects = () => {
     document.body.style.overflow = ''
   }
 
-  cleanupInterviewRecording()
   cleanupInterviewChat()
-  stopQuestionTimer()
-  stopAISpeech()
-  stopCamera()
   cleanupStoreTimers()
 }
 

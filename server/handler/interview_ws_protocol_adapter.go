@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	ws "your-project/pkg/websocket"
-	"your-project/service"
+	"your-project/internal/service"
 
 	"github.com/gin-gonic/gin"
 )

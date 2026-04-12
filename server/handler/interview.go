@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"your-project/service"
+	"your-project/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -705,7 +705,7 @@ func SubmitHumanFeedback(c *gin.Context) {
 	}
 
 	if req.Score < 0 || req.Score > 100 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "评分范围为0-100"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "评分范围 0-100"})
 		return
 	}
 
@@ -761,7 +761,7 @@ func GetInterviewConfig(c *gin.Context) {
 		"modes": []gin.H{
 			{"key": "technical", "label": "技术面", "description": "纯技术能力考察，涵盖编程、算法、系统设计"},
 			{"key": "hr", "label": "HR面", "description": "软实力与职业素养考察，沟通表达、职业规划、团队协作"},
-			{"key": "comprehensive", "label": "综合面", "description": "技术+HR联合面试，模拟企业终面"},
+			{"key": "comprehensive", "label": "综合面", "description": "技术+HR 联合面试，模拟企业终面"},
 		},
 		"styles": []gin.H{
 			{"key": "gentle", "label": "温和型", "description": "友好引导型面试官，鼓励自由表达"},
@@ -772,9 +772,9 @@ func GetInterviewConfig(c *gin.Context) {
 		},
 		"companies": []gin.H{
 			{"key": "", "label": "不限", "description": "通用面试风格"},
-			{"key": "ali", "label": "阿里巴巴", "description": "重系统设计与业务思考"},
+			{"key": "ali", "label": "阿里巴巴", "description": "重系统设计与业务思维"},
 			{"key": "bytedance", "label": "字节跳动", "description": "极致深挖，快节奏面试"},
-			{"key": "tencent", "label": "腾讯", "description": "轻松但有深度，重技术品味"},
+			{"key": "tencent", "label": "腾讯", "description": "轻松但有深度，重技术品质"},
 			{"key": "meituan", "label": "美团", "description": "务实导向，重实战经验"},
 			{"key": "baidu", "label": "百度", "description": "重基础功底，算法与工程规范"},
 		},
@@ -784,7 +784,7 @@ func GetInterviewConfig(c *gin.Context) {
 			{"key": "social_junior", "label": "社招初级", "description": "适合1-3年经验，要求实战能力"},
 		},
 		"interview_modes": []gin.H{
-			{"key": "ai", "label": "AI仿真面试官", "icon": "🤖", "description": "AI模拟真实面试官进行面试"},
+			{"key": "ai", "label": "AI仿真面试", "icon": "🤖", "description": "AI 模拟真实面试官进行面试"},
 			{"key": "human", "label": "真人面试", "icon": "👤", "description": "邀请学校端/企业端账号参与模拟面试"},
 			{"key": "random", "label": "随机模式", "icon": "🎲", "description": "系统随机分配面试风格，不提前告知"},
 		},

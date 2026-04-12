@@ -5,8 +5,8 @@ import (
 	"log"
 
 	"your-project/config"
-	"your-project/model"
-	"your-project/repository"
+	"your-project/internal/model"
+	"your-project/internal/repository"
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/mysql"

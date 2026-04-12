@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"your-project/model"
-	"your-project/repository"
-	"your-project/service"
+	"your-project/internal/model"
+	"your-project/internal/repository"
+	"your-project/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -389,9 +389,9 @@ func GetMentors(c *gin.Context) {
 	// Return top users who have completed many interviews as potential mentors
 	c.JSON(http.StatusOK, gin.H{
 		"mentors": []gin.H{
-			{"id": 1, "name": "张学长", "company": "字节跳动", "position": "高级工程师", "avatar": ""},
-			{"id": 2, "name": "李学姐", "company": "阿里巴巴", "position": "产品经理", "avatar": ""},
-			{"id": 3, "name": "王学长", "company": "腾讯", "position": "算法工程师", "avatar": ""},
+			{"id": 1, "name": "张同学", "company": "字节跳动", "position": "高级工程师", "avatar": ""},
+			{"id": 2, "name": "李同学", "company": "阿里巴巴", "position": "产品经理", "avatar": ""},
+			{"id": 3, "name": "王同学", "company": "腾讯", "position": "算法工程师", "avatar": ""},
 		},
 	})
 }

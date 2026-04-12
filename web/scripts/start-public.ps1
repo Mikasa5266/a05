@@ -72,7 +72,7 @@ $repoRoot = (Resolve-Path (Join-Path $projectRoot '..')).Path
 
 # 0) Ensure backend is running, otherwise login and API calls will return proxy 500.
 if (-not (Test-PortListening -Port 8082)) {
-  $backendCmd = "Set-Location '$repoRoot\\server'; go run main.go"
+  $backendCmd = "Set-Location '$repoRoot\\server'; go run ./cmd/server"
   Start-Process powershell -ArgumentList @('-NoExit', '-Command', $backendCmd)
   if (Wait-PortListening -Port 8082 -TimeoutSeconds 30) {
     Write-Host "Backend started on 8082."

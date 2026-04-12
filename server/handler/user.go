@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"your-project/internal/service"
 	"your-project/middleware"
-	"your-project/service"
 
 	"github.com/gin-gonic/gin"
 )

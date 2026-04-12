@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"your-project/model"
-	"your-project/repository"
+	"your-project/internal/model"
+	"your-project/internal/repository"
 
 	"github.com/gin-gonic/gin"
 )
@@ -128,7 +128,7 @@ func RecommendCourse(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "课程已推荐"})
+	c.JSON(http.StatusOK, gin.H{"message": "课程已推送"})
 }
 
 // ===== Courses =====

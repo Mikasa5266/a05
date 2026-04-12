@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"your-project/model"
-	"your-project/repository"
+	"your-project/internal/model"
+	"your-project/internal/repository"
 
 	"github.com/gin-gonic/gin"
 )

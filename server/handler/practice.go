@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"your-project/service"
+	"your-project/internal/service"
 
 	"github.com/gin-gonic/gin"
 )

@@ -11,8 +11,8 @@ import (
 	"unicode"
 
 	"your-project/config"
-	"your-project/model"
-	"your-project/repository"
+	"your-project/internal/model"
+	"your-project/internal/repository"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -178,25 +178,25 @@ func repairQuestionText(q model.Question) (title, content, expected string, reas
 	}
 
 	if strings.Contains(strings.ToLower(content), "please explain") && strings.Contains(strings.ToLower(content), "concept") {
-		content = fmt.Sprintf("请系统说明%s的概念、运行机制及典型应用场景。", topic)
+		content = fmt.Sprintf("请系统说明 %s 的概念、运行机制及典型应用场景。", topic)
 		addReason("english_opening_content_template")
 	}
 	if strings.Contains(strings.ToLower(content), "thread safety") {
-		content = fmt.Sprintf("请系统说明%s的概念、运行机制、线程安全与性能取舍。", topic)
+		content = fmt.Sprintf("请系统说明 %s 的概念、运行机制、线程安全与性能取舍。", topic)
 		addReason("english_thread_safety_template")
 	}
 	if strings.Contains(strings.ToLower(content), "level question") {
-		content = fmt.Sprintf("请结合%s岗位要求，系统说明你的思路、关键实现与工程取舍。", topic)
+		content = fmt.Sprintf("请结合 %s 岗位要求，系统说明你的思路、关键实现与工程取舍。", topic)
 		addReason("english_level_content_template")
 	}
 
 	if looksLikeExpectedEnglishTemplate(expected) {
-		expected = fmt.Sprintf("回答应覆盖%s的定义、实现机制、边界条件与技术取舍。", topic)
+		expected = fmt.Sprintf("回答应覆盖 %s 的定义、实现机制、边界条件与技术取舍。", topic)
 		addReason("english_expected_template")
 	}
 
 	if strings.Contains(strings.ToLower(title), "level question") {
-		title = fmt.Sprintf("%s岗位技术问题", topic)
+		title = fmt.Sprintf("%s 岗位技术问题", topic)
 		addReason("english_level_title_template")
 	}
 
@@ -301,9 +301,9 @@ func fallbackContent(topic string) string {
 		t = "该岗位"
 	}
 	if strings.Contains(t, "岗位") || strings.Contains(t, "方向") {
-		return fmt.Sprintf("请结合%s，系统说明你的思路、关键实现与工程取舍。", t)
+		return fmt.Sprintf("请结合 %s，系统说明你的思路、关键实现与工程取舍。", t)
 	}
-	return fmt.Sprintf("请结合%s岗位要求，系统说明你的思路、关键实现与工程取舍。", t)
+	return fmt.Sprintf("请结合 %s 岗位要求，系统说明你的思路、关键实现与工程取舍。", t)
 }
 
 func fallbackExpected(topic string) string {
@@ -311,7 +311,7 @@ func fallbackExpected(topic string) string {
 	if t == "" {
 		t = "该技术方向"
 	}
-	return fmt.Sprintf("回答应覆盖%s的核心原理、实现步骤、关键细节与风险边界。", t)
+	return fmt.Sprintf("回答应覆盖 %s 的核心原理、实现步骤、关键细节与风险边界。", t)
 }
 
 func shouldRewriteToChinese(text string, ratio float64) bool {
