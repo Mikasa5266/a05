@@ -1,14 +1,14 @@
 <template>
   <div class="max-w-2xl mx-auto space-y-8">
     <header>
-      <h1 class="text-3xl font-bold tracking-tight text-zinc-900 dark:text-white">设置</h1>
+      <h1 class="text-3xl font-bold tracking-tight text-zinc-900">设置</h1>
       <p class="text-zinc-500 mt-2">管理您的账户偏好与应用设置</p>
     </header>
 
-    <div class="bg-white dark:bg-zinc-800 rounded-3xl shadow-sm border border-zinc-100 dark:border-zinc-700 overflow-hidden divide-y divide-zinc-100 dark:divide-zinc-700">
+    <div class="bg-white rounded-3xl shadow-sm border border-zinc-100 overflow-hidden divide-y divide-zinc-100">
       <!-- Profile Section -->
       <div class="p-8">
-        <h2 class="text-lg font-bold text-zinc-900 dark:text-white mb-4 flex items-center gap-2">
+        <h2 class="text-lg font-bold text-zinc-900 mb-4 flex items-center gap-2">
           <User class="h-5 w-5 text-indigo-600" />
           个人资料
         </h2>
@@ -16,15 +16,19 @@
           <div class="flex items-center gap-4">
             <div class="h-16 w-16 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xl overflow-hidden">
               <img v-if="userStore.userInfo?.avatar" :src="avatarUrl" class="w-full h-full object-cover" />
-              <span v-else>{{ userStore.userInfo?.username ? userStore.userInfo.username.charAt(0).toUpperCase() : 'U' }}</span>
+              <span v-else>{{ userInitial }}</span>
             </div>
             <div>
-              <div class="font-medium text-zinc-900 dark:text-white">{{ userStore.userInfo?.username || 'User' }}</div>
-              <div class="text-sm text-zinc-500">{{ userStore.userInfo?.email || 'user@example.com' }}</div>
+              <div class="font-medium text-zinc-900">{{ displayName }}</div>
+              <div class="text-sm text-zinc-500">{{ displayEmail }}</div>
             </div>
             <input type="file" ref="fileInput" class="hidden" accept="image/*" @change="handleFileChange" />
-            <button @click="triggerFileInput" class="ml-auto text-sm text-indigo-600 font-medium hover:underline">
-              更换头像
+            <button
+              @click="triggerFileInput"
+              class="ml-auto text-sm text-indigo-600 font-medium hover:underline disabled:text-zinc-400 disabled:no-underline"
+              :disabled="profileSyncing || avatarUploading"
+            >
+              {{ avatarUploading ? '上传中...' : '更换头像' }}
             </button>
           </div>
         </div>
@@ -32,60 +36,45 @@
 
       <!-- App Settings -->
       <div class="p-8">
-        <h2 class="text-lg font-bold text-zinc-900 dark:text-white mb-4 flex items-center gap-2">
+        <h2 class="text-lg font-bold text-zinc-900 mb-4 flex items-center gap-2">
           <SettingsIcon class="h-5 w-5 text-indigo-600" />
           应用偏好
         </h2>
         <div class="space-y-6">
-          <div class="flex items-center justify-between">
-            <div>
-              <div class="font-medium text-zinc-900 dark:text-white">深色模式</div>
-              <div class="text-sm text-zinc-500">启用暗黑主题界面</div>
-            </div>
-            <button 
-              class="w-12 h-6 rounded-full bg-zinc-200 dark:bg-zinc-600 relative transition-colors"
-              :class="{ 'bg-indigo-600': isDarkMode }"
-              @click="toggleDarkMode"
-            >
-              <div 
-                class="absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform"
-                :class="{ 'translate-x-6': isDarkMode }"
-              ></div>
-            </button>
-          </div>
-
           <div class="flex items-center justify-between opacity-50 cursor-not-allowed" title="暂未开放">
             <div>
-              <div class="font-medium text-zinc-900 dark:text-white">面试音效</div>
+              <div class="font-medium text-zinc-900">面试音效</div>
               <div class="text-sm text-zinc-500">播放 AI 语音反馈</div>
             </div>
-            <button 
+            <button
               class="w-12 h-6 rounded-full bg-indigo-600 relative transition-colors"
               disabled
             >
               <div class="absolute top-1 left-1 bg-white w-4 h-4 rounded-full translate-x-6"></div>
             </button>
           </div>
+
+          <p class="text-xs text-zinc-400">主题切换已移除，当前版本统一使用全局主题，避免页面间样式不一致。</p>
         </div>
       </div>
 
       <!-- Account Actions -->
-      <div class="p-8 bg-zinc-50 dark:bg-zinc-900/50">
-        <h2 class="text-lg font-bold text-zinc-900 dark:text-white mb-4 flex items-center gap-2">
+      <div class="p-8 bg-zinc-50">
+        <h2 class="text-lg font-bold text-zinc-900 mb-4 flex items-center gap-2">
           <Shield class="h-5 w-5 text-indigo-600" />
           账户安全
         </h2>
         <div class="space-y-4">
-          <button 
+          <button
             @click="showPasswordModal = true"
-            class="w-full text-left px-4 py-3 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors"
+            class="w-full text-left px-4 py-3 bg-white border border-zinc-200 rounded-xl text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition-colors"
           >
             修改密码
           </button>
           
-          <button 
+          <button
             @click="handleLogout"
-            class="w-full text-left px-4 py-3 bg-white dark:bg-zinc-800 border border-rose-200 dark:border-rose-900/30 rounded-xl text-sm font-medium text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/10 transition-colors flex items-center justify-between group"
+            class="w-full text-left px-4 py-3 bg-white border border-rose-200 rounded-xl text-sm font-medium text-rose-600 hover:bg-rose-50 transition-colors flex items-center justify-between group"
           >
             <span>退出登录</span>
             <LogOut class="h-4 w-4 group-hover:translate-x-1 transition-transform" />
@@ -96,24 +85,24 @@
 
     <!-- Password Modal -->
     <div v-if="showPasswordModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-      <div class="bg-white dark:bg-zinc-800 rounded-2xl p-6 w-96 shadow-xl animate-in fade-in zoom-in duration-200">
-        <h3 class="text-lg font-bold mb-4 text-zinc-900 dark:text-white">修改密码</h3>
+      <div class="bg-white rounded-2xl p-6 w-96 shadow-xl animate-in fade-in zoom-in duration-200">
+        <h3 class="text-lg font-bold mb-4 text-zinc-900">修改密码</h3>
         <div class="space-y-4">
           <div>
             <label class="block text-xs font-medium text-zinc-500 mb-1">当前密码</label>
-            <input v-model="passwordForm.oldPassword" type="password" class="w-full px-4 py-2 border border-zinc-200 dark:border-zinc-700 rounded-lg bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all" />
+            <input v-model="passwordForm.oldPassword" type="password" class="w-full px-4 py-2 border border-zinc-200 rounded-lg bg-zinc-50 text-zinc-900 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all" />
           </div>
           <div>
             <label class="block text-xs font-medium text-zinc-500 mb-1">新密码</label>
-            <input v-model="passwordForm.newPassword" type="password" class="w-full px-4 py-2 border border-zinc-200 dark:border-zinc-700 rounded-lg bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all" />
+            <input v-model="passwordForm.newPassword" type="password" class="w-full px-4 py-2 border border-zinc-200 rounded-lg bg-zinc-50 text-zinc-900 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all" />
           </div>
           <div>
             <label class="block text-xs font-medium text-zinc-500 mb-1">确认新密码</label>
-            <input v-model="passwordForm.confirmPassword" type="password" class="w-full px-4 py-2 border border-zinc-200 dark:border-zinc-700 rounded-lg bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all" />
+            <input v-model="passwordForm.confirmPassword" type="password" class="w-full px-4 py-2 border border-zinc-200 rounded-lg bg-zinc-50 text-zinc-900 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all" />
           </div>
         </div>
         <div class="flex justify-end gap-3 mt-6">
-          <button @click="showPasswordModal = false" class="px-4 py-2 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-700 rounded-lg transition-colors">取消</button>
+          <button @click="showPasswordModal = false" class="px-4 py-2 text-zinc-500 hover:bg-zinc-100 rounded-lg transition-colors">取消</button>
           <button @click="handleUpdatePassword" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/20">保存</button>
         </div>
       </div>
@@ -122,7 +111,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { resolveRoleFromPath, useUserStore } from '../stores/user'
 import { getBackendAssetUrl } from '../utils/backend'
@@ -133,30 +122,67 @@ import { ElMessage } from 'element-plus'
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
-const isDarkMode = ref(document.documentElement.classList.contains('dark'))
 
 const fileInput = ref(null)
 const showPasswordModal = ref(false)
+const profileSyncing = ref(false)
+const avatarUploading = ref(false)
 const passwordForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
+
+const currentRole = computed(() => {
+  const role = resolveRoleFromPath(route.path)
+  return role || 'student'
+})
+
+const roleLabelMap = {
+  student: '学生用户',
+  enterprise: '企业用户',
+  university: '高校用户'
+}
+
+const displayName = computed(() => {
+  if (profileSyncing.value && !userStore.userInfo) return '正在同步账户信息'
+  const username = String(userStore.userInfo?.username || '').trim()
+  if (username) return username
+  const email = String(userStore.userInfo?.email || '').trim()
+  if (email) return email.split('@')[0] || email
+  const label = roleLabelMap[currentRole.value] || roleLabelMap.student
+  return label
+})
+
+const displayEmail = computed(() => {
+  if (profileSyncing.value && !userStore.userInfo) return '正在同步账户信息'
+  const email = String(userStore.userInfo?.email || '').trim()
+  return email || '未设置邮箱'
+})
+
+const userInitial = computed(() => {
+  const text = displayName.value || 'U'
+  return text.substring(0, 1).toUpperCase()
+})
 
 const avatarUrl = computed(() => {
   if (!userStore.userInfo?.avatar) return ''
   return getBackendAssetUrl(userStore.userInfo.avatar)
 })
 
-const toggleDarkMode = () => {
-  isDarkMode.value = !isDarkMode.value
-  if (isDarkMode.value) {
-    document.documentElement.classList.add('dark')
-    localStorage.setItem('theme', 'dark')
-  } else {
-    document.documentElement.classList.remove('dark')
-    localStorage.setItem('theme', 'light')
+const syncUserProfile = async () => {
+  if (!userStore.hasValidTokenByRole(currentRole.value)) return
+
+  const roleAuth = userStore.getRoleAuth(currentRole.value)
+  if (roleAuth.userInfo && roleAuth.profileLoaded) return
+
+  profileSyncing.value = true
+  try {
+    await userStore.getUserInfo(currentRole.value)
+  } finally {
+    profileSyncing.value = false
   }
 }
 
 const triggerFileInput = () => {
-  fileInput.value.click()
+  if (profileSyncing.value || avatarUploading.value) return
+  fileInput.value?.click()
 }
 
 const handleFileChange = async (e) => {
@@ -172,12 +198,20 @@ const handleFileChange = async (e) => {
   const formData = new FormData()
   formData.append('avatar', file)
 
+  avatarUploading.value = true
   try {
     const res = await updateAvatar(formData)
-    userStore.userInfo = res.user
+    if (res?.user) {
+      userStore.setUserInfoByRole(currentRole.value, res.user)
+    } else {
+      await userStore.getUserInfo(currentRole.value)
+    }
     ElMessage.success('头像更新成功')
   } catch (err) {
     ElMessage.error('头像更新失败: ' + (err.response?.data?.error || err.message))
+  } finally {
+    avatarUploading.value = false
+    e.target.value = ''
   }
 }
 
@@ -208,9 +242,17 @@ const handleUpdatePassword = async () => {
 
 const handleLogout = () => {
   if (confirm('确定要退出登录吗？')) {
-    const role = resolveRoleFromPath(route.path)
+    const role = currentRole.value
     userStore.logout(role)
     router.push(`/${role}/login`)
   }
 }
+
+onMounted(() => {
+  if (typeof window !== 'undefined') {
+    document.documentElement.classList.remove('dark')
+    window.localStorage.removeItem('theme')
+  }
+  void syncUserProfile()
+})
 </script>

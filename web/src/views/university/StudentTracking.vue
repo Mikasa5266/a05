@@ -77,14 +77,14 @@ const filterRisk = ref('')
 const filterMajor = ref('')
 
 const students = ref([
-  { name: '小李', major: '计算机科学', interviews: 1, avgScore: 55, risk: 'high', employed: false },
-  { name: '小王', major: '软件工程', interviews: 0, avgScore: 0, risk: 'high', employed: false },
-  { name: '小张', major: '信息安全', interviews: 3, avgScore: 68, risk: 'medium', employed: false },
-  { name: '小刘', major: '数据科学', interviews: 2, avgScore: 62, risk: 'medium', employed: false },
-  { name: '小陈', major: '人工智能', interviews: 8, avgScore: 85, risk: 'low', employed: true },
-  { name: '小赵', major: '计算机科学', interviews: 6, avgScore: 78, risk: 'low', employed: false },
-  { name: '小孙', major: '软件工程', interviews: 10, avgScore: 92, risk: 'low', employed: true },
-  { name: '小钱', major: '数据科学', interviews: 4, avgScore: 72, risk: 'medium', employed: false },
+  { name: '林书远', major: '计算机科学', interviews: 1, avgScore: 55, risk: 'high', employed: false },
+  { name: '顾清禾', major: '软件工程', interviews: 0, avgScore: 0, risk: 'high', employed: false },
+  { name: '唐知行', major: '信息安全', interviews: 3, avgScore: 68, risk: 'medium', employed: false },
+  { name: '魏景初', major: '数据科学', interviews: 2, avgScore: 62, risk: 'medium', employed: false },
+  { name: '许明川', major: '人工智能', interviews: 8, avgScore: 85, risk: 'low', employed: true },
+  { name: '周亦安', major: '计算机科学', interviews: 6, avgScore: 78, risk: 'low', employed: false },
+  { name: '宋知夏', major: '软件工程', interviews: 10, avgScore: 92, risk: 'low', employed: true },
+  { name: '郑云舟', major: '数据科学', interviews: 4, avgScore: 72, risk: 'medium', employed: false },
 ])
 
 const filteredStudents = computed(() => {

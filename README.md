@@ -145,19 +145,30 @@ docker compose logs -f frontend
 
 统一密码：`123456`
 
-- 学生端
-  - `student01@test.com`
-  - `student02@test.com`
-  - `student03@test.com`
-  - `student04@test.com`
-  - `student05@test.com`
-- 企业端
-  - `enterprise01@test.com`
-  - `enterprise02@test.com`
-  - `enterprise03@test.com`
-- 高校端
-  - `university01@test.com`
-  - `university02@test.com`
+### 学生端
+
+| 邮箱 | 显示名称 |
+| --- | --- |
+| `student01@test.com` | 林书远 |
+| `student02@test.com` | 顾清禾 |
+| `student03@test.com` | 唐知行 |
+| `student04@test.com` | 魏景初 |
+| `student05@test.com` | 许明川 |
+
+### 企业端
+
+| 邮箱 | 显示名称 |
+| --- | --- |
+| `enterprise01@test.com` | 星澜智联科技有限公司 |
+| `enterprise02@test.com` | 远川数据智能有限公司 |
+| `enterprise03@test.com` | 海岳工业软件有限公司 |
+
+### 高校端
+
+| 邮箱 | 显示名称 |
+| --- | --- |
+| `university01@test.com` | 江南数字工程大学就业中心 |
+| `university02@test.com` | 华南应用科技大学就业中心 |
 
 ## 📦 客户端下载
 

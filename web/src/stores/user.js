@@ -1,6 +1,12 @@
 import { defineStore } from "pinia";
 import { login, register, getUserProfile } from "../api/auth";
 
+const USER_INFO_CACHE_TTL_MS = Number(
+  import.meta.env.VITE_USER_INFO_CACHE_TTL || 90000,
+);
+const userInfoFetchInFlight = new Map();
+const userInfoFetchedAt = new Map();
+
 const ROLE_KEYS = {
   student: { token: "student_token", userInfo: "student_user_info" },
   enterprise: { token: "enterprise_token", userInfo: "enterprise_user_info" },
@@ -175,6 +181,23 @@ export const useUserStore = defineStore("user", {
       });
       this.roleAuth[safeRole] = next;
     },
+    setUserInfoByRole(role = resolveCurrentRole(), userInfo = null) {
+      const safeRole = normalizeRole(role);
+      const auth = this.getRoleAuth(safeRole);
+      const normalizedUser = normalizeUserInfo(userInfo, safeRole);
+
+      this.setRoleAuth(safeRole, {
+        token: auth.token,
+        userInfo: normalizedUser,
+        profileLoaded: Boolean(normalizedUser),
+      });
+
+      if (normalizedUser) {
+        userInfoFetchedAt.set(safeRole, Date.now());
+      } else {
+        userInfoFetchedAt.delete(safeRole);
+      }
+    },
     async login(data) {
       const res = await login(data);
       const role = normalizeRole(
@@ -195,28 +218,60 @@ export const useUserStore = defineStore("user", {
     async register(data) {
       return register(data);
     },
-    async getUserInfo(role = resolveCurrentRole()) {
+    async getUserInfo(role = resolveCurrentRole(), options = {}) {
       const safeRole = normalizeRole(role);
       const token = this.getTokenByRole(safeRole);
       if (!token || this.isTokenExpired(token)) {
         this.logout(safeRole);
-        return;
+        return null;
       }
-      try {
-        const res = await getUserProfile();
-        const normalizedUser = normalizeUserInfo(res?.user, safeRole);
-        this.setRoleAuth(safeRole, {
-          token,
-          userInfo: normalizedUser,
-          profileLoaded: true,
+
+      const forceRefresh = Boolean(options?.force);
+      const roleAuth = this.getRoleAuth(safeRole);
+      const lastFetchedAt = Number(userInfoFetchedAt.get(safeRole) || 0);
+      const cacheAge = Date.now() - lastFetchedAt;
+
+      if (
+        !forceRefresh &&
+        roleAuth.profileLoaded &&
+        roleAuth.userInfo &&
+        cacheAge >= 0 &&
+        cacheAge < USER_INFO_CACHE_TTL_MS
+      ) {
+        return roleAuth.userInfo;
+      }
+
+      const inFlight = userInfoFetchInFlight.get(safeRole);
+      if (inFlight) {
+        return inFlight;
+      }
+
+      let requestPromise = null;
+      requestPromise = getUserProfile()
+        .then((res) => {
+          this.setUserInfoByRole(safeRole, res?.user);
+          return this.getUserInfoByRole(safeRole);
+        })
+        .catch((error) => {
+          const status = Number(error?.response?.status || 0);
+          if (status === 401 || status === 403) {
+            this.logout(safeRole);
+          }
+          throw error;
+        })
+        .finally(() => {
+          if (userInfoFetchInFlight.get(safeRole) === requestPromise) {
+            userInfoFetchInFlight.delete(safeRole);
+          }
         });
-      } catch (error) {
-        this.logout(safeRole);
-        throw error;
-      }
+
+      userInfoFetchInFlight.set(safeRole, requestPromise);
+      return requestPromise;
     },
     logout(role = resolveCurrentRole()) {
       const safeRole = normalizeRole(role);
+      userInfoFetchInFlight.delete(safeRole);
+      userInfoFetchedAt.delete(safeRole);
       this.setRoleAuth(safeRole, {
         token: "",
         userInfo: null,
@@ -225,6 +280,8 @@ export const useUserStore = defineStore("user", {
     },
     logoutAll() {
       ROLE_NAMES.forEach((role) => {
+        userInfoFetchInFlight.delete(role);
+        userInfoFetchedAt.delete(role);
         this.setRoleAuth(role, {
           token: "",
           userInfo: null,

@@ -139,7 +139,7 @@
         </div>
 
         <!-- Quick Actions -->
-        <div class="bg-gradient-to-br from-indigo-600 to-violet-600 rounded-3xl p-6 text-white">
+        <div class="bg-linear-to-br from-indigo-600 to-violet-600 rounded-3xl p-6 text-white">
           <h3 class="font-bold mb-4">快捷操作</h3>
           <div class="space-y-3">
             <router-link to="/enterprise/talent" class="flex items-center gap-3 p-3 bg-white/10 rounded-xl hover:bg-white/20 transition-colors">
@@ -210,10 +210,10 @@ const stats = ref([
 ])
 
 const certifiedCandidates = ref([
-  { name: '张三', school: '北京大学', major: '计算机科学', score: 92, certified: true },
-  { name: '李四', school: '清华大学', major: '软件工程', score: 88, certified: true },
-  { name: '王五', school: '浙江大学', major: '人工智能', score: 79, certified: false },
-  { name: '赵六', school: '复旦大学', major: '数据科学', score: 85, certified: true },
+  { name: '林书远', school: '江南数字工程大学', major: '计算机科学', score: 92, certified: true },
+  { name: '顾清禾', school: '华南应用科技大学', major: '软件工程', score: 88, certified: true },
+  { name: '唐知行', school: '江南数字工程大学', major: '人工智能', score: 79, certified: false },
+  { name: '魏景初', school: '华南应用科技大学', major: '数据科学', score: 85, certified: true },
 ])
 
 const referralCount = ref(23)

@@ -8,9 +8,19 @@ const userStore = useUserStore()
 const showCustomTitleBar = isElectronRuntime()
 
 onMounted(() => {
-  if (userStore.token && !userStore.userInfo) {
-    userStore.getUserInfo()
+  const role = userStore.currentRole
+  if (!userStore.hasValidTokenByRole(role) || userStore.userInfoLoaded) return
+
+  const loadUserProfile = () => {
+    void userStore.getUserInfo(role).catch(() => {})
   }
+
+  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    window.requestIdleCallback(loadUserProfile, { timeout: 1200 })
+    return
+  }
+
+  window.setTimeout(loadUserProfile, 0)
 })
 </script>
 

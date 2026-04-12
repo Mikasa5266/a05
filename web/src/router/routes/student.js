@@ -17,6 +17,12 @@ const MockInterview = defineAsyncComponent(
 const InterviewModeSelect = defineAsyncComponent(
   () => import("../../views/InterviewModeSelect.vue"),
 );
+const StudentLiveInterviewWorkbench = defineAsyncComponent(
+  () => import("../../views/student/LiveInterviewWorkbench.vue"),
+);
+const LiveInterviewRoom = defineAsyncComponent(
+  () => import("../../views/LiveInterviewRoom.vue"),
+);
 const ResumeCenter = defineAsyncComponent(
   () => import("../../views/student/ResumeCenter.vue"),
 );
@@ -73,21 +79,21 @@ export const studentRoutes = [
         redirect: "/interview/mode-select",
         meta: roleMeta,
       },
-      // {
-      //   path: "live-interview",
-      //   redirect: (to) => {
-      //     const invitationId = String(to.query?.invitation_id || "").trim();
-      //     if (!invitationId) {
-      //       return "/interview/live/workbench";
-      //     }
-      //     const invitationCode = String(to.query?.invitation_code || "").trim();
-      //     if (!invitationCode) {
-      //       return `/interview/live/room?invitation_id=${invitationId}`;
-      //     }
-      //     return `/interview/live/room?invitation_id=${invitationId}&invitation_code=${encodeURIComponent(invitationCode)}`;
-      //   },
-      //   meta: roleMeta,
-      // },
+      {
+        path: "live-interview",
+        redirect: (to) => {
+          const invitationId = String(to.query?.invitation_id || "").trim();
+          if (!invitationId) {
+            return "/interview/live/workbench";
+          }
+          const invitationCode = String(to.query?.invitation_code || "").trim();
+          if (!invitationCode) {
+            return `/interview/live/room?invitation_id=${invitationId}`;
+          }
+          return `/interview/live/room?invitation_id=${invitationId}&invitation_code=${encodeURIComponent(invitationCode)}`;
+        },
+        meta: roleMeta,
+      },
       // {
       //   path: "growth",
       //   name: "GrowthCenter",
@@ -204,18 +210,18 @@ export const studentRoutes = [
         },
         meta: roleMeta,
       },
-      // {
-      //   path: "live/workbench",
-      //   name: "StudentLiveInterviewWorkbench",
-      //   component: StudentLiveInterviewWorkbench,
-      //   meta: roleMeta,
-      // },
-      // {
-      //   path: "live/room/:id?",
-      //   name: "StudentLiveInterviewRoom",
-      //   component: LiveInterviewRoom,
-      //   meta: roleMeta,
-      // },
+      {
+        path: "live/workbench",
+        name: "StudentLiveInterviewWorkbench",
+        component: StudentLiveInterviewWorkbench,
+        meta: roleMeta,
+      },
+      {
+        path: "live/room",
+        name: "StudentLiveInterviewRoom",
+        component: LiveInterviewRoom,
+        meta: roleMeta,
+      },
     ],
   },
 ];

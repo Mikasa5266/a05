@@ -47,15 +47,15 @@
 import { ref } from 'vue'
 
 const recommendedStudents = ref([
-  { name: '小陈', major: '人工智能', score: 92, status: '待推送', tags: ['Python', 'TensorFlow', '深度学习'] },
-  { name: '小孙', major: '软件工程', score: 90, status: '已推送', tags: ['Java', 'Spring Boot', '分布式'] },
-  { name: '小赵', major: '计算机科学', score: 85, status: '待推送', tags: ['React', 'TypeScript', '全栈'] },
+  { name: '许明川', major: '人工智能', score: 92, status: '待推送', tags: ['Python', 'TensorFlow', '深度学习'] },
+  { name: '宋知夏', major: '软件工程', score: 90, status: '已推送', tags: ['Java', 'Spring Boot', '分布式'] },
+  { name: '周亦安', major: '计算机科学', score: 85, status: '待推送', tags: ['React', 'TypeScript', '全栈'] },
 ])
 
 const pushHistory = ref([
-  { student: '小孙', company: '华为', time: '2天前', result: '面试中' },
-  { student: '小周', company: '腾讯', time: '1周前', result: '已录用' },
-  { student: '小吴', company: '阿里', time: '2周前', result: '已录用' },
-  { student: '小林', company: '字节跳动', time: '3周前', result: '待反馈' },
+  { student: '宋知夏', company: '星澜智联科技有限公司', time: '2天前', result: '面试中' },
+  { student: '许明川', company: '远川数据智能有限公司', time: '1周前', result: '已录用' },
+  { student: '周亦安', company: '海岳工业软件有限公司', time: '2周前', result: '已录用' },
+  { student: '郑云舟', company: '星澜智联科技有限公司', time: '3周前', result: '待反馈' },
 ])
 </script>

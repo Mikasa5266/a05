@@ -51,8 +51,8 @@ const riskGroups = ref([
     title: '高风险学生',
     dotColor: 'bg-rose-500',
     students: [
-      { name: '小李', major: '计算机科学', issue: '面试次数过少，技术能力薄弱' },
-      { name: '小王', major: '软件工程', issue: '从未参加模拟面试' },
+      { name: '林书远', major: '计算机科学', issue: '面试次数过少，技术能力薄弱' },
+      { name: '顾清禾', major: '软件工程', issue: '从未参加模拟面试' },
     ]
   },
   {
@@ -60,9 +60,9 @@ const riskGroups = ref([
     title: '中风险学生',
     dotColor: 'bg-amber-500',
     students: [
-      { name: '小张', major: '信息安全', issue: '表达能力需提升' },
-      { name: '小刘', major: '数据科学', issue: '技术深度不够' },
-      { name: '小钱', major: '数据科学', issue: '面试经验不足' },
+      { name: '唐知行', major: '信息安全', issue: '表达能力需提升' },
+      { name: '魏景初', major: '数据科学', issue: '技术深度不够' },
+      { name: '郑云舟', major: '数据科学', issue: '面试经验不足' },
     ]
   },
   {
@@ -70,9 +70,9 @@ const riskGroups = ref([
     title: '低风险学生',
     dotColor: 'bg-emerald-500',
     students: [
-      { name: '小陈', major: '人工智能', issue: '状态良好' },
-      { name: '小赵', major: '计算机科学', issue: '继续保持' },
-      { name: '小孙', major: '软件工程', issue: '已获得Offer' },
+      { name: '许明川', major: '人工智能', issue: '状态良好' },
+      { name: '周亦安', major: '计算机科学', issue: '继续保持' },
+      { name: '宋知夏', major: '软件工程', issue: '已获得Offer' },
     ]
   }
 ])

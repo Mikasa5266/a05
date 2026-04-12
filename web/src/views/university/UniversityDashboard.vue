@@ -139,7 +139,7 @@
         </div>
 
         <!-- Quick Links -->
-        <div class="bg-gradient-to-br from-indigo-600 to-violet-600 rounded-3xl p-6 text-white">
+        <div class="bg-linear-to-br from-indigo-600 to-violet-600 rounded-3xl p-6 text-white">
           <h3 class="font-bold mb-4">管理功能</h3>
           <div class="space-y-3">
             <router-link to="/university/interview-workbench" class="flex items-center gap-3 p-3 bg-white/10 rounded-xl hover:bg-white/20 transition-colors">
@@ -199,11 +199,11 @@ const stats = ref([
 ])
 
 const atRiskStudents = ref([
-  { name: '小李', major: '计算机科学', grade: '大四', risk: 'high', interviews: 1 },
-  { name: '小王', major: '软件工程', grade: '大四', risk: 'high', interviews: 0 },
-  { name: '小张', major: '信息安全', grade: '大四', risk: 'medium', interviews: 3 },
-  { name: '小刘', major: '数据科学', grade: '大四', risk: 'medium', interviews: 2 },
-  { name: '小陈', major: '人工智能', grade: '大四', risk: 'low', interviews: 8 },
+  { name: '林书远', major: '计算机科学', grade: '大四', risk: 'high', interviews: 1 },
+  { name: '顾清禾', major: '软件工程', grade: '大四', risk: 'high', interviews: 0 },
+  { name: '唐知行', major: '信息安全', grade: '大四', risk: 'medium', interviews: 3 },
+  { name: '魏景初', major: '数据科学', grade: '大四', risk: 'medium', interviews: 2 },
+  { name: '许明川', major: '人工智能', grade: '大四', risk: 'low', interviews: 8 },
 ])
 
 const majorStats = ref([

@@ -185,8 +185,8 @@
     </div>
 
     <!-- Share Modal -->
-    <div v-if="showShareModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50" @click.self="showShareModal = false">
-      <div class="bg-white rounded-3xl p-8 w-full max-w-lg shadow-2xl">
+    <div v-if="showShareModal" class="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-sm p-4 md:p-6 flex items-start md:items-center justify-center" @click.self="showShareModal = false">
+      <div class="bg-white rounded-3xl p-6 md:p-8 w-full max-w-2xl shadow-2xl max-h-[92vh] overflow-y-auto">
         <h2 class="text-xl font-bold text-zinc-900 mb-6">分享面试经验</h2>
         <div class="space-y-4">
           <div>
@@ -260,8 +260,8 @@
     </div>
 
     <!-- Booking Modal -->
-    <div v-if="showBookingModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50" @click.self="showBookingModal = false">
-      <div class="bg-white rounded-3xl p-8 w-full max-w-lg shadow-2xl">
+    <div v-if="showBookingModal" class="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-sm p-4 md:p-6 flex items-start md:items-center justify-center" @click.self="showBookingModal = false">
+      <div class="bg-white rounded-3xl p-6 md:p-8 w-full max-w-lg shadow-2xl max-h-[92vh] overflow-y-auto">
         <h2 class="text-xl font-bold text-zinc-900 mb-6">预约校友 1v1 模拟面试</h2>
         <div class="space-y-4">
           <div>
@@ -501,9 +501,21 @@ watch([searchQuery, filterCompany], () => {
   }, 250)
 })
 
+const runWhenIdle = (task) => {
+  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    window.requestIdleCallback(() => {
+      void task()
+    }, { timeout: 1000 })
+    return
+  }
+  window.setTimeout(() => {
+    void task()
+  }, 0)
+}
+
 onMounted(() => {
   fetchPosts()
-  fetchTopAlumni()
-  fetchHotCompanies()
+  runWhenIdle(fetchTopAlumni)
+  runWhenIdle(fetchHotCompanies)
 })
 </script>

@@ -75,7 +75,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../../stores/user'
 import { getBackendAssetUrl } from '../../utils/backend'
@@ -95,6 +95,12 @@ const dropdownRef = ref(null)
 const currentPortal = computed(() => getPortalFromPath(route.path))
 const portalConfig = computed(() => portalBrandMap[currentPortal.value] || portalBrandMap.student)
 const topNavItems = computed(() => getPortalTopNavItems(currentPortal.value))
+const roleLabelMap = {
+  student: '学生用户',
+  enterprise: '企业用户',
+  university: '高校用户'
+}
+const roleLabel = computed(() => roleLabelMap[currentPortal.value] || roleLabelMap.student)
 
 const portalHome = computed(() => '/' + currentPortal.value + '/dashboard')
 
@@ -113,8 +119,8 @@ const displayName = computed(() => {
   if (email) return email.split('@')[0] || email
 
   const id = userStore.userInfo.id
-  if (id) return `用户#${id}`
-  return '未命名用户'
+  if (id) return `${roleLabel.value}#${id}`
+  return roleLabel.value
 })
 
 const displayEmail = computed(() => {
@@ -152,6 +158,28 @@ const handleClickOutside = (e) => {
     showDropdown.value = false
   }
 }
+
+const ensureUserProfileLoaded = async (role) => {
+  const targetRole = String(role || currentPortal.value || 'student')
+  if (!userStore.hasValidTokenByRole(targetRole)) return
+
+  const roleAuth = userStore.getRoleAuth(targetRole)
+  if (roleAuth.userInfo && roleAuth.profileLoaded) return
+
+  try {
+    await userStore.getUserInfo(targetRole)
+  } catch {
+    // Token 失效时会由 request 拦截器和路由守卫统一处理。
+  }
+}
+
+watch(
+  () => currentPortal.value,
+  (role) => {
+    void ensureUserProfileLoaded(role)
+  },
+  { immediate: true }
+)
 
 onMounted(() => document.addEventListener('click', handleClickOutside))
 onBeforeUnmount(() => document.removeEventListener('click', handleClickOutside))

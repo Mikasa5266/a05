@@ -52,7 +52,7 @@
         </div>
         <div class="flex flex-col">
           <span class="text-sm font-medium text-zinc-900 md:group-hover:text-indigo-600 transition-colors">{{ displayName }}</span>
-          <span class="text-xs text-zinc-400">求职者</span>
+          <span class="text-xs text-zinc-400">{{ roleLabel }}</span>
         </div>
       </router-link>
     </div>
@@ -87,6 +87,12 @@ const userStore = useUserStore()
 const portal = computed(() => getPortalFromPath(route.path))
 const portalConfig = computed(() => portalBrandMap[portal.value] || portalBrandMap.student)
 const currentNavItems = computed(() => getPortalNavItems(portal.value))
+const roleLabelMap = {
+  student: '学生用户',
+  enterprise: '企业用户',
+  university: '高校用户'
+}
+const roleLabel = computed(() => roleLabelMap[portal.value] || roleLabelMap.student)
 
 const settingsPath = computed(() => '/' + portal.value + '/settings')
 
@@ -105,8 +111,8 @@ const displayName = computed(() => {
   const email = String(userStore.userInfo?.email || '').trim()
   if (email) return email.split('@')[0] || email
   const id = userStore.userInfo?.id
-  if (id) return `用户#${id}`
-  return 'Guest'
+  if (id) return `${roleLabel.value}#${id}`
+  return roleLabel.value
 })
 
 const avatarUrl = computed(() => {
