@@ -6,6 +6,7 @@ import (
 	"your-project/internal/model"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type InterviewRepository struct {
@@ -213,10 +214,54 @@ func (r *InterviewRepository) CreateInvitation(invitation *model.HumanInterviewI
 	return r.db.Create(invitation).Error
 }
 
+func (r *InterviewRepository) CreateInvitationWithParticipants(invitation *model.HumanInterviewInvitation, participants []model.HumanInterviewInvitationParticipant) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(invitation).Error; err != nil {
+			return err
+		}
+
+		if len(participants) == 0 {
+			return nil
+		}
+
+		rows := make([]model.HumanInterviewInvitationParticipant, 0, len(participants))
+		for i := range participants {
+			row := participants[i]
+			row.InvitationID = invitation.ID
+			rows = append(rows, row)
+		}
+
+		if err := tx.Create(&rows).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
+func (r *InterviewRepository) invitationQuery() *gorm.DB {
+	return r.db.
+		Preload("Student").
+		Preload("Invitee").
+		Preload("Initiator").
+		Preload("Target").
+		Preload("Participants").
+		Preload("Participants.User")
+}
+
 func (r *InterviewRepository) GetInvitationsByStudentID(studentID uint) ([]model.HumanInterviewInvitation, error) {
 	var invitations []model.HumanInterviewInvitation
-	err := r.db.Preload("Invitee").
-		Where("student_id = ?", studentID).
+	err := r.invitationQuery().
+		Where("student_id = ? OR initiator_user_id = ?", studentID, studentID).
+		Order("created_at DESC").
+		Find(&invitations).Error
+	return invitations, err
+}
+
+func (r *InterviewRepository) GetInvitationsByInitiatorID(initiatorID uint) ([]model.HumanInterviewInvitation, error) {
+	var invitations []model.HumanInterviewInvitation
+	err := r.invitationQuery().
+		Where("initiator_user_id = ? OR student_id = ?", initiatorID, initiatorID).
 		Order("created_at DESC").
 		Find(&invitations).Error
 	return invitations, err
@@ -224,16 +269,31 @@ func (r *InterviewRepository) GetInvitationsByStudentID(studentID uint) ([]model
 
 func (r *InterviewRepository) GetInvitationsByInviteeID(inviteeUserID uint) ([]model.HumanInterviewInvitation, error) {
 	var invitations []model.HumanInterviewInvitation
-	err := r.db.Preload("Student").
-		Where("invitee_user_id = ?", inviteeUserID).
+	err := r.invitationQuery().
+		Joins("LEFT JOIN human_interview_invitation_participants hip ON hip.invitation_id = human_interview_invitations.id").
+		Where("human_interview_invitations.invitee_user_id = ? OR human_interview_invitations.target_user_id = ? OR (hip.user_id = ? AND hip.participant_role = ?)", inviteeUserID, inviteeUserID, inviteeUserID, model.InvitationParticipantRoleInvitee).
+		Select("human_interview_invitations.*").
+		Distinct().
 		Order("created_at DESC").
+		Find(&invitations).Error
+	return invitations, err
+}
+
+func (r *InterviewRepository) GetInvitationsByParticipantOrInitiator(userID uint) ([]model.HumanInterviewInvitation, error) {
+	var invitations []model.HumanInterviewInvitation
+	err := r.invitationQuery().
+		Joins("LEFT JOIN human_interview_invitation_participants hip ON hip.invitation_id = human_interview_invitations.id").
+		Where("human_interview_invitations.initiator_user_id = ? OR human_interview_invitations.target_user_id = ? OR human_interview_invitations.student_id = ? OR human_interview_invitations.invitee_user_id = ? OR hip.user_id = ?", userID, userID, userID, userID, userID).
+		Select("human_interview_invitations.*").
+		Distinct().
+		Order("human_interview_invitations.created_at DESC").
 		Find(&invitations).Error
 	return invitations, err
 }
 
 func (r *InterviewRepository) GetInvitationByID(id uint) (*model.HumanInterviewInvitation, error) {
 	var invitation model.HumanInterviewInvitation
-	err := r.db.Preload("Invitee").First(&invitation, id).Error
+	err := r.invitationQuery().First(&invitation, id).Error
 	if err != nil {
 		return nil, err
 	}
@@ -242,8 +302,11 @@ func (r *InterviewRepository) GetInvitationByID(id uint) (*model.HumanInterviewI
 
 func (r *InterviewRepository) GetInvitationByIDForInvitee(id, inviteeUserID uint) (*model.HumanInterviewInvitation, error) {
 	var invitation model.HumanInterviewInvitation
-	err := r.db.Preload("Student").
-		Where("id = ? AND invitee_user_id = ?", id, inviteeUserID).
+	err := r.invitationQuery().
+		Joins("LEFT JOIN human_interview_invitation_participants hip ON hip.invitation_id = human_interview_invitations.id").
+		Where("human_interview_invitations.id = ? AND (human_interview_invitations.invitee_user_id = ? OR human_interview_invitations.target_user_id = ? OR (hip.user_id = ? AND hip.participant_role = ?))", id, inviteeUserID, inviteeUserID, inviteeUserID, model.InvitationParticipantRoleInvitee).
+		Select("human_interview_invitations.*").
+		Distinct().
 		First(&invitation).Error
 	if err != nil {
 		return nil, err
@@ -253,8 +316,11 @@ func (r *InterviewRepository) GetInvitationByIDForInvitee(id, inviteeUserID uint
 
 func (r *InterviewRepository) GetInvitationByIDForParticipant(id, userID uint) (*model.HumanInterviewInvitation, error) {
 	var invitation model.HumanInterviewInvitation
-	err := r.db.Preload("Student").Preload("Invitee").
-		Where("id = ? AND (student_id = ? OR invitee_user_id = ?)", id, userID, userID).
+	err := r.invitationQuery().
+		Joins("LEFT JOIN human_interview_invitation_participants hip ON hip.invitation_id = human_interview_invitations.id").
+		Where("human_interview_invitations.id = ? AND (human_interview_invitations.student_id = ? OR human_interview_invitations.invitee_user_id = ? OR human_interview_invitations.initiator_user_id = ? OR human_interview_invitations.target_user_id = ? OR hip.user_id = ?)", id, userID, userID, userID, userID, userID).
+		Select("human_interview_invitations.*").
+		Distinct().
 		First(&invitation).Error
 	if err != nil {
 		return nil, err
@@ -264,7 +330,7 @@ func (r *InterviewRepository) GetInvitationByIDForParticipant(id, userID uint) (
 
 func (r *InterviewRepository) GetInvitationByInterviewID(interviewID uint) (*model.HumanInterviewInvitation, error) {
 	var invitation model.HumanInterviewInvitation
-	err := r.db.Preload("Student").Preload("Invitee").
+	err := r.invitationQuery().
 		Where("interview_id = ?", interviewID).
 		First(&invitation).Error
 	if err != nil {
@@ -275,6 +341,46 @@ func (r *InterviewRepository) GetInvitationByInterviewID(interviewID uint) (*mod
 
 func (r *InterviewRepository) UpdateInvitation(invitation *model.HumanInterviewInvitation) error {
 	return r.db.Save(invitation).Error
+}
+
+func (r *InterviewRepository) GetInvitationParticipant(invitationID, userID uint) (*model.HumanInterviewInvitationParticipant, error) {
+	var participant model.HumanInterviewInvitationParticipant
+	err := r.db.Where("invitation_id = ? AND user_id = ?", invitationID, userID).First(&participant).Error
+	if err != nil {
+		return nil, err
+	}
+	return &participant, nil
+}
+
+func (r *InterviewRepository) ListInvitationParticipants(invitationID uint) ([]model.HumanInterviewInvitationParticipant, error) {
+	rows := make([]model.HumanInterviewInvitationParticipant, 0)
+	err := r.db.Preload("User").
+		Where("invitation_id = ?", invitationID).
+		Order("id ASC").
+		Find(&rows).Error
+	return rows, err
+}
+
+func (r *InterviewRepository) UpsertInvitationParticipant(participant *model.HumanInterviewInvitationParticipant) error {
+	if participant == nil {
+		return nil
+	}
+
+	return r.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "invitation_id"}, {Name: "user_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"user_uuid", "user_role", "participant_role", "response_status", "responded_at", "joined_at", "updated_at"}),
+	}).Create(participant).Error
+}
+
+func (r *InterviewRepository) MarkInvitationParticipantJoined(invitationID, userID uint, joinedAt time.Time) error {
+	updates := map[string]interface{}{
+		"joined_at":       joinedAt,
+		"response_status": model.InvitationParticipantStatusJoined,
+		"updated_at":      joinedAt,
+	}
+	return r.db.Model(&model.HumanInterviewInvitationParticipant{}).
+		Where("invitation_id = ? AND user_id = ?", invitationID, userID).
+		Updates(updates).Error
 }
 
 func (r *InterviewRepository) GetInterviewsByIDs(ids []uint) ([]model.Interview, error) {

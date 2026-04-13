@@ -5,15 +5,11 @@ import (
 	"strconv"
 	"strings"
 
+	internalruntime "your-project/internal/runtime"
 	"your-project/internal/service"
 	ws "your-project/pkg/websocket"
 
 	"github.com/gin-gonic/gin"
-)
-
-const (
-	groupRoomTargetParticipants = 4
-	groupRoomStartThreshold     = 2
 )
 
 type liveSignalHandshake struct {
@@ -54,8 +50,18 @@ func proxyLiveSignalToHub(c *gin.Context, identity *liveTokenIdentity, roomID st
 	query := c.Request.URL.Query()
 	query.Set("user_id", strconv.FormatUint(uint64(identity.UserID), 10))
 	query.Set("interview_id", roomID)
-	query.Set("group_target_participants", strconv.Itoa(groupRoomTargetParticipants))
-	query.Set("group_start_threshold", strconv.Itoa(groupRoomStartThreshold))
+
+	targetParticipants := strings.TrimSpace(query.Get("group_target_participants"))
+	if targetParticipants == "" {
+		targetParticipants = strconv.Itoa(internalruntime.DefaultGroupTargetParticipants)
+	}
+	startThreshold := strings.TrimSpace(query.Get("group_start_threshold"))
+	if startThreshold == "" {
+		startThreshold = strconv.Itoa(internalruntime.GroupStartThresholdForTesting)
+	}
+
+	query.Set("group_target_participants", targetParticipants)
+	query.Set("group_start_threshold", startThreshold)
 	c.Request.URL.RawQuery = query.Encode()
 
 	ws.GetHub().HandleWebSocket(c.Writer, c.Request)

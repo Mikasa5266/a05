@@ -86,8 +86,8 @@ func TestIsInvitationJoinableStatus(t *testing.T) {
 	if !isInvitationJoinableStatus(" ACCEPTED ") {
 		t.Fatalf("normalized accepted should be joinable")
 	}
-	if isInvitationJoinableStatus(invitationStatusPending) {
-		t.Fatalf("pending should not be joinable")
+	if !isInvitationJoinableStatus(invitationStatusPending) {
+		t.Fatalf("pending should be joinable")
 	}
 	if isInvitationJoinableStatus(invitationStatusRejected) {
 		t.Fatalf("rejected should not be joinable")

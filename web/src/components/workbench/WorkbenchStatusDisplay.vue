@@ -41,10 +41,13 @@ const props = defineProps({
       <div>
         <div class="flex items-center flex-wrap gap-2">
           <h3 class="text-base font-semibold text-zinc-900">
-            {{ props.item.student_name || `学生#${props.item.student_id}` }}
+            {{ props.item.counterpart_name || props.item.student_name || `用户#${props.item.counterpart_id || props.item.student_id}` }}
           </h3>
           <span class="px-2 py-1 rounded-full text-xs font-medium" :class="props.statusClass(props.item.status)">
             {{ props.statusLabel(props.item.status) }}
+          </span>
+          <span class="px-2 py-1 rounded-full text-xs font-medium bg-zinc-100 text-zinc-600">
+            {{ props.item.counterpart_role || props.item.invitee_role || 'unknown' }}
           </span>
         </div>
         <p class="text-sm text-zinc-600 mt-1">

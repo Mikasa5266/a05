@@ -10,6 +10,7 @@ import {
   getHumanInvitations,
   getReceivedHumanInvitations,
   joinLiveInterview,
+  startLiveInterview,
   startInterview
 } from '../api/interview'
 import { generateReport } from '../api/report'
@@ -37,6 +38,7 @@ const interviewId = ref(0)
 const micOn = ref(true)
 const finishing = ref(false)
 const joining = ref(false)
+const startingInterview = ref(false)
 const isRouteLeaving = ref(false)
 
 const groupStarted = ref(false)
@@ -98,6 +100,20 @@ const canVoteStart = computed(() => {
   if (!hasRoom.value || !signalSocket || signalSocket.readyState !== WebSocket.OPEN) return false
   if (groupStarted.value) return false
   return true
+})
+
+const normalizedInvitationStatus = computed(() => String(invitation.value?.status || '').trim().toLowerCase())
+
+const isInvitationInitiator = computed(() => {
+  const invitationId = Number(invitation.value?.initiator_user_id || invitation.value?.student_id || 0)
+  const currentUserId = Number(selfUserId.value || 0)
+  return invitationId > 0 && currentUserId > 0 && invitationId === currentUserId
+})
+
+const canStartInterview = computed(() => {
+  if (!hasRoom.value || !isInvitationInitiator.value || startingInterview.value) return false
+  if (groupStarted.value) return false
+  return normalizedInvitationStatus.value === 'pending' || normalizedInvitationStatus.value === 'accepted'
 })
 
 function goBack() {
@@ -171,8 +187,13 @@ async function loadInvitationByID(invitationID) {
   if (invitationID <= 0) return
   let list = []
   if (isStudent.value) {
-    const res = await getHumanInvitations()
-    list = Array.isArray(res?.invitations) ? res.invitations : []
+    const [sentRes, receivedRes] = await Promise.all([
+      getHumanInvitations(),
+      getReceivedHumanInvitations()
+    ])
+    const sent = Array.isArray(sentRes?.invitations) ? sentRes.invitations : []
+    const received = Array.isArray(receivedRes?.invitations) ? receivedRes.invitations : []
+    list = [...sent, ...received]
   } else {
     const res = await getReceivedHumanInvitations()
     list = Array.isArray(res?.invitations) ? res.invitations : []
@@ -191,6 +212,12 @@ async function ensureInterviewSession() {
   if (!isStudent.value) return
   if (!invitation.value) return
   if (interviewId.value > 0) return
+
+  const currentUserID = Number(selfUserId.value || 0)
+  const initiatorID = Number(invitation.value?.initiator_user_id || invitation.value?.student_id || 0)
+  if (currentUserID <= 0 || initiatorID <= 0 || currentUserID !== initiatorID) {
+    return
+  }
 
   const payload = {
     position: invitation.value?.position || '群面模拟',
@@ -357,6 +384,49 @@ function voteGroupStart() {
     start_threshold: TEST_START_THRESHOLD,
     interview_id: interviewId.value
   })
+}
+
+async function triggerStartInterview() {
+  if (!invitation.value?.id || !canStartInterview.value) return
+
+  startingInterview.value = true
+  try {
+    const res = await startLiveInterview({ invitation_id: Number(invitation.value.id) })
+    const session = res?.session || {}
+
+    const nextStatus = String(session?.status || '').trim().toLowerCase()
+    if (nextStatus) {
+      invitation.value = {
+        ...invitation.value,
+        status: nextStatus
+      }
+    }
+
+    const syncedInterviewId = Number(session?.interview_id || 0)
+    if (syncedInterviewId > 0) {
+      interviewId.value = syncedInterviewId
+      invitation.value = {
+        ...invitation.value,
+        interview_id: syncedInterviewId
+      }
+    }
+
+    groupStarted.value = true
+    statusText.value = '主控已开始面试'
+
+    sendSignal('group_start', {
+      message: '主控方已开始面试',
+      interview_id: interviewId.value,
+      started_at: session?.started_at || undefined
+    })
+
+    ElMessage.success('已开始面试')
+  } catch (err) {
+    const message = err?.response?.data?.error || err.message || '开始面试失败'
+    ElMessage.error(message)
+  } finally {
+    startingInterview.value = false
+  }
 }
 
 async function createAndSendOffer() {
@@ -835,7 +905,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="live-room-page min-h-screen text-slate-100">
     <div class="px-4 py-4 md:px-8 md:py-6">
-      <div class="max-w-[1700px] mx-auto">
+      <div class="max-w-425 mx-auto">
         <header class="flex items-start justify-between gap-4 mb-5">
           <div>
             <h1 class="text-2xl md:text-3xl font-semibold tracking-wide">群面实战房间</h1>
@@ -925,8 +995,16 @@ onBeforeUnmount(() => {
                   <Users class="w-4 h-4" />
                   发起群面邀请
                 </button>
-                <button class="btn-primary" :disabled="!canVoteStart" @click="voteGroupStart">
-                  开始群面（测试阈值 {{ groupStartThreshold }}）
+                <button
+                  v-if="isInvitationInitiator"
+                  class="btn-primary"
+                  :disabled="!canStartInterview"
+                  @click="triggerStartInterview"
+                >
+                  {{ startingInterview ? '开始中...' : '主控开始面试' }}
+                </button>
+                <button class="btn-subtle" :disabled="!canVoteStart" @click="voteGroupStart">
+                  发送准备信号（阈值 {{ groupStartThreshold }}）
                 </button>
                 <button class="btn-subtle" @click="toggleMic">
                   <Mic v-if="micOn" class="w-4 h-4" />

@@ -12,6 +12,18 @@ const (
 	GroupInterviewRoomStatusWaiting    = "waiting"
 	GroupInterviewRoomStatusInProgress = "in_progress"
 	GroupInterviewRoomStatusFinished   = "finished"
+
+	InvitationScenarioSingle = "single"
+	InvitationScenarioGroup  = "group"
+
+	InvitationParticipantRoleInitiator = "initiator"
+	InvitationParticipantRoleInvitee   = "invitee"
+	InvitationParticipantRoleObserver  = "observer"
+
+	InvitationParticipantStatusPending  = "pending"
+	InvitationParticipantStatusAccepted = "accepted"
+	InvitationParticipantStatusRejected = "rejected"
+	InvitationParticipantStatusJoined   = "joined"
 )
 
 type GroupInterviewRoom struct {
@@ -73,9 +85,6 @@ func normalizeParticipantIDs(ids []uint) []uint {
 		}
 		seen[id] = struct{}{}
 		normalized = append(normalized, id)
-		if len(normalized) >= 5 {
-			break
-		}
 	}
 
 	return normalized
@@ -133,27 +142,56 @@ type Interview struct {
 
 // HumanInterviewInvitation is a student-created invitation sent to university/enterprise users.
 type HumanInterviewInvitation struct {
-	ID             uint       `gorm:"primaryKey" json:"id"`
-	InvitationCode string     `gorm:"size:64;uniqueIndex;not null" json:"invitation_code"`
-	StudentID      uint       `gorm:"index;not null" json:"student_id"`
-	StudentUUID    string     `gorm:"type:char(36);index" json:"student_uuid"`
-	InviteeUserID  uint       `gorm:"index;not null" json:"invitee_user_id"`
-	InviteeUUID    string     `gorm:"type:char(36);index" json:"invitee_uuid"`
-	InviteeRole    string     `gorm:"size:50;not null" json:"invitee_role"` // university, enterprise
-	Position       string     `gorm:"size:120;not null" json:"position"`
-	Difficulty     string     `gorm:"size:50;not null" json:"difficulty"`
-	Mode           string     `gorm:"size:50;not null" json:"mode"`
-	Style          string     `gorm:"size:50;not null" json:"style"`
-	Company        string     `gorm:"size:50" json:"company,omitempty"`
-	Status         string     `gorm:"size:20;default:'pending'" json:"status"` // pending, accepted, rejected, in_progress, completed, cancelled
-	ScheduledAt    *time.Time `json:"scheduled_at,omitempty"`
-	Notes          string     `gorm:"type:text" json:"notes,omitempty"`
-	InterviewID    *uint      `gorm:"index" json:"interview_id,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	ID                 uint       `gorm:"primaryKey" json:"id"`
+	InvitationCode     string     `gorm:"size:64;uniqueIndex;not null" json:"invitation_code"`
+	InitiatorUserID    uint       `gorm:"index;not null" json:"initiator_user_id"`
+	InitiatorUUID      string     `gorm:"type:char(36);index" json:"initiator_uuid"`
+	InitiatorRole      string     `gorm:"size:50;not null" json:"initiator_role"`
+	TargetUserID       uint       `gorm:"index;not null" json:"target_user_id"`
+	TargetUUID         string     `gorm:"type:char(36);index" json:"target_uuid"`
+	TargetRole         string     `gorm:"size:50;not null" json:"target_role"`
+	ScenarioType       string     `gorm:"size:20;default:'single'" json:"scenario_type"`
+	TargetParticipants int        `gorm:"default:2" json:"target_participants"`
+	StartThreshold     int        `gorm:"default:2" json:"start_threshold"`
+	StudentID          uint       `gorm:"index;not null" json:"student_id"`
+	StudentUUID        string     `gorm:"type:char(36);index" json:"student_uuid"`
+	InviteeUserID      uint       `gorm:"index;not null" json:"invitee_user_id"`
+	InviteeUUID        string     `gorm:"type:char(36);index" json:"invitee_uuid"`
+	InviteeRole        string     `gorm:"size:50;not null" json:"invitee_role"` // university, enterprise
+	Position           string     `gorm:"size:120;not null" json:"position"`
+	Difficulty         string     `gorm:"size:50;not null" json:"difficulty"`
+	Mode               string     `gorm:"size:50;not null" json:"mode"`
+	Style              string     `gorm:"size:50;not null" json:"style"`
+	Company            string     `gorm:"size:50" json:"company,omitempty"`
+	Status             string     `gorm:"size:20;default:'pending'" json:"status"` // pending, accepted, rejected, in_progress, completed, cancelled
+	ScheduledAt        *time.Time `json:"scheduled_at,omitempty"`
+	Notes              string     `gorm:"type:text" json:"notes,omitempty"`
+	InterviewID        *uint      `gorm:"index" json:"interview_id,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
 
-	Student User `gorm:"foreignKey:StudentID" json:"student,omitempty"`
-	Invitee User `gorm:"foreignKey:InviteeUserID" json:"invitee,omitempty"`
+	Student      User                                  `gorm:"foreignKey:StudentID" json:"student,omitempty"`
+	Invitee      User                                  `gorm:"foreignKey:InviteeUserID" json:"invitee,omitempty"`
+	Initiator    User                                  `gorm:"foreignKey:InitiatorUserID" json:"initiator,omitempty"`
+	Target       User                                  `gorm:"foreignKey:TargetUserID" json:"target,omitempty"`
+	Participants []HumanInterviewInvitationParticipant `gorm:"foreignKey:InvitationID" json:"participants,omitempty"`
+}
+
+type HumanInterviewInvitationParticipant struct {
+	ID              uint       `gorm:"primaryKey" json:"id"`
+	InvitationID    uint       `gorm:"index;not null;uniqueIndex:uk_invitation_user" json:"invitation_id"`
+	UserID          uint       `gorm:"index;not null;uniqueIndex:uk_invitation_user" json:"user_id"`
+	UserUUID        string     `gorm:"type:char(36);index" json:"user_uuid"`
+	UserRole        string     `gorm:"size:50;not null" json:"user_role"`
+	ParticipantRole string     `gorm:"size:20;not null" json:"participant_role"`
+	ResponseStatus  string     `gorm:"size:20;default:'pending';index" json:"response_status"`
+	RespondedAt     *time.Time `json:"responded_at,omitempty"`
+	JoinedAt        *time.Time `json:"joined_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+
+	Invitation HumanInterviewInvitation `gorm:"foreignKey:InvitationID" json:"invitation,omitempty"`
+	User       User                     `gorm:"foreignKey:UserID" json:"user,omitempty"`
 }
 
 // HumanInterviewer represents an available human interviewer (teacher/enterprise expert)

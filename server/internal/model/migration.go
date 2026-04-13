@@ -21,6 +21,9 @@ func NormalizeLegacyMigrationData(db *gorm.DB) error {
 	if err := normalizeLegacyHumanInvitationCode(db); err != nil {
 		return err
 	}
+	if err := normalizeLegacyHumanInvitationActorFields(db); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -177,6 +180,106 @@ func normalizeLegacyHumanInvitationCode(db *gorm.DB) error {
 		SET hi.invitation_code = UPPER(REPLACE(UUID(), '-', ''))
 	`).Error; err != nil {
 		return fmt.Errorf("failed to deduplicate invitation_code in human_interview_invitations: %w", err)
+	}
+
+	return nil
+}
+
+func normalizeLegacyHumanInvitationActorFields(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&HumanInterviewInvitation{}) {
+		return nil
+	}
+
+	columns := []string{
+		"InitiatorUserID",
+		"InitiatorUUID",
+		"InitiatorRole",
+		"TargetUserID",
+		"TargetUUID",
+		"TargetRole",
+		"ScenarioType",
+		"TargetParticipants",
+		"StartThreshold",
+	}
+	for _, column := range columns {
+		if db.Migrator().HasColumn(&HumanInterviewInvitation{}, column) {
+			continue
+		}
+		if err := db.Migrator().AddColumn(&HumanInterviewInvitation{}, column); err != nil {
+			return fmt.Errorf("failed to add human_interview_invitations.%s: %w", column, err)
+		}
+	}
+
+	if err := db.Exec(`
+		UPDATE human_interview_invitations
+		SET initiator_user_id = student_id
+		WHERE (initiator_user_id IS NULL OR initiator_user_id = 0) AND student_id IS NOT NULL AND student_id > 0
+	`).Error; err != nil {
+		return fmt.Errorf("failed to backfill initiator_user_id: %w", err)
+	}
+
+	if err := db.Exec(`
+		UPDATE human_interview_invitations
+		SET initiator_uuid = student_uuid
+		WHERE (initiator_uuid IS NULL OR initiator_uuid = '') AND student_uuid IS NOT NULL AND student_uuid <> ''
+	`).Error; err != nil {
+		return fmt.Errorf("failed to backfill initiator_uuid: %w", err)
+	}
+
+	if err := db.Exec(`
+		UPDATE human_interview_invitations
+		SET initiator_role = 'student'
+		WHERE initiator_role IS NULL OR initiator_role = ''
+	`).Error; err != nil {
+		return fmt.Errorf("failed to backfill initiator_role: %w", err)
+	}
+
+	if err := db.Exec(`
+		UPDATE human_interview_invitations
+		SET target_user_id = invitee_user_id
+		WHERE (target_user_id IS NULL OR target_user_id = 0) AND invitee_user_id IS NOT NULL AND invitee_user_id > 0
+	`).Error; err != nil {
+		return fmt.Errorf("failed to backfill target_user_id: %w", err)
+	}
+
+	if err := db.Exec(`
+		UPDATE human_interview_invitations
+		SET target_uuid = invitee_uuid
+		WHERE (target_uuid IS NULL OR target_uuid = '') AND invitee_uuid IS NOT NULL AND invitee_uuid <> ''
+	`).Error; err != nil {
+		return fmt.Errorf("failed to backfill target_uuid: %w", err)
+	}
+
+	if err := db.Exec(`
+		UPDATE human_interview_invitations
+		SET target_role = invitee_role
+		WHERE (target_role IS NULL OR target_role = '') AND invitee_role IS NOT NULL AND invitee_role <> ''
+	`).Error; err != nil {
+		return fmt.Errorf("failed to backfill target_role: %w", err)
+	}
+
+	if err := db.Exec(`
+		UPDATE human_interview_invitations
+		SET scenario_type = 'single'
+		WHERE scenario_type IS NULL OR scenario_type = ''
+	`).Error; err != nil {
+		return fmt.Errorf("failed to backfill scenario_type: %w", err)
+	}
+
+	if err := db.Exec(`
+		UPDATE human_interview_invitations
+		SET target_participants = 2
+		WHERE target_participants IS NULL OR target_participants < 2
+	`).Error; err != nil {
+		return fmt.Errorf("failed to backfill target_participants: %w", err)
+	}
+
+	if err := db.Exec(`
+		UPDATE human_interview_invitations
+		SET start_threshold = 2
+		WHERE start_threshold IS NULL OR start_threshold < 1
+	`).Error; err != nil {
+		return fmt.Errorf("failed to backfill start_threshold: %w", err)
 	}
 
 	return nil

@@ -1,120 +1,120 @@
-import request from '../utils/request'
+import request from "../utils/request";
 
 export function startInterview(data) {
   return request({
-    url: '/interview/start',
-    method: 'post',
+    url: "/interview/start",
+    method: "post",
     data,
     headers: {
-      'X-Skip-Error-Toast': 'true'
+      "X-Skip-Error-Toast": "true",
     },
-    timeout: 12000
-  })
+    timeout: 12000,
+  });
 }
 
 export function startStandardInterview(data) {
   return request({
-    url: '/interview/start/standard',
-    method: 'post',
+    url: "/interview/start/standard",
+    method: "post",
     data,
     headers: {
-      'X-Skip-Error-Toast': 'true'
+      "X-Skip-Error-Toast": "true",
     },
-    timeout: 12000
-  })
+    timeout: 12000,
+  });
 }
 
 export function startAlgorithmInterview(data) {
   return request({
-    url: '/interview/start/algorithm',
-    method: 'post',
+    url: "/interview/start/algorithm",
+    method: "post",
     data,
     headers: {
-      'X-Skip-Error-Toast': 'true'
+      "X-Skip-Error-Toast": "true",
     },
-    timeout: 12000
-  })
+    timeout: 12000,
+  });
 }
 
 export function getInterview(id) {
   return request({
     url: `/interview/${id}`,
-    method: 'get'
-  })
+    method: "get",
+  });
 }
 
 export function getInterviews(params) {
   return request({
-    url: '/interview',
-    method: 'get',
-    params
-  })
+    url: "/interview",
+    method: "get",
+    params,
+  });
 }
 
 export function submitAnswer(id, data) {
   return request({
     url: `/interview/${id}/answer`,
-    method: 'put',
+    method: "put",
     data,
-    timeout: 180000
-  })
+    timeout: 180000,
+  });
 }
 
 export function endInterview(id) {
   return request({
     url: `/interview/${id}/end`,
-    method: 'post'
-  })
+    method: "post",
+  });
 }
 
 export function uploadInterviewRecording(id, formData) {
   return request({
     url: `/interview/${id}/recording`,
-    method: 'post',
+    method: "post",
     data: formData,
     headers: {
-      'Content-Type': 'multipart/form-data'
-    }
-  })
+      "Content-Type": "multipart/form-data",
+    },
+  });
 }
 
 export function analyzeSpeechChunk(interviewId, data) {
   return request({
     url: `/interview/${interviewId}/speech-analyze`,
-    method: 'post',
-    data
-  })
+    method: "post",
+    data,
+  });
 }
 
 export function getShadowCoachHint(interviewId, data) {
   return request({
     url: `/interview/${interviewId}/shadow-hint`,
-    method: 'post',
-    data
-  })
+    method: "post",
+    data,
+  });
 }
 
 export function synthesizeInterviewSpeech(interviewId, data) {
   return request({
     url: `/interview/${interviewId}/tts`,
-    method: 'post',
-    data
-  })
+    method: "post",
+    data,
+  });
 }
 
 export function drawBlindBoxScenario(data = {}) {
   return request({
-    url: '/interview/blindbox/draw',
-    method: 'post',
-    data
-  })
+    url: "/interview/blindbox/draw",
+    method: "post",
+    data,
+  });
 }
 
 export function getBlindBoxScenarios() {
   return request({
-    url: '/interview/blindbox/scenarios',
-    method: 'get'
-  })
+    url: "/interview/blindbox/scenarios",
+    method: "get",
+  });
 }
 
 // ========== New Interview Features ==========
@@ -122,138 +122,146 @@ export function getBlindBoxScenarios() {
 // Get interview configuration options (modes, styles, companies, difficulties)
 export function getInterviewConfig() {
   return request({
-    url: '/interview/config',
-    method: 'get'
-  })
+    url: "/interview/config",
+    method: "get",
+  });
 }
 
 // Get available human interviewers
 export function getHumanInterviewers(params) {
   return request({
-    url: '/interview/human-interviewers',
-    method: 'get',
-    params
-  })
+    url: "/interview/human-interviewers",
+    method: "get",
+    params,
+  });
 }
 
 // Get a specific human interviewer
 export function getHumanInterviewer(id) {
   return request({
     url: `/interview/human-interviewers/${id}`,
-    method: 'get'
-  })
+    method: "get",
+  });
 }
 
 // Book a human interview
 export function bookHumanInterview(data) {
   return request({
-    url: '/interview/booking',
-    method: 'post',
-    data
-  })
+    url: "/interview/booking",
+    method: "post",
+    data,
+  });
 }
 
 // Get user's interview bookings
 export function getUserBookings() {
   return request({
-    url: '/interview/bookings',
-    method: 'get'
-  })
+    url: "/interview/bookings",
+    method: "get",
+  });
 }
 
 // Submit human interviewer feedback
 export function submitHumanFeedback(interviewId, data) {
   return request({
     url: `/interview/${interviewId}/human-feedback`,
-    method: 'post',
-    data
-  })
+    method: "post",
+    data,
+  });
 }
 
 // Reveal the hidden style after a random-mode interview
 export function revealRandomStyle(interviewId) {
   return request({
     url: `/interview/${interviewId}/reveal-style`,
-    method: 'get'
-  })
+    method: "get",
+  });
 }
 
 export function getInviteCandidates(params) {
   return request({
-    url: '/interview/invite-candidates',
-    method: 'get',
-    params
-  })
+    url: "/interview/invite-candidates",
+    method: "get",
+    params,
+  });
 }
 
 export function createHumanInvitation(data) {
   return request({
-    url: '/interview/invitations',
-    method: 'post',
-    data
-  })
+    url: "/interview/invitations",
+    method: "post",
+    data,
+  });
 }
 
 export function getHumanInvitations() {
   return request({
-    url: '/interview/invitations',
-    method: 'get'
-  })
+    url: "/interview/invitations",
+    method: "get",
+  });
 }
 
 export function getReceivedHumanInvitations() {
   return request({
-    url: '/interview/invitations/received',
-    method: 'get'
-  })
+    url: "/interview/invitations/received",
+    method: "get",
+  });
 }
 
 export function respondHumanInvitation(invitationId, action) {
   return request({
     url: `/interview/invitations/${invitationId}/respond`,
-    method: 'post',
-    data: { action }
-  })
+    method: "post",
+    data: { action },
+  });
 }
 
 export function joinLiveInterview(data) {
   return request({
-    url: '/interview/live/join',
-    method: 'post',
-    data
-  })
+    url: "/interview/live/join",
+    method: "post",
+    data,
+  });
+}
+
+export function startLiveInterview(data) {
+  return request({
+    url: "/interview/live/start",
+    method: "post",
+    data,
+  });
 }
 
 export function getLiveInterviewWorkbench() {
   return request({
-    url: '/interview/live/workbench',
-    method: 'get'
-  })
+    url: "/interview/live/workbench",
+    method: "get",
+  });
 }
 
 export function getAlgorithmSession(interviewId, params = {}) {
   return request({
     url: `/interview/${interviewId}/algorithm/session`,
-    method: 'get',
+    method: "get",
     params,
-    timeout: 15000
-  })
+    timeout: 15000,
+  });
 }
 
 export function runAlgorithmCode(interviewId, data) {
   return request({
     url: `/interview/${interviewId}/algorithm/run`,
-    method: 'post',
+    method: "post",
     data,
-    timeout: 15000
-  })
+    timeout: 15000,
+  });
 }
 
 export function skipAlgorithmProblem(interviewId, data) {
   return request({
     url: `/interview/${interviewId}/algorithm/skip`,
-    method: 'post',
+    method: "post",
     data,
-    timeout: 15000
-  })
+    timeout: 15000,
+  });
 }

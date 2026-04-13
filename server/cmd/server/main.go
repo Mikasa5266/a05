@@ -162,6 +162,7 @@ func autoMigrate(db *gorm.DB) error {
 		&model.HumanInterviewer{},
 		&model.InterviewBooking{},
 		&model.HumanInterviewInvitation{},
+		&model.HumanInterviewInvitationParticipant{},
 		// Enterprise
 		&model.Enterprise{},
 		&model.Job{},

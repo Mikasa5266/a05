@@ -58,12 +58,15 @@
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div class="flex items-center gap-2 flex-wrap">
-                <h3 class="text-base font-semibold text-zinc-900">{{ inv.invitee?.username || `面试官#${inv.invitee_user_id}` }}</h3>
+                <h3 class="text-base font-semibold text-zinc-900">{{ invitationCounterpartName(inv) }}</h3>
                 <span class="px-2 py-1 rounded-full text-xs font-medium" :class="statusClass(inv.status)">
                   {{ statusLabel(inv.status) }}
                 </span>
                 <span class="px-2 py-1 rounded-full text-xs font-medium bg-zinc-100 text-zinc-600">
-                  {{ roleLabel(inv.invitee_role) }}
+                  {{ invitationCounterpartRole(inv) }}
+                </span>
+                <span class="px-2 py-1 rounded-full text-xs font-medium" :class="inv.direction === 'incoming' ? 'bg-emerald-50 text-emerald-700' : 'bg-sky-50 text-sky-700'">
+                  {{ inv.direction === 'incoming' ? '收到邀请' : '发起邀请' }}
                 </span>
               </div>
               <p class="text-sm text-zinc-600 mt-1">
@@ -82,7 +85,21 @@
 
           <div class="mt-4 flex flex-wrap gap-2">
             <button
-              v-if="inv.status === 'accepted' || inv.status === 'in_progress'"
+              v-if="canRespondInvitation(inv)"
+              class="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100"
+              @click="respondInvitation(inv, 'accept')"
+            >
+              接受邀请
+            </button>
+            <button
+              v-if="canRespondInvitation(inv)"
+              class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 text-xs font-semibold hover:bg-rose-100"
+              @click="respondInvitation(inv, 'reject')"
+            >
+              拒绝邀请
+            </button>
+            <button
+              v-if="canEnterRoom(inv)"
               class="ml-auto px-3.5 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-semibold hover:bg-indigo-100"
               @click="enterLiveRoom(inv)"
             >
@@ -112,11 +129,12 @@
               <option value="">全部</option>
               <option value="enterprise">企业端</option>
               <option value="university">高校端</option>
+              <option value="student">学生端</option>
             </select>
           </div>
 
           <div>
-            <label class="text-xs font-bold text-zinc-400 uppercase">选择面试官</label>
+            <label class="text-xs font-bold text-zinc-400 uppercase">选择邀请对象</label>
             <select v-model.number="createForm.invitee_user_id" class="mt-1 w-full px-3 py-2.5 rounded-xl border border-zinc-200 bg-zinc-50 text-sm">
               <option :value="0">请选择</option>
               <option v-for="candidate in candidates" :key="candidate.id" :value="candidate.id">
@@ -195,7 +213,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { createHumanInvitation, getHumanInvitations, getInviteCandidates } from '../../api/interview'
+import { createHumanInvitation, getHumanInvitations, getInviteCandidates, getReceivedHumanInvitations, respondHumanInvitation } from '../../api/interview'
 
 const router = useRouter()
 const route = useRoute()
@@ -292,7 +310,35 @@ const modeLabel = (mode) => {
 const roleLabel = (role) => {
   if (role === 'enterprise') return '企业端'
   if (role === 'university') return '高校端'
+  if (role === 'student') return '学生端'
   return '未知角色'
+}
+
+const invitationDirection = (inv) => {
+  return String(inv?.direction || 'outgoing')
+}
+
+const invitationCounterpartName = (inv) => {
+  if (invitationDirection(inv) === 'incoming') {
+    return inv?.initiator?.username || inv?.student?.username || inv?.counterpart_name || `发起人#${inv?.initiator_user_id || inv?.student_id || '-'}`
+  }
+  return inv?.target?.username || inv?.invitee?.username || inv?.counterpart_name || `面试官#${inv?.invitee_user_id || inv?.target_user_id || '-'}`
+}
+
+const invitationCounterpartRole = (inv) => {
+  if (invitationDirection(inv) === 'incoming') {
+    return roleLabel(inv?.initiator_role || inv?.counterpart_role || 'student')
+  }
+  return roleLabel(inv?.target_role || inv?.invitee_role || inv?.counterpart_role)
+}
+
+const canRespondInvitation = (inv) => invitationDirection(inv) === 'incoming' && inv?.status === 'pending'
+
+const canEnterRoom = (inv) => {
+  if (!inv) return false
+  if (inv.status === 'accepted' || inv.status === 'in_progress') return true
+  if (invitationDirection(inv) === 'incoming' && inv.status === 'pending') return true
+  return false
 }
 
 const formatDateTime = (value) => {
@@ -305,12 +351,47 @@ const formatDateTime = (value) => {
 const fetchInvitations = async () => {
   loading.value = true
   try {
-    const res = await getHumanInvitations()
-    invitations.value = Array.isArray(res?.invitations) ? res.invitations : []
+    const [sentRes, receivedRes] = await Promise.all([
+      getHumanInvitations(),
+      getReceivedHumanInvitations()
+    ])
+    const sent = Array.isArray(sentRes?.invitations) ? sentRes.invitations : []
+    const received = Array.isArray(receivedRes?.invitations) ? receivedRes.invitations : []
+
+    const merged = new Map()
+    sent.forEach((item) => {
+      merged.set(Number(item.id), { ...item, direction: 'outgoing' })
+    })
+    received.forEach((item) => {
+      const key = Number(item.id)
+      if (merged.has(key)) {
+        merged.set(key, { ...merged.get(key), ...item, direction: 'incoming' })
+      } else {
+        merged.set(key, { ...item, direction: 'incoming' })
+      }
+    })
+
+    invitations.value = Array.from(merged.values()).sort((a, b) => {
+      const ta = new Date(a?.updated_at || a?.created_at || 0).getTime()
+      const tb = new Date(b?.updated_at || b?.created_at || 0).getTime()
+      return tb - ta
+    })
   } catch (error) {
     ElMessage.error(error?.response?.data?.error || '加载邀请失败')
   } finally {
     loading.value = false
+  }
+}
+
+const respondInvitation = async (invitation, action) => {
+  const invitationId = Number(invitation?.id || 0)
+  if (!invitationId) return
+  try {
+    await respondHumanInvitation(invitationId, action)
+    ElMessage.success(action === 'accept' ? '已接受邀请' : '已拒绝邀请')
+    await fetchInvitations()
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '处理邀请失败')
   }
 }
 
@@ -331,6 +412,7 @@ const fetchCandidates = async () => {
 }
 
 const openCreateDialog = async () => {
+  candidateRoleFilter.value = isGroupMode.value ? 'student' : ''
   showCreateDialog.value = true
   await fetchCandidates()
 }
@@ -348,7 +430,7 @@ const resetCreateForm = () => {
 
 const submitCreateInvitation = async () => {
   if (!createForm.invitee_user_id) {
-    ElMessage.warning('请先选择面试官')
+    ElMessage.warning('请先选择邀请对象')
     return
   }
   if (!createForm.position.trim()) {

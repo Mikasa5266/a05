@@ -76,12 +76,15 @@ func (r *UserRepository) List(page, pageSize int) ([]*model.User, int64, error) 
 	return users, total, nil
 }
 
-func (r *UserRepository) ListInviteCandidates(role, keyword string, page, pageSize int) ([]model.User, int64, error) {
+func (r *UserRepository) ListInviteCandidates(excludeUserID uint, role, keyword string, page, pageSize int) ([]model.User, int64, error) {
 	var users []model.User
 	var total int64
 
-	query := r.db.Model(&model.User{}).Where("role IN ?", []string{"enterprise", "university"})
-	if role == "enterprise" || role == "university" {
+	query := r.db.Model(&model.User{}).Where("role IN ?", []string{"enterprise", "university", "student"})
+	if excludeUserID > 0 {
+		query = query.Where("id <> ?", excludeUserID)
+	}
+	if role == "enterprise" || role == "university" || role == "student" {
 		query = query.Where("role = ?", role)
 	}
 

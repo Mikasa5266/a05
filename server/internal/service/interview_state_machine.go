@@ -86,5 +86,5 @@ func transitionInvitationStatus(current, target string) (string, error) {
 
 func isInvitationJoinableStatus(status string) bool {
 	normalized := normalizeStatusValue(status)
-	return normalized == invitationStatusAccepted || normalized == invitationStatusInProgress
+	return normalized == invitationStatusPending || normalized == invitationStatusAccepted || normalized == invitationStatusInProgress
 }

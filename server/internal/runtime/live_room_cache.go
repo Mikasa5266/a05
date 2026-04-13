@@ -87,11 +87,11 @@ func (s *LiveRoomStore) CastStartVote(roomID string, userID uint, targetParticip
 	}
 
 	target := targetParticipants
-	if target < DefaultGroupTargetParticipants {
+	if target < 2 {
 		target = DefaultGroupTargetParticipants
 	}
 	threshold := startThreshold
-	if threshold < GroupStartThresholdForTesting {
+	if threshold < 1 {
 		threshold = GroupStartThresholdForTesting
 	}
 	if threshold > target {

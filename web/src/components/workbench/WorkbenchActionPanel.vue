@@ -16,7 +16,7 @@ const emit = defineEmits(['accept', 'reject', 'enter-room'])
 <template>
   <div class="mt-4 flex flex-wrap gap-2">
     <button
-      v-if="props.item.status === 'pending'"
+      v-if="props.item.status === 'pending' && props.item.can_respond"
       class="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 disabled:opacity-60"
       :disabled="props.actionLoadingId === props.item.id"
       @click="emit('accept', props.item.id)"
@@ -24,7 +24,7 @@ const emit = defineEmits(['accept', 'reject', 'enter-room'])
       接受邀请
     </button>
     <button
-      v-if="props.item.status === 'pending'"
+      v-if="props.item.status === 'pending' && props.item.can_respond"
       class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 text-xs font-semibold hover:bg-rose-100 disabled:opacity-60"
       :disabled="props.actionLoadingId === props.item.id"
       @click="emit('reject', props.item.id)"

@@ -63,6 +63,31 @@ func JoinInterview(c *gin.Context) {
 	})
 }
 
+func StartLiveInterview(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	role := c.GetString("role")
+
+	var req struct {
+		InvitationID uint `json:"invitation_id" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	result, err := service.StartLiveInterview(userID, role, req.InvitationID)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "面试已开始",
+		"session": result,
+	})
+}
+
 func GetLiveInterviewWorkbench(c *gin.Context) {
 	userID := c.GetUint("user_id")
 	role := c.GetString("role")
@@ -191,14 +216,15 @@ func startInterviewWithDefaults(c *gin.Context, defaultMode, defaultStyle, defau
 	}
 }
 
-// ListInviteCandidates returns university/enterprise users that can be invited for a mock interview.
+// ListInviteCandidates returns users that can be invited for a mock interview.
 func ListInviteCandidates(c *gin.Context) {
+	currentUserID := c.GetUint("user_id")
 	role := c.DefaultQuery("role", "")
 	keyword := c.DefaultQuery("keyword", "")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
-	users, total, err := service.ListInviteCandidates(role, keyword, page, pageSize)
+	users, total, err := service.ListInviteCandidates(currentUserID, role, keyword, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -213,17 +239,18 @@ func ListInviteCandidates(c *gin.Context) {
 }
 
 func CreateHumanInvitation(c *gin.Context) {
-	studentID := c.GetUint("user_id")
+	initiatorUserID := c.GetUint("user_id")
 
 	var req struct {
-		InviteeUserID uint   `json:"invitee_user_id" binding:"required"`
-		ScheduledAt   string `json:"scheduled_at,omitempty"`
-		Position      string `json:"position" binding:"required"`
-		Difficulty    string `json:"difficulty" binding:"required"`
-		Mode          string `json:"mode" binding:"required"`
-		Style         string `json:"style" binding:"required"`
-		Company       string `json:"company"`
-		Notes         string `json:"notes"`
+		InviteeUserID  uint   `json:"invitee_user_id"`
+		InviteeUserIDs []uint `json:"invitee_user_ids"`
+		ScheduledAt    string `json:"scheduled_at,omitempty"`
+		Position       string `json:"position" binding:"required"`
+		Difficulty     string `json:"difficulty" binding:"required"`
+		Mode           string `json:"mode" binding:"required"`
+		Style          string `json:"style" binding:"required"`
+		Company        string `json:"company"`
+		Notes          string `json:"notes"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -241,9 +268,15 @@ func CreateHumanInvitation(c *gin.Context) {
 		scheduledAt = &parsed
 	}
 
-	invitation, err := service.CreateHumanInvitation(
-		studentID,
-		req.InviteeUserID,
+	inviteeIDs := make([]uint, 0, len(req.InviteeUserIDs)+1)
+	inviteeIDs = append(inviteeIDs, req.InviteeUserIDs...)
+	if req.InviteeUserID > 0 {
+		inviteeIDs = append(inviteeIDs, req.InviteeUserID)
+	}
+
+	invitation, err := service.CreateHumanInvitationBatch(
+		initiatorUserID,
+		inviteeIDs,
 		scheduledAt,
 		req.Position,
 		req.Difficulty,

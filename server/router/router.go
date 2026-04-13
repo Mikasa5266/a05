@@ -52,6 +52,7 @@ func SetupRouter(aiService aidomain.AIFacade) *gin.Engine {
 			protected.POST("/interview/start/standard", handler.StartStandardInterview)
 			protected.POST("/interview/start/algorithm", handler.StartAlgorithmInterview)
 			protected.POST("/interview/live/join", handler.JoinInterview)
+			protected.POST("/interview/live/start", handler.StartLiveInterview)
 			protected.GET("/interview/live/workbench", handler.GetLiveInterviewWorkbench)
 			protected.GET("/interview", handler.GetInterviews)
 			protected.GET("/interview/config", handler.GetInterviewConfig)

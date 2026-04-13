@@ -103,7 +103,7 @@ func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID
 		if err != nil {
 			return nil, fmt.Errorf("邀请记录不存在")
 		}
-		if loaded.StudentID != userID {
+		if loaded.StudentID != userID && loaded.InitiatorUserID != userID {
 			return nil, fmt.Errorf("无权使用该邀请")
 		}
 		if loaded.Status == "cancelled" {
@@ -112,7 +112,9 @@ func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID
 		if loaded.Status == "rejected" {
 			return nil, fmt.Errorf("该邀请已被对方拒绝")
 		}
-		if loaded.Status != "accepted" && loaded.Status != "in_progress" {
+		status := normalizeStatusValue(loaded.Status)
+		isInitiator := loaded.InitiatorUserID == userID || loaded.StudentID == userID
+		if status != invitationStatusAccepted && status != invitationStatusInProgress && !(status == invitationStatusPending && isInitiator) {
 			return nil, fmt.Errorf("请等待对方接受邀请后再开始真人面试")
 		}
 		invitation = loaded
@@ -330,9 +332,21 @@ func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID
 
 	if invitation != nil {
 		interview.Status = interviewStatusPending
-		interview.HumanInterviewerUserID = &invitation.InviteeUserID
-		interview.HumanInterviewerName = invitation.Invitee.Username
-		interview.HumanInterviewerRole = invitation.InviteeRole
+		targetUserID := invitation.TargetUserID
+		if targetUserID == 0 {
+			targetUserID = invitation.InviteeUserID
+		}
+		if targetUserID > 0 {
+			interview.HumanInterviewerUserID = &targetUserID
+		}
+		interview.HumanInterviewerName = strings.TrimSpace(invitation.Target.Username)
+		if interview.HumanInterviewerName == "" {
+			interview.HumanInterviewerName = invitation.Invitee.Username
+		}
+		interview.HumanInterviewerRole = strings.TrimSpace(invitation.TargetRole)
+		if interview.HumanInterviewerRole == "" {
+			interview.HumanInterviewerRole = invitation.InviteeRole
+		}
 		code := strings.TrimSpace(invitation.InvitationCode)
 		if code != "" {
 			interview.InvitationCode = &code
@@ -824,7 +838,7 @@ func EndInterview(userID, interviewID uint) (*model.Interview, error) {
 	return svc.EndInterview(userID, interviewID)
 }
 
-func ListInviteCandidates(role, keyword string, page, pageSize int) ([]model.User, int64, error) {
+func ListInviteCandidates(currentUserID uint, role, keyword string, page, pageSize int) ([]model.User, int64, error) {
 	svc := NewInterviewService()
 	if page < 1 {
 		page = 1
@@ -832,102 +846,170 @@ func ListInviteCandidates(role, keyword string, page, pageSize int) ([]model.Use
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
-	return svc.userRepo.ListInviteCandidates(role, keyword, page, pageSize)
+	return svc.userRepo.ListInviteCandidates(currentUserID, role, keyword, page, pageSize)
 }
 
-func CreateHumanInvitation(studentID, inviteeUserID uint, scheduledAt *time.Time, position, difficulty, mode, style, company, notes string) (*model.HumanInterviewInvitation, error) {
+func isAllowedLiveInvitationRole(role string) bool {
+	switch normalizeActorRole(role) {
+	case "student", "enterprise", "university":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeInviteeUserIDs(inviteeUserIDs []uint, initiatorUserID uint) []uint {
+	if len(inviteeUserIDs) == 0 {
+		return []uint{}
+	}
+	seen := make(map[uint]struct{}, len(inviteeUserIDs))
+	normalized := make([]uint, 0, len(inviteeUserIDs))
+	for _, id := range inviteeUserIDs {
+		if id == 0 || id == initiatorUserID {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+	}
+	return normalized
+}
+
+func CreateHumanInvitation(initiatorUserID, inviteeUserID uint, scheduledAt *time.Time, position, difficulty, mode, style, company, notes string) (*model.HumanInterviewInvitation, error) {
+	return CreateHumanInvitationBatch(initiatorUserID, []uint{inviteeUserID}, scheduledAt, position, difficulty, mode, style, company, notes)
+}
+
+func CreateHumanInvitationBatch(initiatorUserID uint, inviteeUserIDs []uint, scheduledAt *time.Time, position, difficulty, mode, style, company, notes string) (*model.HumanInterviewInvitation, error) {
 	svc := NewInterviewService()
-	student, err := svc.userRepo.GetByID(studentID)
+
+	initiator, err := svc.userRepo.GetByID(initiatorUserID)
 	if err != nil {
-		return nil, fmt.Errorf("用户不存在")
+		return nil, fmt.Errorf("发起用户不存在")
 	}
-	studentUUID, err := ensureUserUUID(svc.userRepo, student)
+	if !isAllowedLiveInvitationRole(initiator.Role) {
+		return nil, fmt.Errorf("当前角色不支持发起真人面试邀请")
+	}
+	initiatorUUID, err := ensureUserUUID(svc.userRepo, initiator)
 	if err != nil {
-		return nil, fmt.Errorf("学生身份标识初始化失败: %w", err)
-	}
-	if student.Role != "student" {
-		return nil, fmt.Errorf("仅学生用户可以发起真人面试邀请")
-	}
-	invitee, err := svc.userRepo.GetByID(inviteeUserID)
-	if err != nil {
-		return nil, fmt.Errorf("被邀请用户不存在")
-	}
-	inviteeUUID, err := ensureUserUUID(svc.userRepo, invitee)
-	if err != nil {
-		return nil, fmt.Errorf("被邀请用户身份标识初始化失败: %w", err)
-	}
-	if invitee.Role != "enterprise" && invitee.Role != "university" {
-		return nil, fmt.Errorf("只能邀请学校端或企业端用户")
+		return nil, fmt.Errorf("发起人身份标识初始化失败: %w", err)
 	}
 
-	var invitationCode string
+	normalizedInvitees := normalizeInviteeUserIDs(inviteeUserIDs, initiatorUserID)
+	if len(normalizedInvitees) == 0 {
+		return nil, fmt.Errorf("请至少选择 1 位被邀请用户")
+	}
+
+	invitees := make([]*model.User, 0, len(normalizedInvitees))
+	for _, inviteeUserID := range normalizedInvitees {
+		invitee, inviteeErr := svc.userRepo.GetByID(inviteeUserID)
+		if inviteeErr != nil {
+			return nil, fmt.Errorf("被邀请用户不存在")
+		}
+		if !isAllowedLiveInvitationRole(invitee.Role) {
+			return nil, fmt.Errorf("用户 %d 角色不支持加入真人面试", invitee.ID)
+		}
+		inviteeUUID, uuidErr := ensureUserUUID(svc.userRepo, invitee)
+		if uuidErr != nil {
+			return nil, fmt.Errorf("被邀请用户身份标识初始化失败: %w", uuidErr)
+		}
+		invitee.UUID = inviteeUUID
+		invitees = append(invitees, invitee)
+	}
+
+	primaryInvitee := invitees[0]
+	scenarioType := model.InvitationScenarioSingle
+	if len(invitees) > 1 {
+		scenarioType = model.InvitationScenarioGroup
+	}
+
+	inv := &model.HumanInterviewInvitation{
+		InvitationCode:     "",
+		InitiatorUserID:    initiatorUserID,
+		InitiatorUUID:      initiatorUUID,
+		InitiatorRole:      normalizeActorRole(initiator.Role),
+		TargetUserID:       primaryInvitee.ID,
+		TargetUUID:         strings.TrimSpace(primaryInvitee.UUID),
+		TargetRole:         normalizeActorRole(primaryInvitee.Role),
+		ScenarioType:       scenarioType,
+		TargetParticipants: len(invitees) + 1,
+		StartThreshold:     2,
+		StudentID:          initiatorUserID,
+		StudentUUID:        initiatorUUID,
+		InviteeUserID:      primaryInvitee.ID,
+		InviteeUUID:        strings.TrimSpace(primaryInvitee.UUID),
+		InviteeRole:        normalizeActorRole(primaryInvitee.Role),
+		Position:           strings.TrimSpace(position),
+		Difficulty:         strings.TrimSpace(difficulty),
+		Mode:               strings.TrimSpace(mode),
+		Style:              strings.TrimSpace(style),
+		Company:            strings.TrimSpace(company),
+		Status:             invitationStatusPending,
+		ScheduledAt:        scheduledAt,
+		Notes:              strings.TrimSpace(notes),
+	}
+
+	now := time.Now()
+	participants := make([]model.HumanInterviewInvitationParticipant, 0, len(invitees)+1)
+	participants = append(participants, model.HumanInterviewInvitationParticipant{
+		UserID:          initiator.ID,
+		UserUUID:        strings.TrimSpace(initiator.UUID),
+		UserRole:        normalizeActorRole(initiator.Role),
+		ParticipantRole: model.InvitationParticipantRoleInitiator,
+		ResponseStatus:  model.InvitationParticipantStatusAccepted,
+		RespondedAt:     &now,
+	})
+	for _, invitee := range invitees {
+		participants = append(participants, model.HumanInterviewInvitationParticipant{
+			UserID:          invitee.ID,
+			UserUUID:        strings.TrimSpace(invitee.UUID),
+			UserRole:        normalizeActorRole(invitee.Role),
+			ParticipantRole: model.InvitationParticipantRoleInvitee,
+			ResponseStatus:  model.InvitationParticipantStatusPending,
+		})
+	}
+
+	createWithCode := func(code string) error {
+		inv.ID = 0
+		inv.InvitationCode = strings.TrimSpace(code)
+		return svc.interviewRepo.CreateInvitationWithParticipants(inv, participants)
+	}
+
+	var createErr error
 	for i := 0; i < 5; i++ {
 		code, codeErr := generateInvitationCode()
 		if codeErr != nil {
 			return nil, fmt.Errorf("生成邀请码失败: %w", codeErr)
 		}
-		invitationCode = code
-		if invitationCode != "" {
+		createErr = createWithCode(code)
+		if createErr == nil {
+			break
+		}
+		lowerErr := strings.ToLower(createErr.Error())
+		if !strings.Contains(lowerErr, "duplicate") && !strings.Contains(lowerErr, "unique") {
 			break
 		}
 	}
-	if invitationCode == "" {
-		return nil, fmt.Errorf("生成邀请码失败")
+	if createErr != nil {
+		return nil, fmt.Errorf("创建邀请失败: %w", createErr)
 	}
 
-	inv := &model.HumanInterviewInvitation{
-		InvitationCode: invitationCode,
-		StudentID:      studentID,
-		StudentUUID:    studentUUID,
-		InviteeUserID:  inviteeUserID,
-		InviteeUUID:    inviteeUUID,
-		InviteeRole:    invitee.Role,
-		Position:       strings.TrimSpace(position),
-		Difficulty:     strings.TrimSpace(difficulty),
-		Mode:           strings.TrimSpace(mode),
-		Style:          strings.TrimSpace(style),
-		Company:        strings.TrimSpace(company),
-		Status:         "pending",
-		ScheduledAt:    scheduledAt,
-		Notes:          strings.TrimSpace(notes),
-	}
-
-	if err := svc.interviewRepo.CreateInvitation(inv); err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "duplicate") || strings.Contains(strings.ToLower(err.Error()), "unique") {
-			for i := 0; i < 3; i++ {
-				code, codeErr := generateInvitationCode()
-				if codeErr != nil {
-					break
-				}
-				inv.InvitationCode = code
-				if retryErr := svc.interviewRepo.CreateInvitation(inv); retryErr == nil {
-					err = nil
-					break
-				}
-			}
-		}
-		if err != nil {
-			return nil, fmt.Errorf("创建邀请失败: %w", err)
-		}
-	}
-
-	inv.Invitee = *invitee
+	inv.Invitee = *primaryInvitee
+	inv.Target = *primaryInvitee
+	inv.Initiator = *initiator
 	return inv, nil
 }
 
-func ListHumanInvitations(studentID uint) ([]model.HumanInterviewInvitation, error) {
+func ListHumanInvitations(userID uint) ([]model.HumanInterviewInvitation, error) {
 	svc := NewInterviewService()
-	return svc.interviewRepo.GetInvitationsByStudentID(studentID)
+	return svc.interviewRepo.GetInvitationsByInitiatorID(userID)
 }
 
 func ListReceivedHumanInvitations(inviteeUserID uint) ([]model.HumanInterviewInvitation, error) {
 	svc := NewInterviewService()
-	user, err := svc.userRepo.GetByID(inviteeUserID)
-	if err != nil {
+	if _, err := svc.userRepo.GetByID(inviteeUserID); err != nil {
 		return nil, fmt.Errorf("用户不存在")
-	}
-	if user.Role != "enterprise" && user.Role != "university" {
-		return nil, fmt.Errorf("仅企业端或学校端可以查看收到的邀请")
 	}
 	return svc.interviewRepo.GetInvitationsByInviteeID(inviteeUserID)
 }
@@ -943,13 +1025,17 @@ func RespondHumanInvitation(inviteeUserID, invitationID uint, action string) (*m
 	if err != nil {
 		return nil, fmt.Errorf("用户不存在")
 	}
-	if user.Role != "enterprise" && user.Role != "university" {
-		return nil, fmt.Errorf("仅企业端或学校端可以处理邀请")
+	if !isAllowedLiveInvitationRole(user.Role) {
+		return nil, fmt.Errorf("当前角色不支持处理邀请")
 	}
 
-	invitation, err := svc.interviewRepo.GetInvitationByIDForInvitee(invitationID, inviteeUserID)
+	invitation, err := svc.interviewRepo.GetInvitationByIDForParticipant(invitationID, inviteeUserID)
 	if err != nil {
 		return nil, fmt.Errorf("邀请不存在")
+	}
+
+	if invitation.InitiatorUserID == inviteeUserID || invitation.StudentID == inviteeUserID {
+		return nil, fmt.Errorf("发起方无需处理该邀请")
 	}
 
 	normalizedAction := strings.ToLower(strings.TrimSpace(action))
@@ -957,35 +1043,82 @@ func RespondHumanInvitation(inviteeUserID, invitationID uint, action string) (*m
 		return nil, fmt.Errorf("action 仅支持 accept 或 reject")
 	}
 
-	if normalizeStatusValue(invitation.Status) != invitationStatusPending {
-		return nil, fmt.Errorf("当前邀请状态为 %s，无法重复处理", invitation.Status)
-	}
-
-	if strings.TrimSpace(invitation.InvitationCode) == "" {
-		code, codeErr := generateInvitationCode()
-		if codeErr != nil {
-			return nil, fmt.Errorf("生成邀请码失败: %w", codeErr)
+	participant, participantErr := svc.interviewRepo.GetInvitationParticipant(invitation.ID, inviteeUserID)
+	if participantErr != nil || participant == nil {
+		participant = &model.HumanInterviewInvitationParticipant{
+			InvitationID:    invitation.ID,
+			UserID:          user.ID,
+			UserUUID:        strings.TrimSpace(user.UUID),
+			UserRole:        normalizeActorRole(user.Role),
+			ParticipantRole: model.InvitationParticipantRoleInvitee,
+			ResponseStatus:  model.InvitationParticipantStatusPending,
 		}
-		invitation.InvitationCode = code
 	}
 
-	if strings.TrimSpace(invitation.StudentUUID) == "" && strings.TrimSpace(invitation.Student.UUID) != "" {
-		invitation.StudentUUID = strings.TrimSpace(invitation.Student.UUID)
+	if participant.ParticipantRole == model.InvitationParticipantRoleInitiator {
+		return nil, fmt.Errorf("发起方无需处理该邀请")
 	}
+
+	currentParticipantStatus := normalizeStatusValue(participant.ResponseStatus)
+	if currentParticipantStatus != "" && currentParticipantStatus != model.InvitationParticipantStatusPending {
+		return nil, fmt.Errorf("你已处理过该邀请")
+	}
+
+	if normalizedAction == "accept" {
+		participant.ResponseStatus = model.InvitationParticipantStatusAccepted
+	} else {
+		participant.ResponseStatus = model.InvitationParticipantStatusRejected
+	}
+	now := time.Now()
+	participant.RespondedAt = &now
+
+	if err := svc.interviewRepo.UpsertInvitationParticipant(participant); err != nil {
+		return nil, fmt.Errorf("更新邀请参与者状态失败: %w", err)
+	}
+
+	participants, listErr := svc.interviewRepo.ListInvitationParticipants(invitation.ID)
+	if listErr == nil {
+		inviteeCount := 0
+		acceptedCount := 0
+		rejectedCount := 0
+		for i := range participants {
+			p := participants[i]
+			if p.ParticipantRole != model.InvitationParticipantRoleInvitee {
+				continue
+			}
+			inviteeCount++
+			s := normalizeStatusValue(p.ResponseStatus)
+			if s == model.InvitationParticipantStatusAccepted || s == model.InvitationParticipantStatusJoined {
+				acceptedCount++
+			}
+			if s == model.InvitationParticipantStatusRejected {
+				rejectedCount++
+			}
+		}
+
+		nextStatus := normalizeStatusValue(invitation.Status)
+		if nextStatus == invitationStatusPending {
+			if acceptedCount > 0 {
+				nextStatus = invitationStatusAccepted
+			} else if inviteeCount > 0 && rejectedCount >= inviteeCount {
+				nextStatus = invitationStatusRejected
+			}
+		}
+
+		if nextStatus != normalizeStatusValue(invitation.Status) {
+			finalStatus, transitionErr := transitionInvitationStatus(invitation.Status, nextStatus)
+			if transitionErr == nil {
+				invitation.Status = finalStatus
+			}
+		}
+	}
+
 	if strings.TrimSpace(invitation.InviteeUUID) == "" {
 		invitation.InviteeUUID = strings.TrimSpace(user.UUID)
 	}
-
-	targetStatus := invitationStatusRejected
-	if normalizedAction == "accept" {
-		targetStatus = invitationStatusAccepted
+	if strings.TrimSpace(invitation.TargetUUID) == "" {
+		invitation.TargetUUID = strings.TrimSpace(user.UUID)
 	}
-
-	nextStatus, transitionErr := transitionInvitationStatus(invitation.Status, targetStatus)
-	if transitionErr != nil {
-		return nil, transitionErr
-	}
-	invitation.Status = nextStatus
 
 	if err := svc.interviewRepo.UpdateInvitation(invitation); err != nil {
 		return nil, fmt.Errorf("更新邀请状态失败: %w", err)

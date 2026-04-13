@@ -21,9 +21,30 @@ type LiveInterviewJoinResult struct {
 	ParticipantUUID string `json:"participant_uuid"`
 }
 
+type LiveInterviewStartResult struct {
+	InvitationID    uint       `json:"invitation_id"`
+	InvitationCode  string     `json:"invitation_code"`
+	InterviewID     *uint      `json:"interview_id,omitempty"`
+	Status          string     `json:"status"`
+	InterviewStatus string     `json:"interview_status,omitempty"`
+	StartedAt       *time.Time `json:"started_at,omitempty"`
+}
+
 type LiveInterviewWorkbenchItem struct {
 	ID               uint       `json:"id"`
 	InvitationCode   string     `json:"invitation_code"`
+	InitiatorUserID  uint       `json:"initiator_user_id"`
+	InitiatorUUID    string     `json:"initiator_uuid"`
+	InitiatorRole    string     `json:"initiator_role"`
+	InitiatorName    string     `json:"initiator_name"`
+	TargetUserID     uint       `json:"target_user_id"`
+	TargetUUID       string     `json:"target_uuid"`
+	TargetRole       string     `json:"target_role"`
+	TargetName       string     `json:"target_name"`
+	CounterpartID    uint       `json:"counterpart_id"`
+	CounterpartRole  string     `json:"counterpart_role"`
+	CounterpartName  string     `json:"counterpart_name"`
+	CurrentUserRole  string     `json:"current_user_role"`
 	StudentID        uint       `json:"student_id"`
 	StudentUUID      string     `json:"student_uuid"`
 	StudentName      string     `json:"student_name"`
@@ -45,6 +66,7 @@ type LiveInterviewWorkbenchItem struct {
 	HumanScore       *int       `json:"human_score,omitempty"`
 	HumanFeedback    string     `json:"human_feedback,omitempty"`
 	CanJoin          bool       `json:"can_join"`
+	CanRespond       bool       `json:"can_respond"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
 }
@@ -102,7 +124,7 @@ func (s *InterviewService) ensureInvitationSecurityFields(invitation *model.Huma
 	return s.liveInterviewUseCase().EnsureInvitationSecurityFields(invitation)
 }
 
-func (s *InterviewService) validateJoinPermission(userID uint, userRole, userUUID string, invitation *model.HumanInterviewInvitation, invitationCode string) (string, error) {
+func (s *InterviewService) validateJoinPermission(userID uint, userRole, userUUID string, invitation *model.HumanInterviewInvitation, invitationCode string) (*liveJoinPermission, error) {
 	return s.liveInterviewUseCase().ValidateJoinPermission(userID, userRole, userUUID, invitation, invitationCode)
 }
 
@@ -113,6 +135,15 @@ func (s *InterviewService) JoinInterview(userID uint, userRole, userUUID string,
 func JoinInterview(userID uint, userRole, userUUID string, invitationID uint, invitationCode string) (*LiveInterviewJoinResult, error) {
 	svc := NewInterviewService()
 	return svc.JoinInterview(userID, userRole, userUUID, invitationID, invitationCode)
+}
+
+func (s *InterviewService) StartLiveInterview(userID uint, userRole string, invitationID uint) (*LiveInterviewStartResult, error) {
+	return s.liveInterviewUseCase().StartLiveInterview(userID, userRole, invitationID)
+}
+
+func StartLiveInterview(userID uint, userRole string, invitationID uint) (*LiveInterviewStartResult, error) {
+	svc := NewInterviewService()
+	return svc.StartLiveInterview(userID, userRole, invitationID)
 }
 
 func (s *InterviewService) ValidateLiveRoomAccess(userID uint, userRole, userUUID, roomID, invitationCode string) (*LiveInterviewJoinResult, error) {
