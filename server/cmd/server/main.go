@@ -154,6 +154,7 @@ func autoMigrate(db *gorm.DB) error {
 		&model.PracticeAssessmentAnswer{},
 		&model.PracticeInterviewSyncLog{},
 		&model.ResumeParseResult{},
+		&model.GroupInterviewRoom{},
 		&model.Interview{},
 		&model.InterviewQuestion{},
 		&model.AnswerResult{},

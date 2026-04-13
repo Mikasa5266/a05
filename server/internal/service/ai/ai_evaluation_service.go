@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"strings"
 
@@ -15,6 +16,23 @@ const (
 	evaluationGroundTruthMaxRune = 3600
 )
 
+type MockGroupAssessmentTemplate struct {
+	TemplateVersion string   `json:"template_version"`
+	AssessmentType  string   `json:"assessment_type"`
+	Leadership      int      `json:"leadership"`
+	Expression      int      `json:"expression"`
+	Teamwork        int      `json:"teamwork"`
+	Logic           int      `json:"logic"`
+	TotalScore      int      `json:"total_score"`
+	KeySignals      []string `json:"key_signals"`
+	PreliminaryNote string   `json:"preliminary_note"`
+}
+
+// FUTURE-LINK: RAG_EVAL_INTEGRATION
+type RealRAGAnalysis interface {
+	AnalyzeGroupAssessment(ctx context.Context, question *model.Question, answer string, participantResumeContext string) (*MockGroupAssessmentTemplate, error)
+}
+
 type groundedEvalLLMResponse struct {
 	Score           int    `json:"score"`
 	Reasoning       string `json:"reasoning"`
@@ -23,6 +41,10 @@ type groundedEvalLLMResponse struct {
 }
 
 func (s *AIService) EvaluateAnswer(ctx context.Context, question *model.Question, answer string) (*EvaluationResult, error) {
+	if isGroupAssessmentQuestion(question) {
+		return s.evaluateGroupAnswerWithMockTemplate(ctx, question, answer), nil
+	}
+
 	if question == nil {
 		return s.evaluateAnswerLocal(nil, answer), nil
 	}
@@ -62,6 +84,150 @@ func (s *AIService) EvaluateAnswer(ctx context.Context, question *model.Question
 	}
 	feedbackJSON, _ := json.Marshal(feedback)
 	return &EvaluationResult{Score: review.Score, Feedback: string(feedbackJSON)}, nil
+}
+
+func isGroupAssessmentQuestion(question *model.Question) bool {
+	if question == nil {
+		return false
+	}
+	joined := strings.ToLower(strings.TrimSpace(question.Category + " " + question.Title + " " + question.Content))
+	if strings.Contains(joined, "group_") {
+		return true
+	}
+	keywords := []string{"群面", "协同", "冲突", "方案评审", "多人", "team", "collaboration"}
+	for _, keyword := range keywords {
+		if strings.Contains(joined, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *AIService) evaluateGroupAnswerWithMockTemplate(ctx context.Context, question *model.Question, answer string) *EvaluationResult {
+	template := buildMockGroupAssessmentTemplate(question, answer)
+	shouldFollowUp := template.TotalScore < 78
+	followUpContext := ""
+	if shouldFollowUp {
+		followUpContext = "请补充你在小组分歧中如何推进共识，并给出可执行落地步骤。"
+	}
+
+	evaluation := s.EnsureChineseOutput(ctx, template.PreliminaryNote, "群面回答已接收，请进一步补充协作细节。")
+	reasoning := s.EnsureChineseOutput(ctx, fmt.Sprintf("本次采用 MockGroupAssessmentTemplate 进行初步评分，维度结果：领导力%d、表达%d、协作%d、逻辑%d。", template.Leadership, template.Expression, template.Teamwork, template.Logic), "已完成群面初步评分。")
+
+	dimensions := &ReviewDimensions{
+		TechnicalDepth: clampScore((template.Logic*60 + template.Teamwork*40 + 50) / 100),
+		Expression:     clampScore(template.Expression),
+		Logic:          clampScore(template.Logic),
+		Completeness:   clampScore((template.Teamwork + template.Leadership + 1) / 2),
+	}
+
+	feedback := map[string]interface{}{
+		"evaluation":            evaluation,
+		"reasoning":             reasoning,
+		"suggestions":           []string{"增加角色分工说明", "补充冲突收敛步骤", "给出最终决策依据"},
+		"dimensions":            dimensions,
+		"knowledge_retrieval":   []KnowledgeCheck{},
+		"scores":                &RubricScores{TechnicalAccuracy: dimensions.TechnicalDepth, LogicalClarity: dimensions.Logic, Completeness: dimensions.Completeness, Groundedness: template.Teamwork},
+		"final_score":           template.TotalScore,
+		"should_follow_up":      shouldFollowUp,
+		"follow_up_context":     followUpContext,
+		"group_assessment_mock": template,
+	}
+
+	payload, _ := json.Marshal(feedback)
+	return &EvaluationResult{Score: template.TotalScore, Feedback: string(payload)}
+}
+
+func buildMockGroupAssessmentTemplate(question *model.Question, answer string) *MockGroupAssessmentTemplate {
+	assessmentType := "协同冲突解决"
+	if question != nil {
+		joined := strings.ToLower(question.Category + " " + question.Title + " " + question.Content)
+		if strings.Contains(joined, "tech") || strings.Contains(joined, "方案评审") || strings.Contains(joined, "架构") {
+			assessmentType = "技术方案评审"
+		}
+	}
+
+	leadership := mockGroupDimensionScore(answer, []string{"推动", "分工", "协调", "主导", "负责人", "共识"}, 66)
+	expression := mockGroupDimensionScore(answer, []string{"首先", "其次", "最后", "结论", "因为", "所以"}, 64)
+	teamwork := mockGroupDimensionScore(answer, []string{"我们", "团队", "协作", "配合", "反馈", "对齐"}, 65)
+	logic := mockGroupDimensionScore(answer, []string{"方案", "评审", "风险", "取舍", "优先级", "落地"}, 67)
+
+	total := clampScore((leadership*22 + expression*24 + teamwork*28 + logic*26 + 50) / 100)
+	note := "群面表达具备基础协作意识，建议补充冲突闭环与决策量化依据。"
+	if total >= 85 {
+		note = "群面回答结构完整，体现了协作推进与方案评审能力。"
+	} else if total < 70 {
+		note = "群面回答偏概述，建议补充分工细节、争议处理和落地计划。"
+	}
+
+	return &MockGroupAssessmentTemplate{
+		TemplateVersion: "mock-group-assessment-v1",
+		AssessmentType:  assessmentType,
+		Leadership:      leadership,
+		Expression:      expression,
+		Teamwork:        teamwork,
+		Logic:           logic,
+		TotalScore:      total,
+		KeySignals:      extractGroupSignals(answer),
+		PreliminaryNote: note,
+	}
+}
+
+func mockGroupDimensionScore(answer string, keywords []string, base int) int {
+	trimmed := strings.TrimSpace(answer)
+	if trimmed == "" {
+		return clampScore(base - 24)
+	}
+
+	runes := []rune(trimmed)
+	lengthBonus := len(runes) / 28
+	if lengthBonus > 12 {
+		lengthBonus = 12
+	}
+
+	hit := 0
+	lower := strings.ToLower(trimmed)
+	for _, keyword := range keywords {
+		if strings.Contains(lower, strings.ToLower(keyword)) {
+			hit++
+		}
+	}
+	keywordBonus := hit * 3
+
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(trimmed))
+	jitter := int(h.Sum32()%7) - 3
+
+	return clampScore(base + lengthBonus + keywordBonus + jitter)
+}
+
+func extractGroupSignals(answer string) []string {
+	lower := strings.ToLower(strings.TrimSpace(answer))
+	if lower == "" {
+		return []string{"回答为空，缺少可评估信号"}
+	}
+
+	mapping := []struct {
+		keyword string
+		signal  string
+	}{
+		{keyword: "分工", signal: "提到了团队分工"},
+		{keyword: "共识", signal: "提到了共识机制"},
+		{keyword: "风险", signal: "提到了风险识别"},
+		{keyword: "方案", signal: "提到了方案比较"},
+		{keyword: "复盘", signal: "提到了复盘闭环"},
+	}
+
+	signals := make([]string, 0, len(mapping))
+	for _, item := range mapping {
+		if strings.Contains(lower, item.keyword) {
+			signals = append(signals, item.signal)
+		}
+	}
+	if len(signals) == 0 {
+		signals = append(signals, "回答包含基础观点，但协作信号较弱")
+	}
+	return signals
 }
 
 func (s *AIService) evaluateAnswerWithGroundTruth(ctx context.Context, question *model.Question, answer, groundTruth string) (*ReviewResult, error) {

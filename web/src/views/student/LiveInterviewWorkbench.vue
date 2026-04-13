@@ -2,8 +2,9 @@
   <div class="space-y-6">
     <header class="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h1 class="text-2xl md:text-3xl font-bold text-zinc-900">学生端真人面试工作台</h1>
-        <p class="text-sm text-zinc-500 mt-1">发起邀请、追踪状态、进入房间</p>
+        <h1 class="text-2xl md:text-3xl font-bold text-zinc-900">{{ pageTitle }}</h1>
+        <p class="text-sm text-zinc-500 mt-1">{{ pageSubtitle }}</p>
+        <p v-if="isGroupMode" class="text-xs text-indigo-600 mt-2">测试阶段：2 人可开始群面流程，目标容量预留 4 人。</p>
       </div>
       <div class="flex items-center gap-2">
         <button
@@ -17,7 +18,7 @@
           class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors"
           @click="openCreateDialog"
         >
-          发起邀请
+          {{ inviteButtonText }}
         </button>
       </div>
     </header>
@@ -39,7 +40,7 @@
       </div>
     </section>
 
-    <section class="bg-white rounded-3xl border border-zinc-100 p-5 md:p-6 shadow-sm min-h-[360px]">
+    <section class="bg-white rounded-3xl border border-zinc-100 p-5 md:p-6 shadow-sm min-h-90">
       <div v-if="loading" class="h-56 flex items-center justify-center text-zinc-500 text-sm">
         正在加载邀请...
       </div>
@@ -73,7 +74,7 @@
               <p v-if="inv.notes" class="text-xs text-zinc-500 mt-2">备注：{{ inv.notes }}</p>
             </div>
 
-            <div class="text-right min-w-[180px]">
+            <div class="text-right min-w-45">
               <p class="text-xs text-zinc-500">更新时间</p>
               <p class="text-sm text-zinc-700 mt-1">{{ formatDateTime(inv.updated_at) }}</p>
             </div>
@@ -85,7 +86,7 @@
               class="ml-auto px-3.5 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-semibold hover:bg-indigo-100"
               @click="enterLiveRoom(inv)"
             >
-              进入真人面试房间
+              {{ enterRoomText }}
             </button>
           </div>
         </article>
@@ -98,7 +99,7 @@
       @click.self="showCreateDialog = false"
     >
       <div class="w-full max-w-2xl bg-white rounded-3xl border border-zinc-100 shadow-2xl p-6">
-        <h2 class="text-xl font-bold text-zinc-900 mb-4">发起真人面试邀请</h2>
+        <h2 class="text-xl font-bold text-zinc-900 mb-4">{{ dialogTitle }}</h2>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
@@ -191,11 +192,20 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { createHumanInvitation, getHumanInvitations, getInviteCandidates } from '../../api/interview'
 
 const router = useRouter()
+const route = useRoute()
+
+const isGroupMode = computed(() => String(route.query?.group_mode || '') === '1')
+const pageTitle = computed(() => (isGroupMode.value ? '学生端群面工作台' : '学生端真人面试工作台'))
+const pageSubtitle = computed(() => (isGroupMode.value ? '发起群面邀请、追踪状态、进入群面房间' : '发起邀请、追踪状态、进入房间'))
+const dialogTitle = computed(() => (isGroupMode.value ? '发起群面邀请' : '发起真人面试邀请'))
+const inviteButtonText = computed(() => (isGroupMode.value ? '发起群面邀请' : '发起邀请'))
+const enterRoomText = computed(() => (isGroupMode.value ? '进入群面房间' : '进入真人面试房间'))
 
 const loading = ref(false)
 const invitations = ref([])
@@ -209,9 +219,9 @@ const createSubmitting = ref(false)
 
 const createForm = reactive({
   invitee_user_id: 0,
-  position: 'Java后端工程师',
+  position: '群面模拟场景',
   difficulty: 'campus_intern',
-  mode: 'technical',
+  mode: 'comprehensive',
   style: 'gentle',
   company: '',
   scheduled_at: '',
@@ -327,9 +337,9 @@ const openCreateDialog = async () => {
 
 const resetCreateForm = () => {
   createForm.invitee_user_id = 0
-  createForm.position = 'Java后端工程师'
+  createForm.position = isGroupMode.value ? '群面模拟场景' : 'Java后端工程师'
   createForm.difficulty = 'campus_intern'
-  createForm.mode = 'technical'
+  createForm.mode = isGroupMode.value ? 'comprehensive' : 'technical'
   createForm.style = 'gentle'
   createForm.company = ''
   createForm.scheduled_at = ''
@@ -388,6 +398,7 @@ const enterLiveRoom = (invitation) => {
 }
 
 onMounted(() => {
+  resetCreateForm()
   fetchInvitations()
 })
 </script>

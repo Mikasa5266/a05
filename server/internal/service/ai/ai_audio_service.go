@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"your-project/config"
+	internalruntime "your-project/internal/runtime"
 	"your-project/pkg/asr"
 )
 
@@ -27,6 +28,18 @@ func (s *AIService) TranscribeAudio(audioData string) (string, error) {
 		return s.transcribeWithWhisper(decodedAudio, mimeType)
 	}
 	return "", fmt.Errorf("unsupported ASR provider: %s", asrConfig.Provider)
+}
+
+func (s *AIService) CacheRealtimeASRResult(roomID string, userID uint, audioEnabled bool, transcript string) {
+	if !audioEnabled {
+		return
+	}
+	roomKey := strings.TrimSpace(roomID)
+	text := strings.TrimSpace(transcript)
+	if roomKey == "" || userID == 0 || text == "" {
+		return
+	}
+	internalruntime.GetLiveRoomStore().AppendAudioTranscript(roomKey, userID, text)
 }
 
 func parseAudioPayload(audioData string) (mimeType string, base64Payload string) {

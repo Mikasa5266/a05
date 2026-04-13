@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	internalruntime "your-project/internal/runtime"
 	"your-project/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -447,11 +448,16 @@ func EndInterview(c *gin.Context) {
 
 // AnalyzeSpeechChunk receives a short audio chunk and returns real-time speech metrics
 func AnalyzeSpeechChunk(c *gin.Context) {
+	interviewID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	userID := c.GetUint("user_id")
+
 	var req struct {
-		AudioData   string  `json:"audio_data" binding:"required"`
-		AudioMime   string  `json:"audio_mime,omitempty"`
-		Duration    float64 `json:"duration" binding:"required"`
-		EnergyLevel float64 `json:"energy_level,omitempty"`
+		AudioData    string  `json:"audio_data" binding:"required"`
+		AudioMime    string  `json:"audio_mime,omitempty"`
+		Duration     float64 `json:"duration" binding:"required"`
+		EnergyLevel  float64 `json:"energy_level,omitempty"`
+		RoomID       string  `json:"room_id,omitempty"`
+		AudioEnabled *bool   `json:"audio_enabled,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -474,6 +480,13 @@ func AnalyzeSpeechChunk(c *gin.Context) {
 		})
 		return
 	}
+
+	audioEnabled := true
+	if req.AudioEnabled != nil {
+		audioEnabled = *req.AudioEnabled
+	}
+	roomCacheKey := internalruntime.NormalizeRoomCacheKey(req.RoomID, uint(interviewID))
+	mustAIService().CacheRealtimeASRResult(roomCacheKey, userID, audioEnabled, metrics.TranscribedText)
 
 	c.JSON(http.StatusOK, gin.H{
 		"metrics": metrics,

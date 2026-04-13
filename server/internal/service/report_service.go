@@ -9,6 +9,7 @@ import (
 
 	"your-project/internal/model"
 	"your-project/internal/repository"
+	internalruntime "your-project/internal/runtime"
 	aidomain "your-project/internal/service/ai"
 )
 
@@ -133,6 +134,25 @@ func (s *ReportService) GenerateInterviewReport(userID, interviewID uint) (*mode
 	report.SetWeaknesses(weaknesses)
 	report.SetSuggestions(suggestions)
 	report.SetQADetails(qaDetails)
+
+	recordingURL := strings.TrimSpace(interview.RecordingURL)
+	if interview.IsGroup {
+		report.SinglePlayback = ""
+		report.MultiPlayback = recordingURL
+	} else {
+		report.SinglePlayback = recordingURL
+		report.MultiPlayback = ""
+	}
+
+	if cacheKey := internalruntime.InterviewRoomCacheKey(interviewID); cacheKey != "" {
+		audioTranscripts, chatByReceiver := internalruntime.GetLiveRoomStore().Snapshot(cacheKey)
+		if len(audioTranscripts) > 0 {
+			report.SetAudioTranscripts(audioTranscripts)
+		}
+		if chatMessages := chatByReceiver[userID]; len(chatMessages) > 0 {
+			report.SetChatMessages(chatMessages)
+		}
+	}
 
 	if existing != nil {
 		if err := s.reportRepo.Update(report); err != nil {

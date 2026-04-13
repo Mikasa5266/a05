@@ -15,19 +15,37 @@ type ReportQADetail struct {
 	KeyImprovements []string `json:"key_improvements"`
 }
 
+type ReportAudioTranscript struct {
+	SpeakerID uint   `json:"speaker_id,omitempty"`
+	Content   string `json:"content"`
+	StartMS   int64  `json:"start_ms,omitempty"`
+	EndMS     int64  `json:"end_ms,omitempty"`
+}
+
+type ReportChatMessage struct {
+	SenderID uint       `json:"sender_id"`
+	Content  string     `json:"content"`
+	SentAt   *time.Time `json:"sent_at,omitempty"`
+}
+
 type Report struct {
-	ID              uint   `gorm:"primaryKey" json:"id"`
-	UserID          uint   `gorm:"index;not null" json:"user_id"`
-	InterviewID     uint   `gorm:"uniqueIndex;not null" json:"interview_id"`
-	Position        string `gorm:"not null" json:"position"`
-	Difficulty      string `gorm:"not null" json:"difficulty"`
-	TotalQuestions  int    `gorm:"not null" json:"total_questions"`
-	AverageScore    int    `gorm:"not null" json:"average_score"`
-	Strengths       string `gorm:"type:text" json:"-"`
-	Weaknesses      string `gorm:"type:text" json:"-"`
-	Suggestions     string `gorm:"type:text" json:"-"`
-	QADetails       string `gorm:"column:qa_details;type:json" json:"-"`
-	OverallAnalysis string `gorm:"type:text" json:"overall_analysis"`
+	ID     uint `gorm:"primaryKey" json:"id"`
+	UserID uint `gorm:"index;not null" json:"user_id"`
+	// TODO: [LEGACY-TRASH] - Group Interview Refactor
+	InterviewID      uint   `gorm:"uniqueIndex;not null" json:"interview_id"`
+	Position         string `gorm:"not null" json:"position"`
+	Difficulty       string `gorm:"not null" json:"difficulty"`
+	TotalQuestions   int    `gorm:"not null" json:"total_questions"`
+	AverageScore     int    `gorm:"not null" json:"average_score"`
+	Strengths        string `gorm:"type:text" json:"-"`
+	Weaknesses       string `gorm:"type:text" json:"-"`
+	Suggestions      string `gorm:"type:text" json:"-"`
+	QADetails        string `gorm:"column:qa_details;type:json" json:"-"`
+	AudioTranscripts string `gorm:"column:audio_transcripts;type:json" json:"-"`
+	ChatMessages     string `gorm:"column:chat_messages;type:json" json:"-"`
+	SinglePlayback   string `gorm:"column:single_playback;size:500" json:"single_playback,omitempty"`
+	MultiPlayback    string `gorm:"column:multi_playback;size:500" json:"multi_playback,omitempty"`
+	OverallAnalysis  string `gorm:"type:text" json:"overall_analysis"`
 
 	// New fields for Radar Chart
 	TechnicalScore  int `gorm:"default:0" json:"technical_score"`
@@ -108,6 +126,62 @@ func (r *Report) SetQADetails(details []ReportQADetail) {
 	r.QADetails = string(raw)
 }
 
+func (r *Report) GetAudioTranscripts() []ReportAudioTranscript {
+	if strings.TrimSpace(r.AudioTranscripts) == "" {
+		return []ReportAudioTranscript{}
+	}
+
+	var transcripts []ReportAudioTranscript
+	if err := json.Unmarshal([]byte(r.AudioTranscripts), &transcripts); err != nil {
+		return []ReportAudioTranscript{}
+	}
+
+	return normalizeReportAudioTranscripts(transcripts)
+}
+
+func (r *Report) SetAudioTranscripts(transcripts []ReportAudioTranscript) {
+	normalized := normalizeReportAudioTranscripts(transcripts)
+	if len(normalized) == 0 {
+		r.AudioTranscripts = "[]"
+		return
+	}
+
+	raw, err := json.Marshal(normalized)
+	if err != nil {
+		r.AudioTranscripts = "[]"
+		return
+	}
+	r.AudioTranscripts = string(raw)
+}
+
+func (r *Report) GetChatMessages() []ReportChatMessage {
+	if strings.TrimSpace(r.ChatMessages) == "" {
+		return []ReportChatMessage{}
+	}
+
+	var messages []ReportChatMessage
+	if err := json.Unmarshal([]byte(r.ChatMessages), &messages); err != nil {
+		return []ReportChatMessage{}
+	}
+
+	return normalizeReportChatMessages(messages)
+}
+
+func (r *Report) SetChatMessages(messages []ReportChatMessage) {
+	normalized := normalizeReportChatMessages(messages)
+	if len(normalized) == 0 {
+		r.ChatMessages = "[]"
+		return
+	}
+
+	raw, err := json.Marshal(normalized)
+	if err != nil {
+		r.ChatMessages = "[]"
+		return
+	}
+	r.ChatMessages = string(raw)
+}
+
 func normalizeReportQADetails(details []ReportQADetail) []ReportQADetail {
 	normalized := make([]ReportQADetail, 0, len(details))
 	for _, detail := range details {
@@ -153,6 +227,63 @@ func normalizeReportQADetails(details []ReportQADetail) []ReportQADetail {
 		})
 
 		if len(normalized) >= 12 {
+			break
+		}
+	}
+
+	return normalized
+}
+
+func normalizeReportAudioTranscripts(transcripts []ReportAudioTranscript) []ReportAudioTranscript {
+	normalized := make([]ReportAudioTranscript, 0, len(transcripts))
+	for _, transcript := range transcripts {
+		content := strings.TrimSpace(transcript.Content)
+		if content == "" {
+			continue
+		}
+
+		startMS := transcript.StartMS
+		endMS := transcript.EndMS
+		if startMS < 0 {
+			startMS = 0
+		}
+		if endMS < 0 {
+			endMS = 0
+		}
+		if endMS > 0 && endMS < startMS {
+			endMS = startMS
+		}
+
+		normalized = append(normalized, ReportAudioTranscript{
+			SpeakerID: transcript.SpeakerID,
+			Content:   content,
+			StartMS:   startMS,
+			EndMS:     endMS,
+		})
+
+		if len(normalized) >= 2000 {
+			break
+		}
+	}
+
+	return normalized
+}
+
+func normalizeReportChatMessages(messages []ReportChatMessage) []ReportChatMessage {
+	normalized := make([]ReportChatMessage, 0, len(messages))
+	for _, message := range messages {
+		content := strings.TrimSpace(message.Content)
+		if message.SenderID == 0 || content == "" {
+			continue
+		}
+
+		normalized = append(normalized, ReportChatMessage{
+			SenderID: message.SenderID,
+			Content:  content,
+			SentAt:   message.SentAt,
+		})
+
+		if len(normalized) >= 5000 {
 			break
 		}
 	}

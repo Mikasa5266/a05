@@ -6,13 +6,38 @@ import (
 	"fmt"
 	"math/rand"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"your-project/internal/model"
+	"your-project/internal/repository"
+
+	"gorm.io/gorm"
 )
 
 func (s *AIService) GenerateQuestions(ctx context.Context, interview *model.Interview, count int) ([]*model.Question, error) {
+	if groupQuestion, err := s.tryGenerateGroupOpenQuestion(ctx, interview); err != nil {
+		return nil, err
+	} else if groupQuestion != nil {
+		if count <= 1 {
+			return []*model.Question{groupQuestion}, nil
+		}
+
+		more, err := s.generateQuestionsDefault(ctx, interview, count-1)
+		if err != nil {
+			return []*model.Question{groupQuestion}, nil
+		}
+		questions := make([]*model.Question, 0, len(more)+1)
+		questions = append(questions, groupQuestion)
+		questions = append(questions, more...)
+		return questions, nil
+	}
+
+	return s.generateQuestionsDefault(ctx, interview, count)
+}
+
+func (s *AIService) generateQuestionsDefault(ctx context.Context, interview *model.Interview, count int) ([]*model.Question, error) {
 	prompt, err := s.renderPrompt("generate_questions.tmpl", map[string]interface{}{
 		"Count":                 count,
 		"Position":              interview.Position,
@@ -48,6 +73,331 @@ func (s *AIService) GenerateQuestions(ctx context.Context, interview *model.Inte
 		questions = append(questions, item)
 	}
 	return questions, nil
+}
+
+type groupResumeSnapshot struct {
+	UserID      uint
+	DisplayName string
+	Summary     string
+	Skills      []string
+}
+
+func (s *AIService) tryGenerateGroupOpenQuestion(ctx context.Context, interview *model.Interview) (*model.Question, error) {
+	if interview == nil || !interview.IsGroup {
+		return nil, nil
+	}
+
+	snapshots := s.loadGroupResumeSnapshots(interview)
+	questionType := pickGroupQuestionType(snapshots)
+	resumeContext := buildGroupResumePromptContext(snapshots)
+	if resumeContext == "" {
+		resumeContext = "暂无可用简历摘要，请基于协作能力与技术决策能力生成通用群面开放题。"
+	}
+
+	prompt := fmt.Sprintf(`你是群面面试官。请基于候选人简历摘要生成 1 道开放题。
+要求：
+1) 题型必须是“协同冲突解决”或“技术方案评审”。
+2) 必须要求多人协作表达，不得是单人八股题。
+3) 输出严格 JSON：{"title":"...","content":"...","expected_answer":"...","question_type":"..."}
+
+岗位：%s
+难度：%s
+推荐题型：%s
+
+群面候选人简历摘要：
+%s`, strings.TrimSpace(interview.Position), strings.TrimSpace(interview.Difficulty), questionType, resumeContext)
+
+	raw, err := s.chat(ctx, prompt, "chat", jsonObjectResponseFormat())
+	if err != nil {
+		fallback := buildGroupQuestionFallback(interview, questionType, snapshots)
+		s.EnsureQuestionChinese(ctx, fallback)
+		return fallback, nil
+	}
+
+	var parsed struct {
+		Title          string `json:"title"`
+		Content        string `json:"content"`
+		ExpectedAnswer string `json:"expected_answer"`
+		QuestionType   string `json:"question_type"`
+	}
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		fallback := buildGroupQuestionFallback(interview, questionType, snapshots)
+		s.EnsureQuestionChinese(ctx, fallback)
+		return fallback, nil
+	}
+
+	resolvedType := strings.TrimSpace(parsed.QuestionType)
+	if resolvedType == "" {
+		resolvedType = questionType
+	}
+	if !isSupportedGroupQuestionType(resolvedType) {
+		resolvedType = questionType
+	}
+
+	question := &model.Question{
+		Title:          sanitizeGeneratedText(strings.TrimSpace(parsed.Title)),
+		Content:        sanitizeGeneratedText(strings.TrimSpace(parsed.Content)),
+		ExpectedAnswer: sanitizeGeneratedText(strings.TrimSpace(parsed.ExpectedAnswer)),
+		Position:       interview.Position,
+		Difficulty:     interview.Difficulty,
+		Category:       mapGroupQuestionCategory(resolvedType),
+	}
+
+	if question.Title == "" || question.Content == "" {
+		question = buildGroupQuestionFallback(interview, resolvedType, snapshots)
+	}
+
+	s.EnsureQuestionChinese(ctx, question)
+	return question, nil
+}
+
+func (s *AIService) loadGroupResumeSnapshots(interview *model.Interview) []groupResumeSnapshot {
+	if interview == nil || !interview.IsGroup {
+		return nil
+	}
+
+	db := repository.GetDB()
+	if db == nil {
+		return nil
+	}
+
+	participantIDs := s.collectGroupParticipantIDs(db, interview)
+	if len(participantIDs) == 0 {
+		return nil
+	}
+
+	snapshots := make([]groupResumeSnapshot, 0, len(participantIDs))
+	for _, userID := range participantIDs {
+		if userID == 0 {
+			continue
+		}
+
+		var user model.User
+		if err := db.Select("id", "username").First(&user, userID).Error; err != nil {
+			continue
+		}
+
+		var latest model.ResumeParseResult
+		if err := db.Where("user_id = ?", userID).Order("id DESC").First(&latest).Error; err != nil {
+			continue
+		}
+
+		summary, skills := buildResumeDigestForGroup(&latest)
+		if strings.TrimSpace(summary) == "" {
+			continue
+		}
+
+		snapshots = append(snapshots, groupResumeSnapshot{
+			UserID:      userID,
+			DisplayName: strings.TrimSpace(user.Username),
+			Summary:     summary,
+			Skills:      skills,
+		})
+	}
+
+	return snapshots
+}
+
+func (s *AIService) collectGroupParticipantIDs(db *gorm.DB, interview *model.Interview) []uint {
+	ids := make([]uint, 0, 6)
+	if interview.UserID > 0 {
+		ids = append(ids, interview.UserID)
+	}
+
+	if interview.GroupInterviewRoom != nil {
+		ids = append(ids, interview.GroupInterviewRoom.GetParticipantIDs()...)
+		if interview.GroupInterviewRoom.CreatorID > 0 {
+			ids = append(ids, interview.GroupInterviewRoom.CreatorID)
+		}
+	}
+
+	if interview.GroupInterviewRoomID != nil && *interview.GroupInterviewRoomID > 0 {
+		var room model.GroupInterviewRoom
+		if err := db.First(&room, *interview.GroupInterviewRoomID).Error; err == nil {
+			ids = append(ids, room.GetParticipantIDs()...)
+			if room.CreatorID > 0 {
+				ids = append(ids, room.CreatorID)
+			}
+		}
+	}
+
+	seen := make(map[uint]struct{}, len(ids))
+	normalized := make([]uint, 0, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+		if len(normalized) >= 5 {
+			break
+		}
+	}
+	sort.Slice(normalized, func(i, j int) bool { return normalized[i] < normalized[j] })
+	return normalized
+}
+
+func buildResumeDigestForGroup(record *model.ResumeParseResult) (string, []string) {
+	if record == nil {
+		return "", nil
+	}
+
+	var payload model.ResumeStructuredPayload
+	if err := json.Unmarshal([]byte(record.StructuredJSON), &payload); err == nil {
+		summary := strings.TrimSpace(payload.StructuredResume.ProfessionalSummary)
+		if summary == "" && len(payload.StructuredResume.Highlights) > 0 {
+			summary = strings.TrimSpace(strings.Join(payload.StructuredResume.Highlights[:minInt(2, len(payload.StructuredResume.Highlights))], "；"))
+		}
+		skills := collectResumeSkillNames(payload.StructuredResume.SkillGraph)
+		if summary != "" {
+			return summary, skills
+		}
+	}
+
+	rawText := strings.TrimSpace(record.RawText)
+	if rawText == "" {
+		return "", nil
+	}
+	runes := []rune(rawText)
+	if len(runes) > 120 {
+		rawText = string(runes[:120]) + "..."
+	}
+	return rawText, nil
+}
+
+func collectResumeSkillNames(graph model.ResumeSkillGraph) []string {
+	flat := []model.ResumeSkillEvidence{}
+	flat = append(flat, graph.ProgrammingLanguages...)
+	flat = append(flat, graph.Frameworks...)
+	flat = append(flat, graph.Databases...)
+	flat = append(flat, graph.CloudDevOps...)
+	flat = append(flat, graph.AIData...)
+	flat = append(flat, graph.Tooling...)
+	flat = append(flat, graph.ProductBusiness...)
+	flat = append(flat, graph.Others...)
+
+	seen := make(map[string]struct{}, len(flat))
+	out := make([]string, 0, 6)
+	for _, item := range flat {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			continue
+		}
+		key := strings.ToLower(name)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, name)
+		if len(out) >= 6 {
+			break
+		}
+	}
+	return out
+}
+
+func buildGroupResumePromptContext(snapshots []groupResumeSnapshot) string {
+	if len(snapshots) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(snapshots))
+	for _, item := range snapshots {
+		name := strings.TrimSpace(item.DisplayName)
+		if name == "" {
+			name = fmt.Sprintf("候选人%d", item.UserID)
+		}
+		line := fmt.Sprintf("- %s：%s", name, strings.TrimSpace(item.Summary))
+		if len(item.Skills) > 0 {
+			line += fmt.Sprintf("（技能：%s）", strings.Join(item.Skills, ", "))
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func pickGroupQuestionType(snapshots []groupResumeSnapshot) string {
+	techHits := 0
+	for _, item := range snapshots {
+		joined := strings.ToLower(strings.Join(item.Skills, " ") + " " + item.Summary)
+		for _, kw := range []string{"architecture", "系统", "服务", "golang", "java", "数据库", "缓存", "微服务", "api", "deployment"} {
+			if strings.Contains(joined, kw) {
+				techHits++
+				break
+			}
+		}
+	}
+	if techHits >= 2 {
+		return "技术方案评审"
+	}
+	return "协同冲突解决"
+}
+
+func isSupportedGroupQuestionType(questionType string) bool {
+	trimmed := strings.TrimSpace(questionType)
+	return trimmed == "协同冲突解决" || trimmed == "技术方案评审"
+}
+
+func mapGroupQuestionCategory(questionType string) string {
+	if strings.TrimSpace(questionType) == "技术方案评审" {
+		return "group_tech_review"
+	}
+	return "group_conflict_resolution"
+}
+
+func buildGroupQuestionFallback(interview *model.Interview, questionType string, snapshots []groupResumeSnapshot) *model.Question {
+	position := "通用岗位"
+	difficulty := "campus_graduate"
+	if interview != nil {
+		if strings.TrimSpace(interview.Position) != "" {
+			position = strings.TrimSpace(interview.Position)
+		}
+		if strings.TrimSpace(interview.Difficulty) != "" {
+			difficulty = strings.TrimSpace(interview.Difficulty)
+		}
+	}
+
+	snapshotContext := "请在观点冲突下达成可执行结论"
+	if len(snapshots) > 0 {
+		names := make([]string, 0, len(snapshots))
+		for _, item := range snapshots {
+			if name := strings.TrimSpace(item.DisplayName); name != "" {
+				names = append(names, name)
+			}
+		}
+		if len(names) > 0 {
+			snapshotContext = fmt.Sprintf("请结合%s等成员的背景差异，推动共识", strings.Join(names, "、"))
+		}
+	}
+
+	if strings.TrimSpace(questionType) == "技术方案评审" {
+		return &model.Question{
+			Title:          fmt.Sprintf("[%s] 群面开放题：技术方案评审", position),
+			Content:        fmt.Sprintf("你们 4 人小组需要在 20 分钟内评审一个%s相关方案。请围绕可扩展性、稳定性、成本与上线风险给出统一结论，并明确分歧如何裁决。%s。", position, snapshotContext),
+			ExpectedAnswer: "优秀回答应体现：角色分工、评审维度对齐、争议点收敛策略、最终决策依据与上线验证计划。",
+			Position:       position,
+			Difficulty:     difficulty,
+			Category:       "group_tech_review",
+		}
+	}
+
+	return &model.Question{
+		Title:          fmt.Sprintf("[%s] 群面开放题：协同冲突解决", position),
+		Content:        fmt.Sprintf("你们 4 人小组在推进%s项目时出现优先级冲突：一方强调交付速度，另一方强调技术重构。请现场达成一致行动方案并说明如何分工推进。%s。", position, snapshotContext),
+		ExpectedAnswer: "优秀回答应体现：冲突拆解、目标重述、共识机制、可执行计划与风险兜底。",
+		Position:       position,
+		Difficulty:     difficulty,
+		Category:       "group_conflict_resolution",
+	}
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (s *AIService) GenerateTopicQuestionFromContext(ctx context.Context, interview *model.Interview, ragContext string, category string) (*model.Question, error) {
@@ -191,6 +541,12 @@ func (s *AIService) GenerateClarifyingFollowUpQuestion(ctx context.Context, curr
 }
 
 func (s *AIService) GenerateNextQuestionWithWeights(ctx context.Context, interview *model.Interview, previousAnswers []model.AnswerResult, capabilityGraph *model.JobCapabilityDimension) (*model.Question, error) {
+	if groupQuestion, err := s.tryGenerateGroupOpenQuestion(ctx, interview); err != nil {
+		return nil, err
+	} else if groupQuestion != nil {
+		return groupQuestion, nil
+	}
+
 	if capabilityGraph == nil {
 		return s.GenerateNextQuestion(ctx, interview, previousAnswers)
 	}
@@ -236,6 +592,12 @@ func (s *AIService) GenerateNextQuestionWithWeights(ctx context.Context, intervi
 }
 
 func (s *AIService) GenerateNextQuestion(ctx context.Context, interview *model.Interview, previousAnswers []model.AnswerResult) (*model.Question, error) {
+	if groupQuestion, err := s.tryGenerateGroupOpenQuestion(ctx, interview); err != nil {
+		return nil, err
+	} else if groupQuestion != nil {
+		return groupQuestion, nil
+	}
+
 	prompt, err := s.renderPrompt("generate_next_question.tmpl", map[string]interface{}{
 		"Position":                interview.Position,
 		"Difficulty":              interview.Difficulty,

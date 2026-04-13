@@ -1,14 +1,92 @@
 package model
 
 import (
+	"encoding/json"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
 )
 
+const (
+	GroupInterviewRoomStatusWaiting    = "waiting"
+	GroupInterviewRoomStatusInProgress = "in_progress"
+	GroupInterviewRoomStatusFinished   = "finished"
+)
+
+type GroupInterviewRoom struct {
+	ID        uint   `gorm:"primaryKey" json:"id"`
+	RoomID    string `gorm:"size:64;uniqueIndex;not null" json:"room_id"`
+	CreatorID uint   `gorm:"index;not null" json:"creator_id"`
+	// TODO: [LEGACY-TRASH] - Group Interview Refactor
+	ParticipantIDs string         `gorm:"column:participant_ids;type:json" json:"participant_ids"`
+	Status         string         `gorm:"size:20;default:'waiting';index" json:"status"` // waiting, in_progress, finished
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
+	DeletedAt      gorm.DeletedAt `gorm:"index" json:"-"`
+
+	Creator    User        `gorm:"foreignKey:CreatorID" json:"creator,omitempty"`
+	Interviews []Interview `gorm:"foreignKey:GroupInterviewRoomID" json:"interviews,omitempty"`
+}
+
+func (r *GroupInterviewRoom) GetParticipantIDs() []uint {
+	if strings.TrimSpace(r.ParticipantIDs) == "" {
+		return []uint{}
+	}
+
+	var ids []uint
+	if err := json.Unmarshal([]byte(r.ParticipantIDs), &ids); err != nil {
+		return []uint{}
+	}
+
+	return normalizeParticipantIDs(ids)
+}
+
+func (r *GroupInterviewRoom) SetParticipantIDs(ids []uint) {
+	normalized := normalizeParticipantIDs(ids)
+	if len(normalized) == 0 {
+		r.ParticipantIDs = "[]"
+		return
+	}
+
+	raw, err := json.Marshal(normalized)
+	if err != nil {
+		r.ParticipantIDs = "[]"
+		return
+	}
+	r.ParticipantIDs = string(raw)
+}
+
+func normalizeParticipantIDs(ids []uint) []uint {
+	if len(ids) == 0 {
+		return []uint{}
+	}
+
+	normalized := make([]uint, 0, len(ids))
+	seen := make(map[uint]struct{}, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+		if len(normalized) >= 5 {
+			break
+		}
+	}
+
+	return normalized
+}
+
 type Interview struct {
-	ID                     uint           `gorm:"primaryKey" json:"id"`
+	ID uint `gorm:"primaryKey" json:"id"`
+	// TODO: [LEGACY-TRASH] - Group Interview Refactor
 	UserID                 uint           `gorm:"index;not null" json:"user_id"`
+	IsGroup                bool           `gorm:"default:false;index" json:"is_group"`
+	GroupInterviewRoomID   *uint          `gorm:"index" json:"group_interview_room_id,omitempty"`
 	Position               string         `gorm:"not null" json:"position"`
 	Difficulty             string         `gorm:"not null" json:"difficulty"`
 	Mode                   string         `gorm:"default:'technical'" json:"mode"`    // technical, hr, comprehensive
@@ -47,6 +125,7 @@ type Interview struct {
 	DeletedAt              gorm.DeletedAt `gorm:"index" json:"-"`
 
 	User               User                `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	GroupInterviewRoom *GroupInterviewRoom `gorm:"foreignKey:GroupInterviewRoomID" json:"group_interview_room,omitempty"`
 	InterviewQuestions []InterviewQuestion `gorm:"foreignKey:InterviewID" json:"questions,omitempty"`
 	AnswerResults      []AnswerResult      `gorm:"foreignKey:InterviewID" json:"answers,omitempty"`
 	Report             *Report             `gorm:"foreignKey:InterviewID" json:"report,omitempty"`

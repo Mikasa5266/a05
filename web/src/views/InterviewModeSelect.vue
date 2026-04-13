@@ -74,9 +74,12 @@ const cards = [
     icon: Users,
     iconWrapClass: 'bg-emerald-100',
     iconClass: 'text-emerald-600',
-    enabled: false,
-    path: '',
-    query: {}
+    enabled: true,
+    path: '/interview/live/workbench',
+    query: {
+      group_mode: '1',
+      source: 'group_mode'
+    }
   },
   {
     title: '盲盒模式',

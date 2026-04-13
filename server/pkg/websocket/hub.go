@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
+
+	internalruntime "your-project/internal/runtime"
 
 	"github.com/gorilla/websocket"
 )
@@ -20,12 +24,14 @@ type Hub struct {
 }
 
 type Client struct {
-	id          string
-	hub         *Hub
-	conn        *websocket.Conn
-	send        chan []byte
-	userID      string
-	interviewID string
+	id                      string
+	hub                     *Hub
+	conn                    *websocket.Conn
+	send                    chan []byte
+	userID                  string
+	interviewID             string
+	groupTargetParticipants int
+	groupStartThreshold     int
 }
 
 type Message struct {
@@ -77,28 +83,16 @@ func (h *Hub) Run() {
 			var msg Message
 			targetRoom := ""
 			if err := json.Unmarshal(message, &msg); err == nil {
-				targetRoom = msg.InterviewID
+				targetRoom = strings.TrimSpace(msg.InterviewID)
 			}
-
-			h.mu.RLock()
-			for _, client := range h.clients {
-				if targetRoom != "" && client.interviewID != targetRoom {
-					continue
-				}
-				select {
-				case client.send <- message:
-				default:
-					log.Printf("Client %s send buffer full, dropping", client.userID)
-				}
-			}
-			h.mu.RUnlock()
+			h.broadcastRoomBytes(targetRoom, message)
 		}
 	}
 }
 
 func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
-	userID := r.URL.Query().Get("user_id")
-	interviewID := r.URL.Query().Get("interview_id")
+	userID := strings.TrimSpace(r.URL.Query().Get("user_id"))
+	interviewID := strings.TrimSpace(r.URL.Query().Get("interview_id"))
 
 	if userID == "" {
 		http.Error(w, "user_id is required", http.StatusBadRequest)
@@ -111,13 +105,24 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	groupTargetParticipants := parsePositiveInt(r.URL.Query().Get("group_target_participants"), internalruntime.DefaultGroupTargetParticipants)
+	if groupTargetParticipants < internalruntime.DefaultGroupTargetParticipants {
+		groupTargetParticipants = internalruntime.DefaultGroupTargetParticipants
+	}
+	groupStartThreshold := parsePositiveInt(r.URL.Query().Get("group_start_threshold"), internalruntime.GroupStartThresholdForTesting)
+	if groupStartThreshold < internalruntime.GroupStartThresholdForTesting {
+		groupStartThreshold = internalruntime.GroupStartThresholdForTesting
+	}
+
 	client := &Client{
-		id:          fmt.Sprintf("%s:%s:%d", userID, interviewID, time.Now().UnixNano()),
-		hub:         h,
-		conn:        conn,
-		send:        make(chan []byte, 256),
-		userID:      userID,
-		interviewID: interviewID,
+		id:                      fmt.Sprintf("%s:%s:%d", userID, interviewID, time.Now().UnixNano()),
+		hub:                     h,
+		conn:                    conn,
+		send:                    make(chan []byte, 256),
+		userID:                  userID,
+		interviewID:             interviewID,
+		groupTargetParticipants: groupTargetParticipants,
+		groupStartThreshold:     groupStartThreshold,
 	}
 
 	client.hub.register <- client
@@ -158,8 +163,26 @@ func (c *Client) readPump() {
 
 		msg.Timestamp = time.Now()
 		msg.UserID = c.userID
-		if msg.InterviewID == "" {
+		if strings.TrimSpace(msg.InterviewID) == "" {
 			msg.InterviewID = c.interviewID
+		}
+
+		switch strings.TrimSpace(msg.Type) {
+		case "chat":
+			if err := c.hub.BroadcastChatMessage(c, &msg); err != nil {
+				log.Printf("broadcast chat failed: room=%s user=%s err=%v", msg.InterviewID, c.userID, err)
+			}
+			continue
+		case "group_invite":
+			if err := c.hub.BroadcastGroupInvite(c, &msg); err != nil {
+				log.Printf("broadcast group invite failed: room=%s user=%s err=%v", msg.InterviewID, c.userID, err)
+			}
+			continue
+		case "group_start_vote":
+			if err := c.hub.BroadcastGroupStartVote(c, &msg); err != nil {
+				log.Printf("broadcast group start vote failed: room=%s user=%s err=%v", msg.InterviewID, c.userID, err)
+			}
+			continue
 		}
 
 		processedMsg, err := json.Marshal(msg)
@@ -197,6 +220,169 @@ func (c *Client) writePump() {
 			}
 		}
 	}
+}
+
+func (h *Hub) BroadcastChatMessage(sender *Client, msg *Message) error {
+	if sender == nil || msg == nil {
+		return nil
+	}
+	roomID := strings.TrimSpace(msg.InterviewID)
+	if roomID == "" {
+		return fmt.Errorf("room id is required")
+	}
+
+	data := normalizeMessageData(msg.Data)
+	rawText := strings.TrimSpace(asString(data["text"]))
+	if rawText == "" {
+		return nil
+	}
+	senderID := asUintFromAny(msg.UserID)
+	if senderID == 0 {
+		return fmt.Errorf("sender id is invalid")
+	}
+
+	senderName := strings.TrimSpace(asString(data["sender_name"]))
+	if senderName == "" {
+		senderName = fmt.Sprintf("用户%d", senderID)
+	}
+	sentAt := msg.Timestamp
+	if sentAt.IsZero() {
+		sentAt = time.Now()
+	}
+
+	interviewCacheKey := internalruntime.InterviewRoomCacheKey(asUintFromAny(data["interview_id"]))
+	clients := h.roomClients(roomID)
+	for _, receiver := range clients {
+		receiverID := asUintFromAny(receiver.userID)
+		if receiverID == 0 {
+			continue
+		}
+
+		displayText := internalruntime.FormatChatPerspective(senderName, senderID, receiverID, rawText)
+		if displayText == "" {
+			continue
+		}
+
+		internalruntime.GetLiveRoomStore().AppendChatMessageForReceiver(roomID, receiverID, senderID, displayText, sentAt)
+		if interviewCacheKey != "" {
+			internalruntime.GetLiveRoomStore().AppendChatMessageForReceiver(interviewCacheKey, receiverID, senderID, displayText, sentAt)
+		}
+
+		outData := cloneStringAnyMap(data)
+		outData["sender_name"] = senderName
+		outData["raw_text"] = rawText
+		outData["text"] = displayText
+		outData["display_text"] = displayText
+
+		outMsg := Message{
+			Type:        "chat",
+			UserID:      msg.UserID,
+			InterviewID: roomID,
+			Data:        outData,
+			Timestamp:   sentAt,
+		}
+
+		encoded, err := json.Marshal(outMsg)
+		if err != nil {
+			continue
+		}
+		h.sendToClient(receiver, encoded)
+	}
+
+	return nil
+}
+
+func (h *Hub) BroadcastGroupInvite(sender *Client, msg *Message) error {
+	if sender == nil || msg == nil {
+		return nil
+	}
+	roomID := strings.TrimSpace(msg.InterviewID)
+	if roomID == "" {
+		return fmt.Errorf("room id is required")
+	}
+
+	data := normalizeMessageData(msg.Data)
+	senderName := strings.TrimSpace(asString(data["sender_name"]))
+	if senderName == "" {
+		senderName = fmt.Sprintf("用户%s", sender.userID)
+	}
+
+	targetParticipants := sender.groupTargetParticipants
+	if targetParticipants < internalruntime.DefaultGroupTargetParticipants {
+		targetParticipants = internalruntime.DefaultGroupTargetParticipants
+	}
+	startThreshold := sender.groupStartThreshold
+	if startThreshold < internalruntime.GroupStartThresholdForTesting {
+		startThreshold = internalruntime.GroupStartThresholdForTesting
+	}
+
+	outData := cloneStringAnyMap(data)
+	outData["sender_name"] = senderName
+	outData["target_participants"] = targetParticipants
+	outData["start_threshold"] = startThreshold
+
+	return h.broadcastStructuredToRoom(roomID, Message{
+		Type:        "group_invite",
+		UserID:      msg.UserID,
+		InterviewID: roomID,
+		Data:        outData,
+		Timestamp:   time.Now(),
+	})
+}
+
+func (h *Hub) BroadcastGroupStartVote(sender *Client, msg *Message) error {
+	if sender == nil || msg == nil {
+		return nil
+	}
+	roomID := strings.TrimSpace(msg.InterviewID)
+	if roomID == "" {
+		return fmt.Errorf("room id is required")
+	}
+
+	senderID := asUintFromAny(msg.UserID)
+	if senderID == 0 {
+		return fmt.Errorf("sender id is invalid")
+	}
+
+	state := internalruntime.GetLiveRoomStore().CastStartVote(roomID, senderID, sender.groupTargetParticipants, sender.groupStartThreshold)
+	statusData := map[string]interface{}{
+		"ready_count":         state.ReadyCount,
+		"start_threshold":     state.StartThreshold,
+		"target_participants": state.TargetParticipants,
+		"can_start":           state.CanStart,
+		"started":             state.Started,
+		"voted_user_ids":      state.VotedUserIDs,
+	}
+
+	if err := h.broadcastStructuredToRoom(roomID, Message{
+		Type:        "group_start_status",
+		UserID:      msg.UserID,
+		InterviewID: roomID,
+		Data:        statusData,
+		Timestamp:   time.Now(),
+	}); err != nil {
+		return err
+	}
+
+	if state.JustStarted {
+		startData := map[string]interface{}{
+			"message":             "人数达到测试开考阈值，已进入群面流程",
+			"ready_count":         state.ReadyCount,
+			"start_threshold":     state.StartThreshold,
+			"target_participants": state.TargetParticipants,
+		}
+		if err := h.broadcastStructuredToRoom(roomID, Message{
+			Type:        "group_start",
+			UserID:      msg.UserID,
+			InterviewID: roomID,
+			Data:        startData,
+			Timestamp:   time.Now(),
+		}); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (c *Client) GetInterviewID() string {
@@ -241,9 +427,7 @@ func (h *Hub) SendToUser(userID string, messageType string, data interface{}) er
 	}
 
 	for _, client := range clients {
-		select {
-		case client.send <- jsonMsg:
-		default:
+		if ok := h.sendToClient(client, jsonMsg); !ok {
 			return fmt.Errorf("client send buffer full")
 		}
 	}
@@ -277,6 +461,130 @@ func (h *Hub) GetConnectedUsers() []string {
 		users = append(users, userID)
 	}
 	return users
+}
+
+func (h *Hub) roomClients(roomID string) []*Client {
+	target := strings.TrimSpace(roomID)
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	clients := make([]*Client, 0)
+	for _, client := range h.clients {
+		if target != "" && client.interviewID != target {
+			continue
+		}
+		clients = append(clients, client)
+	}
+	return clients
+}
+
+func (h *Hub) broadcastRoomBytes(roomID string, payload []byte) {
+	target := strings.TrimSpace(roomID)
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, client := range h.clients {
+		if target != "" && client.interviewID != target {
+			continue
+		}
+		h.sendToClient(client, payload)
+	}
+}
+
+func (h *Hub) broadcastStructuredToRoom(roomID string, msg Message) error {
+	encoded, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	h.broadcastRoomBytes(roomID, encoded)
+	return nil
+}
+
+func (h *Hub) sendToClient(client *Client, payload []byte) bool {
+	if client == nil {
+		return false
+	}
+	select {
+	case client.send <- payload:
+		return true
+	default:
+		log.Printf("Client %s send buffer full, dropping", client.userID)
+		return false
+	}
+}
+
+func parsePositiveInt(raw string, fallback int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func normalizeMessageData(data interface{}) map[string]interface{} {
+	if m, ok := data.(map[string]interface{}); ok && m != nil {
+		return m
+	}
+	return map[string]interface{}{}
+}
+
+func asString(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case fmt.Stringer:
+		return v.String()
+	case float64:
+		if v == float64(int64(v)) {
+			return strconv.FormatInt(int64(v), 10)
+		}
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case uint64:
+		return strconv.FormatUint(v, 10)
+	default:
+		return ""
+	}
+}
+
+func asUintFromAny(value interface{}) uint {
+	switch v := value.(type) {
+	case uint:
+		return v
+	case uint64:
+		return uint(v)
+	case int:
+		if v > 0 {
+			return uint(v)
+		}
+	case int64:
+		if v > 0 {
+			return uint(v)
+		}
+	case float64:
+		if v > 0 {
+			return uint(v)
+		}
+	case string:
+		parsed, err := strconv.ParseUint(strings.TrimSpace(v), 10, 64)
+		if err == nil {
+			return uint(parsed)
+		}
+	}
+	return 0
+}
+
+func cloneStringAnyMap(src map[string]interface{}) map[string]interface{} {
+	if len(src) == 0 {
+		return map[string]interface{}{}
+	}
+	dst := make(map[string]interface{}, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
 }
 
 var globalHub *Hub

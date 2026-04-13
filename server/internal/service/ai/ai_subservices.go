@@ -67,6 +67,7 @@ type AIReportService interface {
 
 type AISpeechService interface {
 	TranscribeAudio(audioData string) (string, error)
+	CacheRealtimeASRResult(roomID string, userID uint, audioEnabled bool, transcript string)
 	SynthesizeSpeech(text string) ([]byte, error)
 }
 

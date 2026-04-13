@@ -26,6 +26,7 @@
     "clsx": "^2.1.1",
     "dayjs": "^1.11.19",
     "dompurify": "^3.3.3",
+    "echarts": "^6.0.0",
     "electron-updater": "^6.6.2",
     "element-plus": "^2.13.3",
     "lucide-vue-next": "^0.576.0",
