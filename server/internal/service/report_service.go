@@ -1,16 +1,19 @@
 package service
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"your-project/internal/model"
 	"your-project/internal/repository"
-	internalruntime "your-project/internal/runtime"
 	aidomain "your-project/internal/service/ai"
+)
+
+const (
+	reportStatusGenerating = "generating"
+	reportStatusCompleted  = "completed"
+	reportStatusFailed     = "failed"
 )
 
 type ReportService struct {
@@ -42,6 +45,9 @@ func (s *ReportService) GenerateInterviewReport(userID, interviewID uint) (*mode
 	if interview.Status != "completed" {
 		return nil, fmt.Errorf("interview is not completed")
 	}
+	if existing != nil && existing.UserID != userID {
+		return nil, fmt.Errorf("unauthorized access")
+	}
 
 	answers, err := s.interviewRepo.GetAnswersByInterviewID(interviewID)
 	if err != nil {
@@ -49,127 +55,25 @@ func (s *ReportService) GenerateInterviewReport(userID, interviewID uint) (*mode
 	}
 
 	if existing != nil {
-		if existing.UserID != userID {
-			return nil, fmt.Errorf("unauthorized access")
+		if stringsTrimSpaceFast(existing.Status) == reportStatusGenerating {
+			return existing, nil
 		}
 		if !shouldRegenerateReport(existing, answers) {
 			return existing, nil
 		}
 	}
 
-	totalScore := 0
-	for _, answer := range answers {
-		totalScore += answer.Score
-	}
-
-	averageScore := 0
-	if len(answers) > 0 {
-		averageScore = totalScore / len(answers)
-	}
-	aggregated := aggregateReportDimensionScores(answers, averageScore)
-	qaDetails := buildReportQADetailsFromAnswers(answers)
-
-	strengths, weaknesses, suggestions := s.analyzePerformance(answers)
-	overallAnalysis := "基于面试表现，建议继续提升技术能力。"
-	technicalScore := aggregated.Technical
-	expressionScore := aggregated.Expression
-	logicScore := aggregated.Logic
-	matchingScore := aggregated.Matching
-	behaviorScore := aggregated.Behavior
-
-	if insights, aiErr := s.aiService.GenerateReportInsights(context.Background(), interview, answers); aiErr == nil && insights != nil {
-		overallAnalysis = insights.OverallAnalysis
-		if len(insights.Strengths) > 0 {
-			strengths = insights.Strengths
-		}
-		if len(insights.Weaknesses) > 0 {
-			weaknesses = insights.Weaknesses
-		}
-		if len(insights.Suggestions) > 0 {
-			suggestions = insights.Suggestions
-		}
-		technicalScore = insights.TechnicalScore
-		expressionScore = insights.ExpressionScore
-		logicScore = insights.LogicScore
-		matchingScore = insights.MatchingScore
-		behaviorScore = insights.BehaviorScore
-		if mappedDetails := mapInsightsQADetails(insights.QADetails); len(mappedDetails) > 0 {
-			qaDetails = mappedDetails
-		}
-	} else {
-		if analysis, analysisErr := s.aiService.GenerateOverallAnalysis(context.Background(), interview, answers); analysisErr == nil && analysis != "" {
-			overallAnalysis = analysis
-		}
-	}
-
-	end := time.Now()
-	if interview.EndTime != nil {
-		end = *interview.EndTime
-	}
-	report := existing
-	if report == nil {
-		report = &model.Report{
-			UserID:      userID,
-			InterviewID: interviewID,
-			CreatedAt:   time.Now(),
-		}
-	}
-	report.UserID = userID
-	report.InterviewID = interviewID
-	report.Position = interview.Position
-	report.Difficulty = interview.Difficulty
-	report.TotalQuestions = len(answers)
-	report.AverageScore = averageScore
-	report.OverallAnalysis = overallAnalysis
-	report.TechnicalScore = technicalScore
-	report.ExpressionScore = expressionScore
-	report.LogicScore = logicScore
-	report.MatchingScore = matchingScore
-	report.BehaviorScore = behaviorScore
-	report.StartTime = interview.StartTime
-	report.EndTime = end
-	report.Duration = int(end.Sub(interview.StartTime).Minutes())
-	report.UpdatedAt = time.Now()
-	report.SetStrengths(strengths)
-	report.SetWeaknesses(weaknesses)
-	report.SetSuggestions(suggestions)
-	report.SetQADetails(qaDetails)
-
-	recordingURL := strings.TrimSpace(interview.RecordingURL)
-	if interview.IsGroup {
-		report.SinglePlayback = ""
-		report.MultiPlayback = recordingURL
-	} else {
-		report.SinglePlayback = recordingURL
-		report.MultiPlayback = ""
-	}
-
-	if cacheKey := internalruntime.InterviewRoomCacheKey(interviewID); cacheKey != "" {
-		audioTranscripts, chatByReceiver := internalruntime.GetLiveRoomStore().Snapshot(cacheKey)
-		if len(audioTranscripts) > 0 {
-			report.SetAudioTranscripts(audioTranscripts)
-		}
-		if chatMessages := chatByReceiver[userID]; len(chatMessages) > 0 {
-			report.SetChatMessages(chatMessages)
-		}
-	}
-
-	if existing != nil {
-		if err := s.reportRepo.Update(report); err != nil {
-			return nil, fmt.Errorf("failed to refresh report: %w", err)
-		}
-		return report, nil
-	}
-
-	if err := s.reportRepo.UpsertByInterview(report); err != nil {
-		return nil, fmt.Errorf("failed to create report: %w", err)
+	queued := buildGeneratingReportRecord(existing, interview, userID, answers)
+	if err := s.reportRepo.UpsertByInterview(queued); err != nil {
+		return nil, fmt.Errorf("failed to queue report generation: %w", err)
 	}
 
 	persisted, err := s.reportRepo.GetByInterviewID(interviewID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load report after save: %w", err)
+		return nil, fmt.Errorf("failed to load queued report: %w", err)
 	}
 
+	s.generateInterviewReportAsync(userID, interviewID)
 	return persisted, nil
 }
 
@@ -177,6 +81,19 @@ func shouldRegenerateReport(report *model.Report, answers []model.AnswerResult) 
 	if report == nil {
 		return true
 	}
+
+	status := strings.ToLower(stringsTrimSpaceFast(report.Status))
+	switch status {
+	case reportStatusGenerating:
+		return false
+	case reportStatusFailed:
+		return true
+	case "", reportStatusCompleted:
+		// 兼容历史数据：空状态视为已完成
+	default:
+		return true
+	}
+
 	if report.TotalQuestions == 0 || report.AverageScore == 0 {
 		if len(answers) > 0 {
 			return true

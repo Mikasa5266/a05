@@ -13,9 +13,8 @@ import (
 )
 
 type liveSignalHandshake struct {
-	identity       *liveTokenIdentity
-	roomID         string
-	invitationCode string
+	identity *liveTokenIdentity
+	roomID   string
 }
 
 func resolveLiveSignalHandshake(c *gin.Context) (*liveSignalHandshake, int, string) {
@@ -40,9 +39,8 @@ func resolveLiveSignalHandshake(c *gin.Context) (*liveSignalHandshake, int, stri
 	}
 
 	return &liveSignalHandshake{
-		identity:       identity,
-		roomID:         roomID,
-		invitationCode: invitationCode,
+		identity: identity,
+		roomID:   roomID,
 	}, http.StatusOK, ""
 }
 

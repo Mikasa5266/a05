@@ -13,6 +13,7 @@ func (r *GormReportRepository) UpsertByInterview(report *model.Report) error {
 			"user_id",
 			"position",
 			"difficulty",
+			"status",
 			"total_questions",
 			"average_score",
 			"strengths",

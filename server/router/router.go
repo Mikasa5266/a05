@@ -58,6 +58,7 @@ func SetupRouter(aiService aidomain.AIFacade) *gin.Engine {
 			protected.GET("/interview/config", handler.GetInterviewConfig)
 			protected.GET("/interview/:id", handler.GetInterview)
 			protected.PUT("/interview/:id/answer", handler.SubmitAnswer)
+			protected.POST("/interview/:id/mock-code", handler.SubmitMockCode)
 			protected.POST("/interview/:id/end", handler.EndInterview)
 			protected.POST("/interview/:id/recording", handler.UploadInterviewRecording)
 			protected.POST("/interview/:id/speech-analyze", handler.AnalyzeSpeechChunk)

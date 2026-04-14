@@ -1,8 +1,8 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Copy, Link2, Loader2, Mic, MicOff, PhoneOff, SendHorizontal, Users } from 'lucide-vue-next'
+import { ArrowLeft, Code2, Copy, Link2, Loader2, Mic, MicOff, PhoneOff, SendHorizontal, Users } from 'lucide-vue-next'
 import { useUserStore } from '../stores/user'
 import {
   analyzeSpeechChunk,
@@ -10,11 +10,14 @@ import {
   getHumanInvitations,
   getReceivedHumanInvitations,
   joinLiveInterview,
+  submitMockCode,
   startLiveInterview,
   startInterview
 } from '../api/interview'
 import { generateReport } from '../api/report'
 import { API_BASE_URL, WEBRTC_ICE_SERVERS } from '../utils/backend'
+
+const LiveCodeEditor = defineAsyncComponent(() => import('../components/interview/LiveCodeEditor.vue'))
 
 const TEST_START_THRESHOLD = 2
 const TARGET_PARTICIPANTS = 4
@@ -49,6 +52,15 @@ const groupTargetParticipants = ref(TARGET_PARTICIPANTS)
 const messageInput = ref('')
 const messages = ref([])
 const members = ref([])
+const codePanelOpen = ref(false)
+const mockCodeSubmitting = ref(false)
+const codeDraft = ref('')
+const codeLanguage = ref('javascript')
+const currentCodeQuestion = ref({
+  questionId: 0,
+  title: '现场编程题',
+  content: '请实现一个去重并保持输入顺序的函数。',
+})
 
 let localStream = null
 let peer = null
@@ -63,6 +75,7 @@ let chunkRecorderStream = null
 const role = computed(() => userStore.userInfo?.role || '')
 const selfUserId = computed(() => String(userStore.userInfo?.id || ''))
 const isStudent = computed(() => role.value === 'student')
+const isInterviewer = computed(() => role.value === 'enterprise' || role.value === 'university')
 
 const backPath = computed(() => {
   if (role.value === 'enterprise') return '/enterprise/interview-workbench'
@@ -375,6 +388,159 @@ function sendGroupInvite() {
   })
 }
 
+function buildStarterCode(language) {
+  const normalized = String(language || 'javascript').trim().toLowerCase()
+  if (normalized === 'python') {
+    return [
+      'def solve(nums):',
+      '    # TODO: implement your solution',
+      '    return nums',
+      '',
+      'if __name__ == "__main__":',
+      '    print(solve([1, 2, 2, 3]))',
+    ].join('\n')
+  }
+  if (normalized === 'go') {
+    return [
+      'package main',
+      '',
+      'import "fmt"',
+      '',
+      'func solve(nums []int) []int {',
+      '    // TODO: implement your solution',
+      '    return nums',
+      '}',
+      '',
+      'func main() {',
+      '    fmt.Println(solve([]int{1, 2, 2, 3}))',
+      '}',
+    ].join('\n')
+  }
+  return [
+    'function solve(nums) {',
+    '  // TODO: implement your solution',
+    '  return nums',
+    '}',
+    '',
+    'console.log(solve([1, 2, 2, 3]))',
+  ].join('\n')
+}
+
+function normalizeCodeQuestionPayload(payload = {}) {
+  const nextLanguage = String(payload.language || codeLanguage.value || 'javascript').trim().toLowerCase() || 'javascript'
+  const nextTitle = String(payload.title || '').trim() || '现场编程题'
+  const nextContent = String(payload.content || '').trim() || '请在限定时间内完成核心逻辑，并说明复杂度。'
+  return {
+    questionId: Number(payload.question_id || payload.questionId || 0),
+    title: nextTitle,
+    content: nextContent,
+    language: nextLanguage,
+  }
+}
+
+function openCodePanel(payload = {}) {
+  const normalized = normalizeCodeQuestionPayload(payload)
+  currentCodeQuestion.value = {
+    questionId: normalized.questionId,
+    title: normalized.title,
+    content: normalized.content,
+  }
+  codeLanguage.value = normalized.language
+
+  if (!String(codeDraft.value || '').trim()) {
+    const starter = String(payload.starter_code || '').trim()
+    codeDraft.value = starter || buildStarterCode(normalized.language)
+  }
+
+  codePanelOpen.value = true
+}
+
+function toggleCodePanel() {
+  if (codePanelOpen.value) {
+    codePanelOpen.value = false
+    return
+  }
+  openCodePanel(currentCodeQuestion.value)
+}
+
+function updateCodeDraft(nextValue) {
+  codeDraft.value = String(nextValue || '')
+}
+
+function updateCodeLanguage(nextLanguage) {
+  const normalized = String(nextLanguage || 'javascript').trim().toLowerCase()
+  codeLanguage.value = normalized || 'javascript'
+}
+
+function sendCodeQuestion() {
+  if (!isInterviewer.value) {
+    ElMessage.warning('仅面试官可发布编程题')
+    return
+  }
+  if (!signalSocket || signalSocket.readyState !== WebSocket.OPEN) {
+    ElMessage.warning('信令未连接，无法发布编程题')
+    return
+  }
+
+  const input = window.prompt('请输入要发布的编程题目', currentCodeQuestion.value.content || '请实现一个去重并保持输入顺序的函数。')
+  const content = String(input || '').trim()
+  if (!content) return
+
+  const payload = {
+    title: '现场编程题',
+    content,
+    language: codeLanguage.value,
+    starter_code: buildStarterCode(codeLanguage.value),
+    sender_name: getSelfDisplayName(),
+    role: role.value,
+  }
+
+  sendSignal('code_question', payload)
+  openCodePanel(payload)
+  appendMessage('system', `${getSelfDisplayName()} 发布了编程题：${content}`, false, '系统')
+}
+
+async function submitMockCodeAnswer() {
+  if (mockCodeSubmitting.value) return
+  if (interviewId.value <= 0) {
+    ElMessage.warning('面试尚未开始，暂时不能提交评分')
+    return
+  }
+  if (!String(codeDraft.value || '').trim()) {
+    ElMessage.warning('请先输入代码再提交')
+    return
+  }
+
+  mockCodeSubmitting.value = true
+  try {
+    const res = await submitMockCode(interviewId.value, {
+      question_id: Number(currentCodeQuestion.value.questionId || 0),
+      question_title: currentCodeQuestion.value.title,
+      question_content: currentCodeQuestion.value.content,
+      code: codeDraft.value,
+      language: codeLanguage.value,
+    })
+
+    const score = Number(res?.score ?? res?.result?.score ?? 0)
+    const feedback = String(res?.feedback ?? res?.result?.feedback ?? '').trim()
+    const persistedQuestionId = Number(res?.question_id ?? res?.result?.question_id ?? 0)
+    if (persistedQuestionId > 0) {
+      currentCodeQuestion.value = {
+        ...currentCodeQuestion.value,
+        questionId: persistedQuestionId,
+      }
+    }
+
+    appendMessage('system', `编程题 mock 评分 ${score} 分。${feedback || '建议继续补充边界条件与复杂度说明。'}`, false, '评测器')
+    ElMessage.success(`提交成功，mock 评分 ${score} 分`)
+  } catch (err) {
+    const message = err?.response?.data?.error || err.message || '提交 mock 评分失败'
+    ElMessage.error(message)
+  } finally {
+    mockCodeSubmitting.value = false
+  }
+}
+
 function voteGroupStart() {
   if (!canVoteStart.value) return
   sendSignal('group_start_vote', {
@@ -501,6 +667,20 @@ async function handleSignalMessage(raw) {
     groupStarted.value = true
     statusText.value = String(data.message || '群面流程已开始')
     appendMessage('system', statusText.value, false, '系统')
+    return
+  }
+
+  if (msg.type === 'code_question') {
+    const nextQuestion = normalizeCodeQuestionPayload(data)
+    openCodePanel({
+      question_id: nextQuestion.questionId,
+      title: nextQuestion.title,
+      content: nextQuestion.content,
+      language: nextQuestion.language,
+      starter_code: data.starter_code,
+    })
+    statusText.value = '收到编程题，已展开敲代码面板'
+    appendMessage('system', `${data.sender_name || '面试官'} 发布了编程题：${nextQuestion.content}`, false, '系统')
     return
   }
 
@@ -812,6 +992,15 @@ async function initAndJoinRoom(invitationID = 0) {
     groupReadyCount.value = 0
     groupStartThreshold.value = TEST_START_THRESHOLD
     groupTargetParticipants.value = TARGET_PARTICIPANTS
+    codePanelOpen.value = false
+    mockCodeSubmitting.value = false
+    codeDraft.value = ''
+    codeLanguage.value = 'javascript'
+    currentCodeQuestion.value = {
+      questionId: 0,
+      title: '现场编程题',
+      content: '请实现一个去重并保持输入顺序的函数。',
+    }
 
     if (invitationID <= 0) {
       throw new Error('缺少 invitation_id，无法进入群面房间')
@@ -1006,6 +1195,18 @@ onBeforeUnmount(() => {
                 <button class="btn-subtle" :disabled="!canVoteStart" @click="voteGroupStart">
                   发送准备信号（阈值 {{ groupStartThreshold }}）
                 </button>
+                <button class="btn-subtle" @click="toggleCodePanel">
+                  <Code2 class="w-4 h-4" />
+                  {{ codePanelOpen ? '收起敲代码' : '展开敲代码' }}
+                </button>
+                <button
+                  v-if="isInterviewer"
+                  class="btn-subtle"
+                  :disabled="!hasRoom || !signalSocket || signalSocket.readyState !== WebSocket.OPEN"
+                  @click="sendCodeQuestion"
+                >
+                  发布编程题
+                </button>
                 <button class="btn-subtle" @click="toggleMic">
                   <Mic v-if="micOn" class="w-4 h-4" />
                   <MicOff v-else class="w-4 h-4" />
@@ -1016,6 +1217,19 @@ onBeforeUnmount(() => {
                   {{ finishing ? '正在结束...' : '结束并离开' }}
                 </button>
               </div>
+
+              <LiveCodeEditor
+                :visible="codePanelOpen"
+                :question="currentCodeQuestion"
+                :model-value="codeDraft"
+                :language="codeLanguage"
+                :submitting="mockCodeSubmitting"
+                :read-only="interviewId <= 0"
+                @update:modelValue="updateCodeDraft"
+                @language-change="updateCodeLanguage"
+                @submit="submitMockCodeAnswer"
+                @close="codePanelOpen = false"
+              />
             </template>
           </section>
 

@@ -24,6 +24,12 @@ const normalizeRole = (role = "") => {
   const value = String(role || "")
     .trim()
     .toLowerCase();
+  if (value === "teacher" || value === "mentor" || value === "faculty") {
+    return "university";
+  }
+  if (value === "hr" || value === "interviewer" || value === "recruiter") {
+    return "enterprise";
+  }
   return ROLE_NAMES.includes(value) ? value : "student";
 };
 

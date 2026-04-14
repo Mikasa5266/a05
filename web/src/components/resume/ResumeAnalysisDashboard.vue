@@ -89,52 +89,86 @@
       </div>
     </section>
 
-    <div class="grid gap-6 2xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)]">
+    <div class="grid gap-7 2xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,0.85fr)]">
       <div class="space-y-6">
-        <section class="resume-panel reveal-panel" style="animation-delay: 90ms">
+        <section class="resume-panel panel-profile reveal-panel" style="animation-delay: 70ms">
+          <div class="resume-section-heading">
+            <div>
+              <p class="resume-eyebrow">Quick Profile</p>
+              <h2 class="resume-title">核心能力概览</h2>
+            </div>
+          </div>
+
+          <div class="quick-skill-grid">
+            <ResumeSkillCard
+              v-for="card in quickOverviewCards"
+              :key="card.title"
+              :title="card.title"
+              :subtitle="card.subtitle"
+              :badge="card.badge"
+              :tone="card.tone"
+              :items="card.items"
+              :empty-text="card.emptyText"
+            />
+          </div>
+        </section>
+
+        <section class="resume-panel panel-skill reveal-panel" style="animation-delay: 90ms">
           <div class="resume-section-heading">
             <div>
               <p class="resume-eyebrow">Skill Atlas</p>
               <h2 class="resume-title">技能图谱与岗位维度</h2>
             </div>
-            <p class="resume-caption">把后端返回的多层技能证据转换成可扫描的能力分布。</p>
           </div>
 
-          <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-            <div class="grid gap-4 sm:grid-cols-2">
+          <div class="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_340px]">
+            <div class="grid gap-5 lg:grid-cols-2">
               <article
                 v-for="group in viewModel.skillGroups"
                 :key="group.key"
-                class="rounded-3xl border border-slate-200/80 bg-slate-50/75 p-4"
+                class="skill-group-card"
               >
                 <div class="flex items-center justify-between gap-3">
                   <div>
                     <p class="text-sm font-semibold text-slate-900">{{ group.label }}</p>
                     <p class="mt-1 text-xs text-slate-500">{{ group.count }} 项明确证据</p>
                   </div>
-                  <span class="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-slate-500">
+                  <span
+                    class="skill-group-summary rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-slate-500"
+                    :title="group.summary"
+                  >
                     {{ group.summary }}
                   </span>
                 </div>
 
-                <div class="mt-4 flex flex-wrap gap-2">
+                <div class="mt-4 grid gap-2.5">
                   <div
-                    v-for="skill in group.items"
+                    v-for="skill in compactSkillItems(group.items)"
                     :key="`${group.key}-${skill.name}`"
                     class="skill-chip"
                     :class="skillToneClass(skill.level)"
                   >
                     <div class="min-w-0">
-                      <p class="truncate text-sm font-medium">{{ skill.name }}</p>
-                      <p class="mt-1 line-clamp-2 text-[11px] leading-5 opacity-80">
+                      <p class="truncate text-sm font-medium" :title="skill.name">{{ skill.name }}</p>
+                      <p
+                        class="mt-1 line-clamp-2 text-[11px] leading-5 opacity-80"
+                        :title="skill.evidence || skill.lastUsed || '未补充证据'"
+                      >
                         {{ skill.evidence || skill.lastUsed || '未补充证据' }}
                       </p>
                     </div>
-                    <span class="shrink-0 rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+                    <span
+                      class="shrink-0 rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                      :title="skill.level"
+                    >
                       {{ skill.level }}
                     </span>
                   </div>
                 </div>
+
+                <p v-if="hiddenSkillCount(group.items) > 0" class="skill-group-more">
+                  +{{ hiddenSkillCount(group.items) }} 项能力已折叠展示
+                </p>
               </article>
             </div>
 
@@ -168,7 +202,7 @@
                   </div>
                   <div class="h-2 rounded-full bg-slate-100">
                     <div
-                      class="h-full rounded-full bg-gradient-to-r from-sky-500 to-indigo-500"
+                      class="h-full rounded-full bg-linear-to-r from-sky-500 to-indigo-500"
                       :style="{ width: `${indicator.value}%` }"
                     />
                   </div>
@@ -178,19 +212,18 @@
           </div>
         </section>
 
-        <section class="resume-panel reveal-panel" style="animation-delay: 140ms">
+        <section class="resume-panel panel-project reveal-panel" style="animation-delay: 140ms">
           <div class="resume-section-heading">
             <div>
               <p class="resume-eyebrow">Project Review</p>
               <h2 class="resume-title">项目经验深度剖析</h2>
             </div>
-            <p class="resume-caption">不只是堆项目名，而是拆解背景、职责、技术栈和结果影响。</p>
           </div>
 
           <div class="space-y-4">
             <article
-              v-for="project in viewModel.projects"
-              :key="project.name"
+              v-for="(project, index) in viewModel.projects"
+              :key="projectKey(project, index)"
               class="project-row"
             >
               <div class="project-meta">
@@ -200,7 +233,10 @@
               </div>
 
               <div class="space-y-5">
-                <p class="text-sm leading-7 text-slate-600">
+                <p
+                  class="text-sm leading-7 text-slate-600"
+                  :class="{ 'line-clamp-3': isProjectLong(project) && !isProjectExpanded(projectKey(project, index)) }"
+                >
                   {{ project.summary || project.background || '暂无项目摘要' }}
                 </p>
 
@@ -209,7 +245,7 @@
                     <p class="resume-subtitle">亮点拆解</p>
                     <ul class="space-y-2">
                       <li
-                        v-for="item in project.highlights"
+                        v-for="item in visibleProjectItems(project.highlights, projectKey(project, index))"
                         :key="item"
                         class="list-row"
                       >
@@ -222,7 +258,7 @@
                     <p class="resume-subtitle">结果影响</p>
                     <ul class="space-y-2">
                       <li
-                        v-for="item in project.impact"
+                        v-for="item in visibleProjectItems(project.impact, projectKey(project, index))"
                         :key="item"
                         class="list-row"
                       >
@@ -241,18 +277,27 @@
                     {{ tech }}
                   </span>
                 </div>
+
+                <div v-if="isProjectLong(project)">
+                  <button
+                    type="button"
+                    class="project-toggle"
+                    @click="toggleProject(projectKey(project, index))"
+                  >
+                    {{ isProjectExpanded(projectKey(project, index)) ? '收起详情' : '展开详情' }}
+                  </button>
+                </div>
               </div>
             </article>
           </div>
         </section>
 
-        <section class="resume-panel reveal-panel" style="animation-delay: 190ms">
+        <section class="resume-panel panel-timeline reveal-panel" style="animation-delay: 190ms">
           <div class="resume-section-heading">
             <div>
               <p class="resume-eyebrow">Timeline</p>
               <h2 class="resume-title">经历与教育概览</h2>
             </div>
-            <p class="resume-caption">工作履历、教育背景和高光信息统一收口，方便快速面试复盘。</p>
           </div>
 
           <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -293,27 +338,34 @@
             </div>
 
             <aside class="space-y-4">
-              <article
-                v-for="education in viewModel.education"
-                :key="`${education.school}-${education.degree}-${education.period}`"
-                class="rounded-3xl border border-slate-200 bg-slate-50 p-5"
-              >
-                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{{ education.period }}</p>
-                <h3 class="mt-2 text-lg font-semibold text-slate-900">{{ education.school }}</h3>
-                <p class="mt-1 text-sm text-slate-500">{{ education.degree }} · {{ education.major }}</p>
-                <div class="mt-4 space-y-2 text-sm text-slate-600">
-                  <p v-if="education.gpa">GPA：{{ education.gpa }}</p>
-                  <p v-if="education.ranking">排名：{{ education.ranking }}</p>
-                </div>
-                <div class="mt-4 space-y-2">
-                  <div
-                    v-for="item in education.highlights"
-                    :key="item"
-                    class="list-row"
-                  >
-                    {{ item }}
+              <template v-if="viewModel.education.length">
+                <article
+                  v-for="education in viewModel.education"
+                  :key="`${education.school}-${education.degree}-${education.period}`"
+                  class="rounded-3xl border border-slate-200 bg-slate-50 p-5"
+                >
+                  <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{{ education.period }}</p>
+                  <h3 class="mt-2 text-lg font-semibold text-slate-900">{{ education.school }}</h3>
+                  <p class="mt-1 text-sm text-slate-500">{{ education.degree }} · {{ education.major }}</p>
+                  <div class="mt-4 space-y-2 text-sm text-slate-600">
+                    <p v-if="education.gpa">GPA：{{ education.gpa }}</p>
+                    <p v-if="education.ranking">排名：{{ education.ranking }}</p>
                   </div>
-                </div>
+                  <div class="mt-4 space-y-2">
+                    <div
+                      v-for="item in education.highlights"
+                      :key="item"
+                      class="list-row"
+                    >
+                      {{ item }}
+                    </div>
+                  </div>
+                </article>
+              </template>
+
+              <article v-else class="education-empty-card">
+                <p class="resume-subtitle">教育经历</p>
+                <p class="mt-3 text-sm leading-6 text-amber-700">教育经历补充不充分，当前未识别到可展示内容。</p>
               </article>
 
               <article class="rounded-3xl border border-slate-200 bg-white p-5">
@@ -344,7 +396,7 @@
       </div>
 
       <aside class="space-y-6">
-        <section class="resume-panel reveal-panel" style="animation-delay: 110ms">
+        <section class="resume-panel panel-match reveal-panel" style="animation-delay: 110ms">
           <div class="resume-section-heading">
             <div>
               <p class="resume-eyebrow">Role Match</p>
@@ -381,7 +433,7 @@
                     <span>{{ item.value }}</span>
                   </div>
                   <div class="h-2 rounded-full bg-white">
-                    <div class="h-full rounded-full bg-gradient-to-r from-cyan-500 to-indigo-500" :style="{ width: `${item.value}%` }" />
+                    <div class="h-full rounded-full bg-linear-to-r from-cyan-500 to-indigo-500" :style="{ width: `${item.value}%` }" />
                   </div>
                 </div>
               </div>
@@ -404,7 +456,7 @@
           </div>
         </section>
 
-        <section class="resume-panel reveal-panel" style="animation-delay: 160ms">
+        <section class="resume-panel panel-action reveal-panel" style="animation-delay: 160ms">
           <div class="resume-section-heading">
             <div>
               <p class="resume-eyebrow">Action Items</p>
@@ -432,7 +484,7 @@
           </div>
         </section>
 
-        <section class="resume-panel reveal-panel" style="animation-delay: 210ms">
+        <section class="resume-panel panel-risk reveal-panel" style="animation-delay: 210ms">
           <div class="resume-section-heading">
             <div>
               <p class="resume-eyebrow">Risk Review</p>
@@ -463,7 +515,7 @@
           </div>
         </section>
 
-        <section class="resume-panel reveal-panel" style="animation-delay: 260ms">
+        <section class="resume-panel panel-interview reveal-panel" style="animation-delay: 260ms">
           <div class="resume-section-heading">
             <div>
               <p class="resume-eyebrow">Interview Prep</p>
@@ -497,7 +549,7 @@
                   :key="phase.phase"
                   class="rounded-2xl border border-slate-200 bg-white p-4"
                 >
-                  <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{{ phase.phase }}</p>
+                  <p class="phase-label">{{ phase.phase }}</p>
                   <p class="mt-2 text-sm leading-6 text-slate-700">{{ phase.content }}</p>
                 </article>
               </div>
@@ -518,20 +570,11 @@
       </aside>
     </div>
 
-    <section v-if="viewModel.rawPreview" class="resume-panel reveal-panel" style="animation-delay: 300ms">
-      <div class="resume-section-heading">
-        <div>
-          <p class="resume-eyebrow">Source Preview</p>
-          <h2 class="resume-title">文本抽取预览</h2>
-        </div>
-      </div>
-      <pre class="raw-preview">{{ viewModel.rawPreview }}</pre>
-    </section>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import {
   Chart as ChartJS,
   Filler,
@@ -542,6 +585,7 @@ import {
   Tooltip,
 } from 'chart.js'
 import { Radar } from 'vue-chartjs'
+import ResumeSkillCard from './ResumeSkillCard.vue'
 
 ChartJS.register(RadialLinearScale, PointElement, LineElement, Filler, Tooltip, Legend)
 
@@ -606,6 +650,94 @@ const radarOptions = computed(() => ({
     },
   },
 }))
+
+const quickOverviewCards = computed(() => {
+  const skillGroups = Array.isArray(props.viewModel?.skillGroups)
+    ? props.viewModel.skillGroups
+    : []
+  const programmingGroup = skillGroups.find((group) => group.key === 'programming_languages')
+  const frameworkGroup = skillGroups.find((group) => group.key === 'frameworks')
+
+  const mapSkillItems = (group) =>
+    (Array.isArray(group?.items) ? group.items : []).slice(0, 5).map((skill) => ({
+      name: skill.name || '未命名技能',
+      meta: skill.level || 'Basic',
+      description: skill.evidence || skill.lastUsed || '',
+    }))
+
+  return [
+    {
+      title: '基本信息',
+      subtitle: '候选人与目标岗位快照',
+      tone: 'profile',
+      badge: props.viewModel?.bestMatch?.positionCode || '基础信息',
+      items: [
+        { name: '姓名', meta: props.viewModel?.person?.name || '--' },
+        { name: '目标岗位', meta: props.viewModel?.bestMatch?.positionName || '--' },
+        { name: '邮箱', meta: props.viewModel?.person?.email || '--' },
+        { name: '手机号', meta: props.viewModel?.person?.phone || '--' },
+      ],
+      emptyText: '暂无基础信息',
+    },
+    {
+      title: '编程语言',
+      subtitle: '语言能力证据概览',
+      tone: 'language',
+      badge: `${programmingGroup?.count || 0} 项`,
+      items: mapSkillItems(programmingGroup),
+      emptyText: '暂无编程语言数据',
+    },
+    {
+      title: '框架与中间件',
+      subtitle: '工程框架与中间件栈',
+      tone: 'framework',
+      badge: `${frameworkGroup?.count || 0} 项`,
+      items: mapSkillItems(frameworkGroup),
+      emptyText: '暂无框架能力数据',
+    },
+  ]
+})
+
+const expandedProjectKeys = ref(new Set())
+
+const projectKey = (project, index) => `${project?.name || 'project'}-${index}`
+
+const isProjectLong = (project) => {
+  const summaryLength = String(project?.summary || project?.background || '').length
+  const highlightCount = Array.isArray(project?.highlights) ? project.highlights.length : 0
+  const impactCount = Array.isArray(project?.impact) ? project.impact.length : 0
+  return summaryLength > 160 || highlightCount > 3 || impactCount > 3
+}
+
+const isProjectExpanded = (key) => expandedProjectKeys.value.has(key)
+
+const toggleProject = (key) => {
+  const next = new Set(expandedProjectKeys.value)
+  if (next.has(key)) {
+    next.delete(key)
+  } else {
+    next.add(key)
+  }
+  expandedProjectKeys.value = next
+}
+
+const visibleProjectItems = (items, key) => {
+  const list = Array.isArray(items) ? items.filter(Boolean) : []
+  if (isProjectExpanded(key)) {
+    return list
+  }
+  return list.slice(0, 3)
+}
+
+const compactSkillItems = (items) => {
+  const list = Array.isArray(items) ? items.filter(Boolean) : []
+  return list.slice(0, 4)
+}
+
+const hiddenSkillCount = (items) => {
+  const list = Array.isArray(items) ? items.filter(Boolean) : []
+  return Math.max(0, list.length - 4)
+}
 
 const priorityClass = (priority = '') => {
   const normalized = String(priority || '').toLowerCase()
@@ -681,19 +813,72 @@ const skillToneClass = (level = '') => {
 }
 
 .resume-panel {
+  --panel-accent: #2563eb;
+  --panel-tint: rgba(37, 99, 235, 0.14);
+  --panel-heading-font: 'HarmonyOS Sans SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --panel-body-font: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --panel-meta-font: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace;
   border-radius: 32px;
   border: 1px solid rgba(226, 232, 240, 0.92);
-  background: rgba(255, 255, 255, 0.94);
+  border-top: 3px solid var(--panel-accent);
+  background:
+    radial-gradient(circle at top right, var(--panel-tint), transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(255, 255, 255, 0.93));
   padding: 28px;
   box-shadow: 0 22px 54px rgba(15, 23, 42, 0.06);
+  font-family: var(--panel-body-font);
+}
+
+.panel-profile {
+  --panel-accent: #0891b2;
+  --panel-tint: rgba(8, 145, 178, 0.16);
+  --panel-heading-font: 'HarmonyOS Sans SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+.panel-skill {
+  --panel-accent: #2563eb;
+  --panel-tint: rgba(37, 99, 235, 0.16);
+  --panel-heading-font: 'DIN Alternate', 'HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+.panel-project {
+  --panel-accent: #059669;
+  --panel-tint: rgba(5, 150, 105, 0.15);
+  --panel-heading-font: 'Source Han Serif SC', 'Noto Serif SC', 'Songti SC', serif;
+}
+
+.panel-timeline {
+  --panel-accent: #0284c7;
+  --panel-tint: rgba(2, 132, 199, 0.16);
+  --panel-heading-font: 'Source Han Serif SC', 'Noto Serif SC', 'Songti SC', serif;
+}
+
+.panel-match {
+  --panel-accent: #4f46e5;
+  --panel-tint: rgba(79, 70, 229, 0.15);
+}
+
+.panel-action {
+  --panel-accent: #ea580c;
+  --panel-tint: rgba(234, 88, 12, 0.14);
+}
+
+.panel-risk {
+  --panel-accent: #b45309;
+  --panel-tint: rgba(180, 83, 9, 0.14);
+}
+
+.panel-interview {
+  --panel-accent: #0f766e;
+  --panel-tint: rgba(15, 118, 110, 0.14);
 }
 
 .resume-section-heading {
   display: flex;
   align-items: end;
   justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 24px;
+  gap: 20px;
+  margin-bottom: 26px;
 }
 
 .resume-eyebrow {
@@ -702,6 +887,7 @@ const skillToneClass = (level = '') => {
   letter-spacing: 0.22em;
   text-transform: uppercase;
   color: #64748b;
+  font-family: var(--panel-meta-font);
 }
 
 .resume-title {
@@ -710,10 +896,11 @@ const skillToneClass = (level = '') => {
   line-height: 1.15;
   font-weight: 600;
   color: #0f172a;
+  font-family: var(--panel-heading-font);
 }
 
 .resume-caption {
-  max-width: 360px;
+  max-width: 420px;
   font-size: 13px;
   line-height: 1.7;
   color: #64748b;
@@ -725,43 +912,113 @@ const skillToneClass = (level = '') => {
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: #64748b;
+  font-family: var(--panel-meta-font);
 }
 
 .radar-shell {
   height: 320px;
 }
 
+.quick-skill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 18px;
+}
+
+.skill-group-card {
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 24px;
+  border: 1px solid rgba(226, 232, 240, 0.86);
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.9), rgba(255, 255, 255, 0.96));
+  padding: 18px;
+}
+
+.skill-group-more {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.skill-group-summary {
+  max-width: 56%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .skill-chip {
+  box-sizing: border-box;
   display: flex;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   justify-content: space-between;
-  gap: 12px;
+  align-items: flex-start;
+  gap: 14px;
   border-radius: 24px;
-  padding: 14px 14px 14px 16px;
+  border: 1px solid rgba(226, 232, 240, 0.72);
+  padding: 12px 14px 12px 16px;
+}
+
+.skill-chip .min-w-0 {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.education-empty-card {
+  border-radius: 24px;
+  border: 1px dashed rgba(245, 158, 11, 0.5);
+  background: #fffbeb;
+  padding: 16px;
 }
 
 .project-row {
   display: grid;
-  gap: 22px;
+  gap: 24px;
   border-radius: 28px;
   border: 1px solid rgba(226, 232, 240, 0.9);
   background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-  padding: 24px;
+  padding: 26px;
 }
 
 .project-meta {
   min-width: 0;
 }
 
+.project-toggle {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  border-radius: 12px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 180ms ease;
+}
+
+.project-toggle:hover {
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
 .timeline-row {
   position: relative;
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
-  gap: 16px;
+  gap: 18px;
   border-radius: 28px;
   border: 1px solid rgba(226, 232, 240, 0.85);
   background: #ffffff;
-  padding: 22px;
+  padding: 24px;
+}
+
+.phase-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #64748b;
+  font-family: var(--panel-meta-font);
 }
 
 .timeline-dot {
@@ -816,18 +1073,6 @@ const skillToneClass = (level = '') => {
   color: #4338ca;
 }
 
-.raw-preview {
-  overflow-x: auto;
-  border-radius: 24px;
-  background: #0f172a;
-  padding: 20px;
-  font-size: 12px;
-  line-height: 1.75;
-  color: #cbd5e1;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 .reveal-panel {
   opacity: 0;
   animation: panelRise 0.62s ease forwards;
@@ -848,6 +1093,10 @@ const skillToneClass = (level = '') => {
   .resume-hero,
   .resume-panel {
     padding: 24px;
+  }
+
+  .quick-skill-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -878,6 +1127,10 @@ const skillToneClass = (level = '') => {
 
   .project-row {
     padding: 20px;
+  }
+
+  .quick-skill-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

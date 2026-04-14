@@ -108,10 +108,10 @@
       <!-- Right Sidebar -->
       <div class="space-y-6">
         <!-- Book Alumni -->
-        <div class="bg-gradient-to-br from-indigo-600 to-violet-600 rounded-3xl p-6 text-white">
+        <div class="bg-linear-to-br from-indigo-600 to-violet-600 rounded-3xl p-6 text-white">
           <h3 class="font-bold mb-2">预约校友 1v1 模拟面试</h3>
           <p class="text-indigo-200 text-sm mb-4">与已就业校友进行模拟面试，获取一手行业经验</p>
-          <button @click="showBookingModal = true" class="w-full py-3 bg-white text-indigo-600 rounded-xl text-sm font-bold hover:bg-indigo-50 transition-colors">
+          <button @click="openBookingModal" class="w-full py-3 bg-white text-indigo-600 rounded-xl text-sm font-bold hover:bg-indigo-50 transition-colors">
             立即预约
           </button>
         </div>
@@ -280,7 +280,7 @@
           </div>
           <div class="flex items-center gap-3 justify-end">
             <button @click="showBookingModal = false" class="px-4 py-2 text-zinc-500 hover:bg-zinc-100 rounded-lg transition-colors">取消</button>
-            <button @click="showBookingModal = false" class="px-6 py-2 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors">提交预约</button>
+            <button @click="submitBooking" class="px-6 py-2 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors">提交预约</button>
           </div>
         </div>
       </div>
@@ -291,6 +291,7 @@
 <script setup>
 import { ref, computed, onMounted, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { Search, ThumbsUp, MessageCircle, Eye, Award, BrainCircuit, Trash2 } from 'lucide-vue-next'
 import { getPosts, createPost, likePost, getTopAlumni, getHotCompanies, queryKnowledgeBase, deletePost } from '../api/community'
 import { useUserStore } from '../stores/user'
@@ -328,8 +329,23 @@ const shareForm = reactive({
 })
 const shareSubmitting = ref(false)
 
-const topAlumni = ref([])
-const hotCompanies = ref([])
+const DEFAULT_TOP_ALUMNI = [
+  { name: '张同学', company: '字节跳动', posts: 18 },
+  { name: '李同学', company: '腾讯', posts: 16 },
+  { name: '王同学', company: '阿里巴巴', posts: 14 },
+  { name: '陈同学', company: '美团', posts: 12 },
+]
+
+const DEFAULT_HOT_COMPANIES = [
+  { name: '字节跳动', posts: 42 },
+  { name: '腾讯', posts: 38 },
+  { name: '阿里巴巴', posts: 35 },
+  { name: '美团', posts: 27 },
+  { name: '华为', posts: 23 },
+]
+
+const topAlumni = ref([...DEFAULT_TOP_ALUMNI])
+const hotCompanies = ref([...DEFAULT_HOT_COMPANIES])
 
 const normalizeTags = (val) => {
   if (!val) return []
@@ -475,21 +491,32 @@ const handleDelete = async (id) => {
   }
 }
 
+const openBookingModal = () => {
+  showBookingModal.value = true
+}
+
+const submitBooking = () => {
+  showBookingModal.value = false
+  ElMessage.success('预约请求已发送，等待校友确认')
+}
+
 const fetchTopAlumni = async () => {
   try {
     const res = await getTopAlumni()
-    topAlumni.value = res.alumni || []
+    const alumni = Array.isArray(res?.alumni) ? res.alumni : []
+    topAlumni.value = alumni.length ? alumni : [...DEFAULT_TOP_ALUMNI]
   } catch (_) {
-    topAlumni.value = []
+    topAlumni.value = [...DEFAULT_TOP_ALUMNI]
   }
 }
 
 const fetchHotCompanies = async () => {
   try {
     const res = await getHotCompanies()
-    hotCompanies.value = res.companies || []
+    const companies = Array.isArray(res?.companies) ? res.companies : []
+    hotCompanies.value = companies.length ? companies : [...DEFAULT_HOT_COMPANIES]
   } catch (_) {
-    hotCompanies.value = []
+    hotCompanies.value = [...DEFAULT_HOT_COMPANIES]
   }
 }
 

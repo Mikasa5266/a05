@@ -174,13 +174,34 @@ const respondInvitation = async (invitationId, action) => {
   }
 }
 
+const isGroupInvitation = (item) => {
+  const scenarioType = String(item?.scenario_type || '').trim().toLowerCase()
+  const targetParticipants = Number(item?.target_participants || 0)
+  return scenarioType === 'group' || targetParticipants > 2
+}
+
 const enterLiveRoom = (item) => {
+  const invitationId = String(item?.id || '').trim()
+  if (!invitationId) {
+    ElMessage.warning('邀请信息无效，无法进入房间')
+    return
+  }
+
+  const isGroup = isGroupInvitation(item)
+  const query = {}
+  const invitationCode = String(item?.invitation_code || '').trim()
+  if (invitationCode) {
+    query.invitation_code = invitationCode
+  }
+  if (isGroup) {
+    query.group_mode = '1'
+  }
+
   router.push({
-    path: `${routePrefix.value}/live-interview`,
-    query: {
-      invitation_id: String(item.id),
-      invitation_code: String(item.invitation_code || '')
-    }
+    path: isGroup
+      ? `${routePrefix.value}/live-interview/group/${encodeURIComponent(invitationId)}`
+      : `${routePrefix.value}/live-interview/1v1/${encodeURIComponent(invitationId)}`,
+    query
   })
 }
 

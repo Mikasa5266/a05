@@ -415,6 +415,59 @@ func SubmitAnswer(c *gin.Context) {
 	})
 }
 
+func SubmitMockCode(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	interviewID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interview ID"})
+		return
+	}
+
+	var req struct {
+		QuestionID      uint   `json:"question_id"`
+		QuestionTitle   string `json:"question_title,omitempty"`
+		QuestionContent string `json:"question_content,omitempty"`
+		Code            string `json:"code" binding:"required"`
+		Language        string `json:"language,omitempty"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if strings.TrimSpace(req.Code) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "code is required"})
+		return
+	}
+
+	result, err := service.SubmitMockCode(
+		userID,
+		uint(interviewID),
+		req.QuestionID,
+		req.QuestionTitle,
+		req.QuestionContent,
+		req.Code,
+		req.Language,
+	)
+	if err != nil {
+		lowerErr := strings.ToLower(err.Error())
+		statusCode := http.StatusBadRequest
+		if strings.Contains(lowerErr, "unauthorized") {
+			statusCode = http.StatusForbidden
+		}
+		c.JSON(statusCode, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"score":       result.Score,
+		"feedback":    result.Feedback,
+		"question_id": result.QuestionID,
+		"answer_id":   result.ID,
+	})
+}
+
 func SynthesizeInterviewSpeech(c *gin.Context) {
 	userID := c.GetUint("user_id")
 	interviewID, err := strconv.ParseUint(c.Param("id"), 10, 32)

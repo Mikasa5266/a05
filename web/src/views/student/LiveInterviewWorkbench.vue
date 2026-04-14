@@ -469,18 +469,31 @@ const submitCreateInvitation = async () => {
   }
 }
 
+const isGroupInvitation = (invitation) => {
+  const scenarioType = String(invitation?.scenario_type || '').trim().toLowerCase()
+  return scenarioType === 'group' || Number(invitation?.target_participants || 0) > 2 || isGroupMode.value
+}
+
 const enterLiveRoom = (invitation) => {
+  const invitationId = String(invitation?.id || '').trim()
+  if (!invitationId) {
+    ElMessage.warning('邀请信息无效，无法进入房间')
+    return
+  }
+  const isGroup = isGroupInvitation(invitation)
+  const invitationCode = String(invitation?.invitation_code || '').trim()
+  const query = {
+    ...(invitationCode ? { invitation_code: invitationCode } : {}),
+    ...(isGroup ? { group_mode: '1' } : {})
+  }
+
   router.push({
-    path: '/interview/live/room',
-    query: {
-      invitation_id: String(invitation.id),
-      invitation_code: String(invitation.invitation_code || '')
-    }
+    path: isGroup
+      ? `/interview/live/group/${encodeURIComponent(invitationId)}`
+      : `/interview/live/1v1/${encodeURIComponent(invitationId)}`,
+    query
   })
 }
 
-onMounted(() => {
-  resetCreateForm()
-  fetchInvitations()
-})
+onMounted(() => { resetCreateForm(); fetchInvitations() })
 </script>

@@ -34,10 +34,12 @@ type RealRAGAnalysis interface {
 }
 
 type groundedEvalLLMResponse struct {
-	Score           int    `json:"score"`
-	Reasoning       string `json:"reasoning"`
-	ShouldFollowUp  bool   `json:"should_follow_up"`
-	FollowUpContext string `json:"follow_up_context"`
+	Score             int    `json:"score"`
+	Comment           string `json:"comment"`
+	FollowUpContext   string `json:"follow_up_context"`
+	Reasoning         string `json:"reasoning,omitempty"`
+	ShouldFollowUp    bool   `json:"-"`
+	ShouldFollowUpRaw *bool  `json:"should_follow_up,omitempty"`
 }
 
 func (s *AIService) EvaluateAnswer(ctx context.Context, question *model.Question, answer string) (*EvaluationResult, error) {
@@ -275,13 +277,17 @@ func (s *AIService) evaluateAnswerWithGroundTruth(ctx context.Context, question 
 	}
 
 	score := clampScore(parsed.Score)
-	reasoning := strings.TrimSpace(parsed.Reasoning)
-	if reasoning == "" {
-		reasoning = "回答与参考答案存在差异，请补充关键机制与证据。"
+	comment := firstNonEmpty(strings.TrimSpace(parsed.Comment), strings.TrimSpace(parsed.Reasoning))
+	if comment == "" {
+		comment = "回答与参考答案存在差异，请补充关键机制与证据。"
 	}
 
 	followUpContext := strings.TrimSpace(parsed.FollowUpContext)
-	if parsed.ShouldFollowUp && followUpContext == "" {
+	shouldFollowUp := parsed.ShouldFollowUp
+	if followUpContext != "" {
+		shouldFollowUp = true
+	}
+	if shouldFollowUp && followUpContext == "" {
 		followUpContext = "请围绕未覆盖的关键机制继续补充实现细节与边界条件。"
 	}
 
@@ -300,27 +306,27 @@ func (s *AIService) evaluateAnswerWithGroundTruth(ctx context.Context, question 
 
 	highlights := []string{}
 	gaps := []string{}
-	if parsed.ShouldFollowUp {
+	if shouldFollowUp {
 		gaps = append(gaps, followUpContext)
 	} else {
 		highlights = append(highlights, "回答在题目要求范围内整体覆盖较完整。")
 	}
 
 	suggestion := "在保持正确性的前提下，继续补充实现细节、边界条件与技术取舍。"
-	if parsed.ShouldFollowUp {
+	if shouldFollowUp {
 		suggestion = fmt.Sprintf("请重点补充：%s", followUpContext)
 	}
 
 	return &ReviewResult{
 		Score:              score,
 		FinalScore:         score,
-		Comment:            reasoning,
-		Reasoning:          reasoning,
+		Comment:            comment,
+		Reasoning:          comment,
 		Suggestion:         suggestion,
 		Dimensions:         dims,
 		KnowledgeRetrieval: []KnowledgeCheck{},
 		Scores:             &scores,
-		ShouldFollowUp:     parsed.ShouldFollowUp,
+		ShouldFollowUp:     shouldFollowUp,
 		FollowUpContext:    followUpContext,
 		Highlights:         highlights,
 		Gaps:               gaps,
@@ -369,31 +375,6 @@ func parseGroundedEvalResponse(raw string, out *groundedEvalLLMResponse) error {
 	}
 
 	return fmt.Errorf("cannot decode grounded evaluation response: %s", truncateEvalRunes(trimmed, 220))
-}
-
-func stripOptionalCodeFence(text string) string {
-	trimmed := strings.TrimSpace(text)
-	if !strings.HasPrefix(trimmed, "```") {
-		return trimmed
-	}
-	lines := strings.Split(trimmed, "\n")
-	if len(lines) < 2 {
-		return strings.Trim(trimmed, "`")
-	}
-	if strings.HasPrefix(strings.TrimSpace(lines[len(lines)-1]), "```") {
-		return strings.TrimSpace(strings.Join(lines[1:len(lines)-1], "\n"))
-	}
-	return strings.TrimSpace(strings.Join(lines[1:], "\n"))
-}
-
-func normalizeGroundedEvalResponse(parsed groundedEvalLLMResponse) groundedEvalLLMResponse {
-	parsed.Score = clampScore(parsed.Score)
-	parsed.Reasoning = strings.TrimSpace(parsed.Reasoning)
-	parsed.FollowUpContext = strings.TrimSpace(parsed.FollowUpContext)
-	if !parsed.ShouldFollowUp {
-		parsed.FollowUpContext = ""
-	}
-	return parsed
 }
 
 func (s *AIService) buildEvaluationGroundTruth(ctx context.Context, question *model.Question) string {
@@ -487,51 +468,10 @@ func (s *AIService) buildGroundedEvalPromptFallback(question *model.Question, ca
 		return prompt
 	}
 
-	return fmt.Sprintf(`你是严格阅卷系统。请仅返回 JSON，字段为 score, reasoning, should_follow_up, follow_up_context。
+	return fmt.Sprintf(`你是严格阅卷系统。请仅返回 JSON，字段为 score, comment, follow_up_context。
 题目标题：%s
 题目内容：%s
 题库参考答案：%s
 GROUND_TRUTH：%s
 用户回答：%s`, questionTitle, questionContent, expectedAnswer, strings.TrimSpace(groundTruth), strings.TrimSpace(candidateAnswer))
-}
-
-func truncateEvalRunes(text string, max int) string {
-	if max <= 0 {
-		return ""
-	}
-	runes := []rune(strings.TrimSpace(text))
-	if len(runes) <= max {
-		return string(runes)
-	}
-	return strings.TrimSpace(string(runes[:max]))
-}
-
-func splitSuggestionText(text string) []string {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return []string{"请补充核心原理、实现细节与可验证结果。"}
-	}
-	parts := strings.FieldsFunc(text, func(r rune) bool {
-		return r == ';' || r == '；' || r == '\n'
-	})
-	result := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			result = append(result, p)
-		}
-	}
-	if len(result) == 0 {
-		return []string{text}
-	}
-	return result
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if strings.TrimSpace(v) != "" {
-			return strings.TrimSpace(v)
-		}
-	}
-	return ""
 }

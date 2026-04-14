@@ -14,6 +14,18 @@ type liveTokenIdentity struct {
 	UserUUID string
 }
 
+func normalizeLiveRoleAlias(role string) string {
+	normalized := strings.TrimSpace(strings.ToLower(role))
+	switch normalized {
+	case "teacher", "mentor", "faculty":
+		return "university"
+	case "hr", "interviewer", "recruiter":
+		return "enterprise"
+	default:
+		return normalized
+	}
+}
+
 func parseLiveIdentityFromToken(tokenString string) (*liveTokenIdentity, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -34,7 +46,8 @@ func parseLiveIdentityFromToken(tokenString string) (*liveTokenIdentity, error) 
 	}
 
 	role, roleOK := claims["role"].(string)
-	if !roleOK || strings.TrimSpace(role) == "" {
+	normalizedRole := normalizeLiveRoleAlias(role)
+	if !roleOK || normalizedRole == "" {
 		return nil, jwt.ErrTokenInvalidClaims
 	}
 
@@ -42,7 +55,7 @@ func parseLiveIdentityFromToken(tokenString string) (*liveTokenIdentity, error) 
 
 	return &liveTokenIdentity{
 		UserID:   uint(uid),
-		Role:     strings.TrimSpace(role),
+		Role:     normalizedRole,
 		UserUUID: strings.TrimSpace(userUUID),
 	}, nil
 }

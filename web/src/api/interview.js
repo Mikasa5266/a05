@@ -60,6 +60,15 @@ export function submitAnswer(id, data) {
   });
 }
 
+export function submitMockCode(interviewId, data) {
+  return request({
+    url: `/interview/${interviewId}/mock-code`,
+    method: "post",
+    data,
+    timeout: 30000,
+  });
+}
+
 export function endInterview(id) {
   return request({
     url: `/interview/${id}/end`,

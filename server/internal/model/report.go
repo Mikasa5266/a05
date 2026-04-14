@@ -45,6 +45,7 @@ type Report struct {
 	ChatMessages     string `gorm:"column:chat_messages;type:json" json:"-"`
 	SinglePlayback   string `gorm:"column:single_playback;size:500" json:"single_playback,omitempty"`
 	MultiPlayback    string `gorm:"column:multi_playback;size:500" json:"multi_playback,omitempty"`
+	Status           string `gorm:"type:varchar(20);index;default:completed" json:"status"`
 	OverallAnalysis  string `gorm:"type:text" json:"overall_analysis"`
 
 	// New fields for Radar Chart

@@ -88,7 +88,7 @@ const cards = [
     iconWrapClass: 'bg-amber-100',
     iconClass: 'text-amber-700',
     enabled: true,
-    path: '/interview/standard/setup',
+    path: '/interview/blindbox',
     query: {
       mode: 'blindbox',
       style: 'gentle',

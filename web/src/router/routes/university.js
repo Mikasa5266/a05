@@ -1,87 +1,133 @@
-import { defineAsyncComponent } from 'vue'
+import { defineAsyncComponent } from "vue";
 
-const Layout = defineAsyncComponent(() => import('../../components/layout/Layout.vue'))
+const Layout = defineAsyncComponent(
+  () => import("../../components/layout/Layout.vue"),
+);
 
-const UniversityDashboard = defineAsyncComponent(() => import('../../views/university/UniversityDashboard.vue'))
-const StudentTracking = defineAsyncComponent(() => import('../../views/university/StudentTracking.vue'))
-const SupportSystem = defineAsyncComponent(() => import('../../views/university/SupportSystem.vue'))
-const Courses = defineAsyncComponent(() => import('../../views/university/Courses.vue'))
-const InterviewWorkbench = defineAsyncComponent(() => import('../../views/university/InterviewWorkbench.vue'))
-const Employment = defineAsyncComponent(() => import('../../views/university/Employment.vue'))
-const TalentPush = defineAsyncComponent(() => import('../../views/university/TalentPush.vue'))
-const LiveInterviewRoom = defineAsyncComponent(() => import('../../views/LiveInterviewRoom.vue'))
-const Settings = defineAsyncComponent(() => import('../../views/Settings.vue'))
+const UniversityDashboard = defineAsyncComponent(
+  () => import("../../views/university/UniversityDashboard.vue"),
+);
+const StudentTracking = defineAsyncComponent(
+  () => import("../../views/university/StudentTracking.vue"),
+);
+const SupportSystem = defineAsyncComponent(
+  () => import("../../views/university/SupportSystem.vue"),
+);
+const Courses = defineAsyncComponent(
+  () => import("../../views/university/Courses.vue"),
+);
+const InterviewWorkbench = defineAsyncComponent(
+  () => import("../../views/university/InterviewWorkbench.vue"),
+);
+const Employment = defineAsyncComponent(
+  () => import("../../views/university/Employment.vue"),
+);
+const TalentPush = defineAsyncComponent(
+  () => import("../../views/university/TalentPush.vue"),
+);
+const LiveInterviewRoomOneOnOne = defineAsyncComponent(
+  () => import("../../views/LiveInterviewRoomOneOnOne.vue"),
+);
+const LiveInterviewRoomGroup = defineAsyncComponent(
+  () => import("../../views/LiveInterviewRoomGroup.vue"),
+);
+const Settings = defineAsyncComponent(() => import("../../views/Settings.vue"));
 
 const roleMeta = {
   requiresAuth: true,
-  roles: ['university']
-}
+  roles: ["university"],
+};
 
 export const universityRoutes = [
   {
-    path: '/university',
+    path: "/university",
     component: Layout,
     meta: roleMeta,
     children: [
       {
-        path: '',
-        redirect: '/university/dashboard',
-        meta: roleMeta
+        path: "",
+        redirect: "/university/dashboard",
+        meta: roleMeta,
       },
       {
-        path: 'dashboard',
-        name: 'UniversityDashboard',
+        path: "dashboard",
+        name: "UniversityDashboard",
         component: UniversityDashboard,
-        meta: roleMeta
+        meta: roleMeta,
       },
       {
-        path: 'tracking',
-        name: 'StudentTracking',
+        path: "tracking",
+        name: "StudentTracking",
         component: StudentTracking,
-        meta: roleMeta
+        meta: roleMeta,
       },
       {
-        path: 'support',
-        name: 'SupportSystem',
+        path: "support",
+        name: "SupportSystem",
         component: SupportSystem,
-        meta: roleMeta
+        meta: roleMeta,
       },
       {
-        path: 'courses',
-        name: 'Courses',
+        path: "courses",
+        name: "Courses",
         component: Courses,
-        meta: roleMeta
+        meta: roleMeta,
       },
       {
-        path: 'employment',
-        name: 'Employment',
+        path: "employment",
+        name: "Employment",
         component: Employment,
-        meta: roleMeta
+        meta: roleMeta,
       },
       {
-        path: 'talent-push',
-        name: 'TalentPush',
+        path: "talent-push",
+        name: "TalentPush",
         component: TalentPush,
-        meta: roleMeta
+        meta: roleMeta,
       },
       {
-        path: 'interview-workbench',
-        name: 'UniversityInterviewWorkbench',
+        path: "interview-workbench",
+        name: "UniversityInterviewWorkbench",
         component: InterviewWorkbench,
-        meta: roleMeta
+        meta: roleMeta,
       },
       {
-        path: 'live-interview',
-        name: 'UniversityLiveInterview',
-        component: LiveInterviewRoom,
-        meta: roleMeta
+        path: "live-interview",
+        redirect: (to) => {
+          const invitationId = String(to.query?.invitation_id || "").trim();
+          if (!invitationId) {
+            return "/university/interview-workbench";
+          }
+          const invitationCode = String(to.query?.invitation_code || "").trim();
+          const isGroup = String(to.query?.group_mode || "").trim() === "1";
+          const targetPath = isGroup
+            ? `/university/live-interview/group/${encodeURIComponent(invitationId)}`
+            : `/university/live-interview/1v1/${encodeURIComponent(invitationId)}`;
+          if (!invitationCode) {
+            return targetPath;
+          }
+          return `${targetPath}?invitation_code=${encodeURIComponent(invitationCode)}`;
+        },
+        meta: roleMeta,
       },
       {
-        path: 'settings',
-        name: 'UniversitySettings',
+        path: "live-interview/1v1/:id",
+        name: "UniversityLiveInterviewOneOnOne",
+        component: LiveInterviewRoomOneOnOne,
+        meta: roleMeta,
+      },
+      {
+        path: "live-interview/group/:id",
+        name: "UniversityLiveInterviewGroup",
+        component: LiveInterviewRoomGroup,
+        meta: roleMeta,
+      },
+      {
+        path: "settings",
+        name: "UniversitySettings",
         component: Settings,
-        meta: roleMeta
-      }
-    ]
-  }
-]
+        meta: roleMeta,
+      },
+    ],
+  },
+];

@@ -20,12 +20,12 @@ defineProps({
         </div>
 
         <div class="resume-upload-row">
-          <input type="file" accept=".pdf,.docx,.txt,.png,.jpg,.jpeg" />
+          <input type="file" accept=".pdf,.docx,.txt,.md" />
           <button type="button">开始解析与匹配</button>
         </div>
 
         <p class="resume-upload-hint">
-          支持可复制文本PDF/Word、扫描件/图片，系统自动OCR识别
+          支持 PDF、DOCX、TXT、MD，系统自动提取结构化信息
         </p>
 
         <div class="resume-action-row">

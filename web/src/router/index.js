@@ -45,7 +45,16 @@ const router = createRouter({
 const isKnownRole = (role) => ROLE_NAMES.includes(role);
 
 const normalizeRole = (role) => {
-  if (isKnownRole(role)) return role;
+  const value = String(role || "")
+    .trim()
+    .toLowerCase();
+  if (value === "teacher" || value === "mentor" || value === "faculty") {
+    return "university";
+  }
+  if (value === "hr" || value === "interviewer" || value === "recruiter") {
+    return "enterprise";
+  }
+  if (isKnownRole(value)) return value;
   return "student";
 };
 

@@ -109,6 +109,10 @@ func parseInvitationIDFromRoomID(roomID string) (uint, error) {
 func normalizeActorRole(role string) string {
 	r := strings.ToLower(strings.TrimSpace(role))
 	switch r {
+	case "teacher", "mentor", "faculty":
+		return "university"
+	case "hr", "interviewer", "recruiter":
+		return "enterprise"
 	case "student", "enterprise", "university":
 		return r
 	default:

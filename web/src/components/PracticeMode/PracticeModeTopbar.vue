@@ -28,7 +28,7 @@ const backLabel = computed(() => {
   if (from.includes("/student/resume")) {
     return "返回简历中心";
   }
-  return "返回学生端";
+  return "返回首页";
 });
 
 const goBackToStudent = () => {

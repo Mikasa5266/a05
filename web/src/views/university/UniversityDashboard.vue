@@ -292,13 +292,34 @@ const handleInvitation = async (invitation, action) => {
   }
 }
 
+const isGroupInvitation = (invitation) => {
+  const scenarioType = String(invitation?.scenario_type || '').trim().toLowerCase()
+  const targetParticipants = Number(invitation?.target_participants || 0)
+  return scenarioType === 'group' || targetParticipants > 2
+}
+
 const goToInterviewZone = (invitation) => {
+  const invitationId = String(invitation?.id || '').trim()
+  if (!invitationId) {
+    ElMessage.warning('邀请信息无效，无法进入房间')
+    return
+  }
+
+  const isGroup = isGroupInvitation(invitation)
+  const query = {}
+  const invitationCode = String(invitation?.invitation_code || '').trim()
+  if (invitationCode) {
+    query.invitation_code = invitationCode
+  }
+  if (isGroup) {
+    query.group_mode = '1'
+  }
+
   router.push({
-    path: '/university/live-interview',
-    query: {
-      invitation_id: String(invitation.id),
-      invitation_code: String(invitation.invitation_code || '')
-    }
+    path: isGroup
+      ? `/university/live-interview/group/${encodeURIComponent(invitationId)}`
+      : `/university/live-interview/1v1/${encodeURIComponent(invitationId)}`,
+    query
   })
 }
 

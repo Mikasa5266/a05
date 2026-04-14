@@ -14,14 +14,20 @@ const Interview = defineAsyncComponent(
 const MockInterview = defineAsyncComponent(
   () => import("../../views/MockInterview.vue"),
 );
+const BlindBoxMode = defineAsyncComponent(
+  () => import("../../views/BlindBoxMode.vue"),
+);
 const InterviewModeSelect = defineAsyncComponent(
   () => import("../../views/InterviewModeSelect.vue"),
 );
 const StudentLiveInterviewWorkbench = defineAsyncComponent(
   () => import("../../views/student/LiveInterviewWorkbench.vue"),
 );
-const LiveInterviewRoom = defineAsyncComponent(
-  () => import("../../views/LiveInterviewRoom.vue"),
+const LiveInterviewRoomOneOnOne = defineAsyncComponent(
+  () => import("../../views/LiveInterviewRoomOneOnOne.vue"),
+);
+const LiveInterviewRoomGroup = defineAsyncComponent(
+  () => import("../../views/LiveInterviewRoomGroup.vue"),
 );
 const ResumeCenter = defineAsyncComponent(
   () => import("../../views/student/ResumeCenter.vue"),
@@ -87,10 +93,14 @@ export const studentRoutes = [
             return "/interview/live/workbench";
           }
           const invitationCode = String(to.query?.invitation_code || "").trim();
+          const isGroup = String(to.query?.group_mode || "").trim() === "1";
+          const targetPath = isGroup
+            ? `/interview/live/group/${encodeURIComponent(invitationId)}`
+            : `/interview/live/1v1/${encodeURIComponent(invitationId)}`;
           if (!invitationCode) {
-            return `/interview/live/room?invitation_id=${invitationId}`;
+            return targetPath;
           }
-          return `/interview/live/room?invitation_id=${invitationId}&invitation_code=${encodeURIComponent(invitationCode)}`;
+          return `${targetPath}?invitation_code=${encodeURIComponent(invitationCode)}`;
         },
         meta: roleMeta,
       },
@@ -147,6 +157,12 @@ export const studentRoutes = [
         path: "mode-select",
         name: "InterviewModeSelect",
         component: InterviewModeSelect,
+        meta: roleMeta,
+      },
+      {
+        path: "blindbox",
+        name: "BlindBoxMode",
+        component: BlindBoxMode,
         meta: roleMeta,
       },
       {
@@ -217,9 +233,34 @@ export const studentRoutes = [
         meta: roleMeta,
       },
       {
+        path: "live/1v1/:id",
+        name: "StudentLiveInterviewRoomOneOnOne",
+        component: LiveInterviewRoomOneOnOne,
+        meta: roleMeta,
+      },
+      {
+        path: "live/group/:id",
+        name: "StudentLiveInterviewRoomGroup",
+        component: LiveInterviewRoomGroup,
+        meta: roleMeta,
+      },
+      {
         path: "live/room",
-        name: "StudentLiveInterviewRoom",
-        component: LiveInterviewRoom,
+        redirect: (to) => {
+          const invitationId = String(to.query?.invitation_id || "").trim();
+          if (!invitationId) {
+            return "/interview/live/workbench";
+          }
+          const invitationCode = String(to.query?.invitation_code || "").trim();
+          const isGroup = String(to.query?.group_mode || "").trim() === "1";
+          const targetPath = isGroup
+            ? `/interview/live/group/${encodeURIComponent(invitationId)}`
+            : `/interview/live/1v1/${encodeURIComponent(invitationId)}`;
+          if (!invitationCode) {
+            return targetPath;
+          }
+          return `${targetPath}?invitation_code=${encodeURIComponent(invitationCode)}`;
+        },
         meta: roleMeta,
       },
     ],

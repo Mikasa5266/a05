@@ -11,6 +11,18 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+func normalizeRoleAlias(role string) string {
+	normalized := strings.TrimSpace(strings.ToLower(role))
+	switch normalized {
+	case "teacher", "mentor", "faculty":
+		return "university"
+	case "hr", "interviewer", "recruiter":
+		return "enterprise"
+	default:
+		return normalized
+	}
+}
+
 func Auth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
@@ -57,14 +69,15 @@ func Auth() gin.HandlerFunc {
 
 			roleRaw, ok := claims["role"]
 			role, roleOk := roleRaw.(string)
-			if !ok || !roleOk || role == "" {
+			normalizedRole := normalizeRoleAlias(role)
+			if !ok || !roleOk || normalizedRole == "" {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token payload"})
 				c.Abort()
 				return
 			}
 
 			c.Set("user_id", uint(userIDFloat))
-			c.Set("role", role)
+			c.Set("role", normalizedRole)
 			if userUUID, ok := claims["user_uuid"].(string); ok && strings.TrimSpace(userUUID) != "" {
 				c.Set("user_uuid", strings.TrimSpace(userUUID))
 			}
@@ -86,7 +99,7 @@ func RequireRole(roles ...string) gin.HandlerFunc {
 	}
 
 	return func(c *gin.Context) {
-		role := strings.TrimSpace(strings.ToLower(c.GetString("role")))
+		role := normalizeRoleAlias(c.GetString("role"))
 		if role == "" {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Role required"})
 			c.Abort()

@@ -45,7 +45,7 @@
             ref="fileInputRef"
             type="file"
             class="hidden"
-            accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg"
+            accept=".pdf,.docx,.txt,.md"
             @change="handleFileChange"
           />
 
@@ -59,7 +59,7 @@
                   上传最新简历，生成高质量结构化提取
                 </h2>
                 <p class="max-w-2xl text-sm leading-7 text-slate-600">
-                  支持 PDF、DOC、DOCX、TXT 以及常见图片简历。上传后会自动解析并刷新下方分析工作台。
+                  支持 PDF、DOCX、TXT、MD 文本简历。上传后会自动解析并刷新下方分析工作台。
                 </p>
               </div>
             </div>
@@ -302,7 +302,7 @@ function normalizeResumeAnalysis(analysis, record) {
   const skillGroups = normalizeSkillGroups(structured.skill_graph)
   const totalSkills = skillGroups.reduce((sum, group) => sum + group.count, 0)
   const projects = normalizeProjects(structured.project_experience)
-  const workExperience = normalizeWorkExperience(structured.work_experience)
+  const workExperience = normalizeWorkExperience(structured.work_experience, projects)
   const education = normalizeEducation(structured.education)
   const optimization = normalizeOptimization(analysis.optimization)
   const risks = normalizeRisks(analysis.risk_report)
@@ -319,6 +319,9 @@ function normalizeResumeAnalysis(analysis, record) {
       bestMatch.analysis,
       '已完成简历结构化提取，等待进一步补充摘要。'
     ) || '已完成简历结构化提取。'
+
+  const highlights = normalizeHighlights(structured.highlights, projects, workExperience)
+  const concerns = normalizeConcerns(structured.concerns, bestMatch, optimization)
 
   const focusChips = uniqueStrings([
     ...(safeArray(structured.career_intent?.target_roles)),
@@ -373,15 +376,14 @@ function normalizeResumeAnalysis(analysis, record) {
     projects,
     workExperience,
     education,
-    highlights: safeArray(structured.highlights).slice(0, 8),
-    concerns: safeArray(structured.concerns).slice(0, 8),
+    highlights,
+    concerns,
     optimization,
     risks,
     interviewQuestions,
     drillPlan: integration.drillPlan,
     weakPoints: integration.weakPoints,
     integration,
-    rawPreview: firstText(structured.raw_preview),
     recordMeta: {
       fileName: firstText(record?.file_name, selectedFileName.value, '最近上传的简历'),
       parserMode: firstText(analysis.parser_mode, record?.parser_mode, 'structured'),
@@ -496,27 +498,87 @@ function normalizeProjects(items) {
   }))
 }
 
-function normalizeWorkExperience(items) {
-  return safeArray(items).map((item) => ({
+function normalizeWorkExperience(items, projects = []) {
+  const normalized = safeArray(items).map((item) => ({
     company: firstText(item?.company, '未标注公司'),
     role: firstText(item?.role, '未标注岗位'),
     period: formatPeriod(item?.start_date, item?.end_date, item?.duration),
     summary: firstText(item?.summary, '暂无经历摘要'),
-    responsibilities: safeArray(item?.responsibilities).slice(0, 5),
-    achievements: safeArray(item?.achievements).slice(0, 5),
+    responsibilities: ensureList(safeArray(item?.responsibilities).slice(0, 5), ['职责信息待补充']),
+    achievements: ensureList(safeArray(item?.achievements).slice(0, 5), ['成果信息待补充']),
   }))
+
+  if (normalized.length) {
+    return normalized
+  }
+
+  const projectFallback = safeArray(projects).slice(0, 2).map((project) => ({
+    company: firstText(project?.name, '项目经历待补充'),
+    role: firstText(project?.role, '项目角色待补充'),
+    period: firstText(project?.period, '时间待补充'),
+    summary: firstText(project?.summary, project?.background, '可将该项目拆分为可面试展开的经历描述。'),
+    responsibilities: ensureList(safeArray(project?.highlights).slice(0, 3), ['补充负责模块、目标与协作方式。']),
+    achievements: ensureList(safeArray(project?.impact).slice(0, 3), ['补充量化结果，例如性能、效率或业务指标。']),
+  }))
+
+  if (projectFallback.length) {
+    return projectFallback
+  }
+
+  return [
+    {
+      company: '经历信息待补充',
+      role: '建议补充实习、兼职或项目中的个人职责',
+      period: '时间待补充',
+      summary: '当前简历未识别到独立工作经历，建议补充 1-2 段可面试展开的经历。',
+      responsibilities: ['描述你负责的核心模块与目标。', '补充需求澄清、实现和协作过程。'],
+      achievements: ['量化项目结果（例如耗时下降、性能提升）。', '说明你的关键贡献和复盘收获。'],
+    },
+  ]
 }
 
 function normalizeEducation(items) {
-  return safeArray(items).map((item) => ({
+  const normalized = safeArray(items).map((item) => ({
     school: firstText(item?.school, '未标注院校'),
     degree: firstText(item?.degree, '学历待补充'),
     major: firstText(item?.major, '专业待补充'),
     period: formatPeriod(item?.start_date, item?.end_date),
     gpa: firstText(item?.gpa),
     ranking: firstText(item?.ranking),
-    highlights: safeArray(item?.highlights).slice(0, 5),
+    highlights: ensureList(safeArray(item?.highlights).slice(0, 5), ['补充课程、竞赛或奖学金等在校亮点。']),
   }))
+
+  return normalized
+}
+
+function normalizeHighlights(items, projects, workExperience) {
+  const direct = safeArray(items).slice(0, 8)
+  if (direct.length) {
+    return direct
+  }
+
+  const fallback = uniqueStrings([
+    ...safeArray(projects).flatMap((item) => safeArray(item?.highlights).slice(0, 2)),
+    ...safeArray(workExperience).flatMap((item) => safeArray(item?.achievements).slice(0, 2)),
+    '具备从需求理解到交付落地的完整项目推进能力',
+  ]).slice(0, 6)
+
+  return ensureList(fallback, ['核心亮点待补充'])
+}
+
+function normalizeConcerns(items, bestMatch, optimization) {
+  const direct = safeArray(items).slice(0, 8)
+  if (direct.length) {
+    return direct
+  }
+
+  const fallback = uniqueStrings([
+    ...safeArray(bestMatch?.gapSkills).slice(0, 3),
+    ...safeArray(optimization).map((item) => item?.title).slice(0, 3),
+    '项目成果可量化信息不足',
+  ]).slice(0, 6)
+
+  return ensureList(fallback, ['关注点待补充'])
 }
 
 function normalizeOptimization(items) {
@@ -556,26 +618,102 @@ function normalizeInterviewQuestions(items, fallbackQuestions) {
 }
 
 function normalizeIntegration(integration, bestMatch) {
+  const recommendations = ensureList(
+    safeArray(integration?.question_recommendations).slice(0, 4),
+    [
+      `围绕${firstText(bestMatch?.positionName, '目标岗位')}准备项目深挖问答。`,
+      '补充关键技术方案的取舍依据与结果复盘。',
+    ]
+  )
+
+  const weakPoints = ensureList(
+    safeArray(integration?.weak_points).slice(0, 6),
+    ensureList(safeArray(bestMatch?.gapSkills).slice(0, 4), ['项目成果量化表达', '复杂问题拆解能力'])
+  )
+
   const drillPlan = [
-    { phase: 'Phase 1', content: firstText(integration?.drill_plan?.phase_1, '梳理项目背景与个人职责表达。') },
-    { phase: 'Phase 2', content: firstText(integration?.drill_plan?.phase_2, '补齐关键知识点与高频追问。') },
-    { phase: 'Phase 3', content: firstText(integration?.drill_plan?.phase_3, '做模拟问答并沉淀最终表达模版。') },
+    {
+      phase: '阶段一',
+      content: toChineseDrillContent(
+        integration?.drill_plan?.phase_1,
+        '梳理项目背景、目标和个人职责表达。',
+        'phase_1'
+      ),
+    },
+    {
+      phase: '阶段二',
+      content: toChineseDrillContent(
+        integration?.drill_plan?.phase_2,
+        '补齐关键知识点，针对薄弱项进行定向训练。',
+        'phase_2'
+      ),
+    },
+    {
+      phase: '阶段三',
+      content: toChineseDrillContent(
+        integration?.drill_plan?.phase_3,
+        '进行模拟问答并沉淀稳定表达模版。',
+        'phase_3'
+      ),
+    },
   ]
 
   return {
     targetRole: firstText(integration?.target_role, bestMatch?.roleKey, '--'),
     targetPosition: firstText(integration?.target_position, bestMatch?.positionName, '待确认岗位'),
-    weakPoints: safeArray(integration?.weak_points).slice(0, 6),
-    questionRecommendations: safeArray(integration?.question_recommendations).slice(0, 4),
+    weakPoints,
+    questionRecommendations: recommendations,
     drillPlan,
   }
 }
 
+function toChineseDrillContent(rawValue, fallback, phaseKey) {
+  const text = firstText(rawValue, fallback)
+  if (!text) return fallback
+
+  const directMap = {
+    'Fill evidence gaps and quantify project outcomes.': '补齐证据缺口，并量化项目成果。',
+    'Drill the weak skills that block the best matched role.': '围绕最匹配岗位，专项训练当前薄弱能力。',
+    'Run targeted mock interviews with the generated questions.': '基于生成问题进行定向模拟面试，沉淀稳定表达。',
+  }
+
+  if (directMap[text]) {
+    return directMap[text]
+  }
+
+  if (!isLikelyEnglish(text)) {
+    return text
+  }
+
+  const phaseFallbackMap = {
+    phase_1: '补齐证据缺口，并量化项目成果。',
+    phase_2: '围绕最匹配岗位，专项训练当前薄弱能力。',
+    phase_3: '基于生成问题进行定向模拟面试，沉淀稳定表达。',
+  }
+
+  return phaseFallbackMap[phaseKey] || fallback
+}
+
+function isLikelyEnglish(text) {
+  const normalized = firstText(text)
+  if (!normalized) return false
+  const letters = normalized.match(/[A-Za-z]/g) || []
+  return letters.length / normalized.length > 0.45
+}
+
+function ensureList(items, fallbackItems) {
+  const normalized = safeArray(items)
+  if (normalized.length) {
+    return normalized
+  }
+  return safeArray(fallbackItems)
+}
+
 function validateResumeFile(file) {
-  const allowed = ['pdf', 'doc', 'docx', 'txt', 'png', 'jpg', 'jpeg']
+  const allowed = ['pdf', 'docx', 'txt', 'md']
   const ext = String(file?.name || '').split('.').pop()?.toLowerCase()
   if (!allowed.includes(ext)) {
-    return '请上传 PDF、DOC、DOCX、TXT 或图片格式的简历文件'
+    return '请上传 PDF、DOCX、TXT 或 MD 格式的简历文件'
   }
   if ((file?.size || 0) > 20 * 1024 * 1024) {
     return '文件大小不能超过 20MB'
