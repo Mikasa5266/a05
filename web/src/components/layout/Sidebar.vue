@@ -47,7 +47,7 @@
       
       <router-link :to="settingsPath" @click="handleNavigate" class="flex items-center gap-3 px-3 py-2 rounded-xl md:hover:bg-zinc-50 active:bg-zinc-100 transition-colors cursor-pointer group touch-manipulation">
         <div class="h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold overflow-hidden border border-indigo-200 md:group-hover:border-indigo-300 transition-colors">
-          <img v-if="userStore.userInfo?.avatar" :src="avatarUrl" class="w-full h-full object-cover" />
+          <img v-if="portalUserInfo?.avatar" :src="avatarUrl" class="w-full h-full object-cover" />
           <span v-else>{{ userInitials }}</span>
         </div>
         <div class="flex flex-col">
@@ -93,6 +93,7 @@ const roleLabelMap = {
   university: '高校用户'
 }
 const roleLabel = computed(() => roleLabelMap[portal.value] || roleLabelMap.student)
+const portalUserInfo = computed(() => userStore.getUserInfoByRole(portal.value))
 
 const settingsPath = computed(() => '/' + portal.value + '/settings')
 
@@ -106,17 +107,17 @@ const userInitials = computed(() => {
 })
 
 const displayName = computed(() => {
-  const username = String(userStore.userInfo?.username || '').trim()
+  const username = String(portalUserInfo.value?.username || '').trim()
   if (username) return username
-  const email = String(userStore.userInfo?.email || '').trim()
+  const email = String(portalUserInfo.value?.email || '').trim()
   if (email) return email.split('@')[0] || email
-  const id = userStore.userInfo?.id
+  const id = portalUserInfo.value?.id
   if (id) return `${roleLabel.value}#${id}`
   return roleLabel.value
 })
 
 const avatarUrl = computed(() => {
-  if (!userStore.userInfo?.avatar) return ''
-  return getBackendAssetUrl(userStore.userInfo.avatar)
+  if (!portalUserInfo.value?.avatar) return ''
+  return getBackendAssetUrl(portalUserInfo.value.avatar)
 })
 </script>

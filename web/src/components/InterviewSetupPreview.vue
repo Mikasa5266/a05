@@ -1,6 +1,7 @@
 <script setup>
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { Video, VideoOff, Mic, MicOff } from 'lucide-vue-next'
+import { useDeferredModelViewerMount } from '../composables/useDeferredModelViewerMount'
 
 const props = defineProps({
   presentationMode: {
@@ -25,6 +26,39 @@ const emit = defineEmits(['toggle-mic', 'toggle-camera'])
 
 const previewVideo = ref(null)
 const previewRootRef = ref(null)
+const modelViewerElementReady = ref(false)
+
+const modelViewerEnabled = computed(() => {
+  return props.presentationMode === 'video_avatar' && modelViewerElementReady.value
+})
+
+const { shouldMountModelViewer, modelViewerDeferred } = useDeferredModelViewerMount({
+  containerRef: previewRootRef,
+  enabled: modelViewerEnabled,
+  startDelayMs: 420,
+  idleTimeoutMs: 1800,
+  rootMargin: '160px 0px',
+  threshold: 0.12
+})
+
+const setupViewerLoadingTitle = computed(() => {
+  if (!modelViewerElementReady.value) return '3D 引擎准备中'
+  if (modelViewerDeferred.value) return '优化首屏中，稍后挂载模型'
+  return 'AI 场景加载中'
+})
+
+const setupViewerLoadingHint = computed(() => {
+  if (!modelViewerElementReady.value) return '系统优先保证配置区和文本区秒开。'
+  return '进入可视区且浏览器空闲后再启动 3D 渲染。'
+})
+
+const syncModelViewerElementReady = () => {
+  if (typeof window === 'undefined' || !window.customElements) {
+    modelViewerElementReady.value = true
+    return
+  }
+  modelViewerElementReady.value = Boolean(window.customElements.get('model-viewer'))
+}
 
 const syncPreviewStream = () => {
   if (!previewVideo.value) return
@@ -48,6 +82,16 @@ watch(previewVideo, () => {
 
 onMounted(() => {
   syncPreviewStream()
+  syncModelViewerElementReady()
+
+  if (typeof window !== 'undefined' && window.customElements?.whenDefined) {
+    window.customElements
+      .whenDefined('model-viewer')
+      .then(() => {
+        modelViewerElementReady.value = true
+      })
+      .catch(() => {})
+  }
 })
 
 const cleanupPreviewMedia = () => {
@@ -75,14 +119,15 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="previewRootRef" class="flex flex-col gap-4 min-h-[480px]">
-    <div class="aspect-video rounded-2xl relative overflow-hidden flex items-center justify-center group shadow-xl bg-gradient-to-br from-slate-900 via-slate-800 to-cyan-900/80">
+  <div ref="previewRootRef" class="flex flex-col gap-4 min-h-120">
+    <div class="aspect-video rounded-2xl relative overflow-hidden flex items-center justify-center group shadow-xl bg-linear-to-br from-slate-900 via-slate-800 to-cyan-900/80">
       <template v-if="presentationMode === 'video_avatar'">
         <div class="absolute inset-0 interview-room-scene interview-room-scene--compact pointer-events-none"></div>
         <div class="absolute inset-y-0 left-0 w-20 interview-room-wall interview-room-wall--left interview-room-wall--compact pointer-events-none"></div>
         <div class="absolute inset-y-0 right-0 w-24 interview-room-wall interview-room-wall--right interview-room-wall--compact pointer-events-none"></div>
         <div class="absolute left-0 right-0 bottom-0 h-20 interview-room-floor interview-room-floor--compact pointer-events-none"></div>
         <model-viewer
+          v-if="shouldMountModelViewer"
           src="/interview3.glb"
           autoplay
           environment-image="neutral"
@@ -94,8 +139,17 @@ onBeforeUnmount(() => {
           shadow-intensity="0.65"
           class="w-full h-full interviewer-static relative z-20 pointer-events-none"
         ></model-viewer>
+        <div v-else class="absolute inset-0 z-20 flex items-center justify-center px-6 text-center">
+          <div class="w-full max-w-xs rounded-2xl border border-white/20 bg-slate-900/45 text-slate-100 px-4 py-4 backdrop-blur-sm">
+            <div class="mx-auto mb-3 h-2 w-20 rounded-full bg-white/15 overflow-hidden">
+              <div class="h-full w-1/2 rounded-full bg-linear-to-r from-cyan-300/70 to-emerald-300/80 animate-pulse"></div>
+            </div>
+            <p class="text-sm font-semibold">{{ setupViewerLoadingTitle }}</p>
+            <p class="text-[11px] text-slate-300 mt-1">{{ setupViewerLoadingHint }}</p>
+          </div>
+        </div>
 
-        <div class="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-slate-950/90 via-slate-900/45 to-transparent pointer-events-none"></div>
+        <div class="absolute inset-x-0 bottom-0 h-20 bg-linear-to-t from-slate-950/90 via-slate-900/45 to-transparent pointer-events-none"></div>
         <div class="absolute bottom-5 left-1/2 -translate-x-1/2 w-[58%] h-10 rounded-t-2xl interview-room-desk"></div>
 
         <div class="absolute bottom-4 left-4 w-36 h-24 rounded-2xl overflow-hidden border border-white/15 bg-zinc-950/90 shadow-lg">
@@ -109,6 +163,7 @@ onBeforeUnmount(() => {
 
         <div class="absolute bottom-4 right-4 w-28 h-28 rounded-2xl overflow-hidden border border-emerald-200/30 bg-zinc-950/85 backdrop-blur-sm shadow-lg shadow-emerald-900/20">
           <model-viewer
+            v-if="shouldMountModelViewer"
             src="/cute_ghost.glb"
             autoplay
             auto-rotate
@@ -117,6 +172,10 @@ onBeforeUnmount(() => {
             shadow-intensity="0.85"
             class="w-full h-full"
           ></model-viewer>
+          <div v-else class="w-full h-full flex flex-col items-center justify-center gap-1 text-[10px] text-emerald-100 bg-zinc-900/70">
+            <div class="h-5 w-5 rounded-full border-2 border-emerald-300/70 border-t-transparent animate-spin"></div>
+            <span>影子教练待命中</span>
+          </div>
           <div class="absolute bottom-1 left-1 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/80 text-white border border-emerald-300/50">影子教练</div>
         </div>
 
@@ -140,7 +199,7 @@ onBeforeUnmount(() => {
         </div>
       </template>
       <template v-else>
-        <div class="w-full h-full p-6 flex flex-col justify-between bg-gradient-to-br from-zinc-900 via-slate-900 to-zinc-800">
+        <div class="w-full h-full p-6 flex flex-col justify-between bg-linear-to-br from-zinc-900 via-slate-900 to-zinc-800">
           <div>
             <p class="text-zinc-200 font-semibold">文字 + 语音模式</p>
             <p class="text-zinc-400 text-xs mt-1">专注内容质量与语言表达，适合长回答连续训练。</p>
@@ -162,14 +221,14 @@ onBeforeUnmount(() => {
           <div class="rounded-2xl bg-white/5 border border-white/10 p-3">
             <p class="text-zinc-200 text-xs">该模式下将保持当前高效流程：AI提问 -> 语音/文字回答 -> AI评估追问。</p>
             <div class="mt-3 h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
-              <div class="h-full w-2/3 bg-gradient-to-r from-cyan-400 to-emerald-400 rounded-full"></div>
+              <div class="h-full w-2/3 bg-linear-to-r from-cyan-400 to-emerald-400 rounded-full"></div>
             </div>
           </div>
         </div>
       </template>
     </div>
 
-    <div class="flex-1 rounded-2xl border border-zinc-200 bg-gradient-to-br from-sky-50 via-white to-indigo-50 p-5 shadow-sm">
+    <div class="flex-1 rounded-2xl border border-zinc-200 bg-linear-to-br from-sky-50 via-white to-indigo-50 p-5 shadow-sm">
       <div class="grid grid-cols-2 gap-3 h-full">
         <div class="rounded-xl bg-white border border-sky-100 p-3">
           <p class="text-[11px] text-zinc-500">推荐模式</p>

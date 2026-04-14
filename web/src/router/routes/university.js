@@ -1,37 +1,20 @@
-import { defineAsyncComponent } from "vue";
+const Layout = () => import("../../components/layout/Layout.vue");
 
-const Layout = defineAsyncComponent(
-  () => import("../../components/layout/Layout.vue"),
-);
-
-const UniversityDashboard = defineAsyncComponent(
-  () => import("../../views/university/UniversityDashboard.vue"),
-);
-const StudentTracking = defineAsyncComponent(
-  () => import("../../views/university/StudentTracking.vue"),
-);
-const SupportSystem = defineAsyncComponent(
-  () => import("../../views/university/SupportSystem.vue"),
-);
-const Courses = defineAsyncComponent(
-  () => import("../../views/university/Courses.vue"),
-);
-const InterviewWorkbench = defineAsyncComponent(
-  () => import("../../views/university/InterviewWorkbench.vue"),
-);
-const Employment = defineAsyncComponent(
-  () => import("../../views/university/Employment.vue"),
-);
-const TalentPush = defineAsyncComponent(
-  () => import("../../views/university/TalentPush.vue"),
-);
-const LiveInterviewRoomOneOnOne = defineAsyncComponent(
-  () => import("../../views/LiveInterviewRoomOneOnOne.vue"),
-);
-const LiveInterviewRoomGroup = defineAsyncComponent(
-  () => import("../../views/LiveInterviewRoomGroup.vue"),
-);
-const Settings = defineAsyncComponent(() => import("../../views/Settings.vue"));
+const UniversityDashboard = () =>
+  import("../../views/university/UniversityDashboard.vue");
+const StudentTracking = () =>
+  import("../../views/university/StudentTracking.vue");
+const SupportSystem = () => import("../../views/university/SupportSystem.vue");
+const Courses = () => import("../../views/university/Courses.vue");
+const InterviewWorkbench = () =>
+  import("../../views/university/InterviewWorkbench.vue");
+const Employment = () => import("../../views/university/Employment.vue");
+const TalentPush = () => import("../../views/university/TalentPush.vue");
+const LiveInterviewRoomOneOnOne = () =>
+  import("../../views/LiveInterviewRoomOneOnOne.vue");
+const LiveInterviewRoomGroup = () =>
+  import("../../views/LiveInterviewRoomGroup.vue");
+const Settings = () => import("../../views/Settings.vue");
 
 const roleMeta = {
   requiresAuth: true,

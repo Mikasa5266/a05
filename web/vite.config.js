@@ -8,7 +8,7 @@ import AutoImport from "unplugin-auto-import/vite";
 import Components from "unplugin-vue-components/vite";
 import { ElementPlusResolver } from "unplugin-vue-components/resolvers";
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const buildTarget = String(
     env.VITE_BUILD_TARGET || process.env.BUILD_TARGET || mode || "web",
@@ -17,6 +17,7 @@ export default defineConfig(({ mode }) => {
     buildTarget === "desktop" || buildTarget === "electron";
   const proxyTarget = env.VITE_PROXY_TARGET || "http://127.0.0.1:8082";
   const useHttps = env.VITE_DEV_HTTPS !== "false";
+  const isServeCommand = command === "serve";
 
   const plugins = [
     basicSsl(),
@@ -65,35 +66,83 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins,
+    optimizeDeps: isServeCommand
+      ? {
+          // Prebundle heavy libraries once at startup to avoid repeated slow route switches in dev.
+          include: [
+            "vue",
+            "vue-router",
+            "pinia",
+            "axios",
+            "dayjs",
+            "element-plus",
+            "@element-plus/icons-vue",
+            "lucide-vue-next",
+            "echarts/core",
+            "echarts/charts",
+            "echarts/components",
+            "echarts/renderers",
+            "chart.js",
+            "vue-chartjs",
+            "monaco-editor",
+          ],
+        }
+      : undefined,
     build: {
       sourcemap: false,
       cssCodeSplit: true,
       rollupOptions: {
         output: {
           manualChunks(id) {
-            if (!id.includes("node_modules")) return;
+            if (!id.includes("node_modules")) return undefined;
+
+            const normalizedId = id.replace(/\\/g, "/");
 
             if (
-              id.includes("/node_modules/vue/") ||
-              id.includes("/node_modules/vue-router/") ||
-              id.includes("/node_modules/pinia/")
+              normalizedId.includes("/node_modules/vue/") ||
+              normalizedId.includes("/node_modules/@vue/") ||
+              normalizedId.includes("/node_modules/vue-router/") ||
+              normalizedId.includes("/node_modules/pinia/")
             ) {
-              return "vendor-vue";
+              return "vendor-vue-core";
             }
 
             if (
-              id.includes("/node_modules/element-plus/") ||
-              id.includes("/node_modules/@element-plus/")
+              normalizedId.includes("/node_modules/monaco-editor/") ||
+              normalizedId.includes("/node_modules/monaco-")
+            ) {
+              return "vendor-monaco";
+            }
+
+            if (
+              normalizedId.includes("/node_modules/echarts/") ||
+              normalizedId.includes("/node_modules/zrender/")
+            ) {
+              return "vendor-echarts";
+            }
+
+            if (
+              normalizedId.includes("/node_modules/chart.js/") ||
+              normalizedId.includes("/node_modules/vue-chartjs/")
+            ) {
+              return "vendor-chartjs";
+            }
+
+            if (
+              normalizedId.includes("/node_modules/element-plus/") ||
+              normalizedId.includes("/node_modules/@element-plus/")
             ) {
               return "vendor-element";
             }
 
             if (
-              id.includes("/node_modules/chart.js/") ||
-              id.includes("/node_modules/vue-chartjs/")
+              normalizedId.includes("/node_modules/lucide-vue-next/") ||
+              normalizedId.includes("/node_modules/@element-plus/icons-vue/")
             ) {
-              return "vendor-charts";
+              return "vendor-icons";
             }
+
+            return "vendor-misc";
           },
         },
       },

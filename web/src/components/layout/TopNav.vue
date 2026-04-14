@@ -32,7 +32,7 @@
             @click="showDropdown = !showDropdown"
           >
             <div class="h-9 w-9 overflow-hidden rounded-full border-2 border-indigo-200 bg-indigo-100 text-sm font-bold text-indigo-600 flex items-center justify-center">
-              <img v-if="userStore.userInfo?.avatar" :src="avatarUrl" class="h-full w-full object-cover" />
+              <img v-if="portalUserInfo?.avatar" :src="avatarUrl" class="h-full w-full object-cover" />
               <span v-else>{{ userInitials }}</span>
             </div>
             <span class="max-w-35 truncate text-sm font-semibold text-zinc-700">{{ displayName }}</span>
@@ -101,31 +101,39 @@ const roleLabelMap = {
   university: '高校用户'
 }
 const roleLabel = computed(() => roleLabelMap[currentPortal.value] || roleLabelMap.student)
+const portalUserInfo = computed(() => userStore.getUserInfoByRole(currentPortal.value))
 
 const portalHome = computed(() => '/' + currentPortal.value + '/dashboard')
 
 const settingsPath = computed(() => '/' + currentPortal.value + '/settings')
 const menuActiveClass = computed(() => portalConfig.value.activeBg + ' ' + portalConfig.value.activeText)
+const roleAuthState = computed(() => userStore.getRoleAuth(currentPortal.value))
+const profileLoading = computed(() => Boolean(roleAuthState.value?.profileLoading))
 
 const displayName = computed(() => {
-  if (!userStore.userInfoLoaded || !userStore.userInfo) {
+  if (profileLoading.value && !portalUserInfo.value) {
     return '加载中...'
   }
 
-  const username = String(userStore.userInfo.username || '').trim()
+  if (!portalUserInfo.value) {
+    return roleLabel.value
+  }
+
+  const username = String(portalUserInfo.value.username || '').trim()
   if (username) return username
 
-  const email = String(userStore.userInfo.email || '').trim()
+  const email = String(portalUserInfo.value.email || '').trim()
   if (email) return email.split('@')[0] || email
 
-  const id = userStore.userInfo.id
+  const id = portalUserInfo.value.id
   if (id) return `${roleLabel.value}#${id}`
   return roleLabel.value
 })
 
 const displayEmail = computed(() => {
-  if (!userStore.userInfoLoaded || !userStore.userInfo) return '加载中...'
-  return String(userStore.userInfo.email || '').trim()
+  if (profileLoading.value && !portalUserInfo.value) return '同步账户信息中...'
+  if (!portalUserInfo.value) return '未读取到账户信息'
+  return String(portalUserInfo.value.email || '').trim()
 })
 
 const userInitials = computed(() => {
@@ -134,8 +142,8 @@ const userInitials = computed(() => {
 })
 
 const avatarUrl = computed(() => {
-  if (!userStore.userInfo?.avatar) return ''
-  return getBackendAssetUrl(userStore.userInfo.avatar)
+  if (!portalUserInfo.value?.avatar) return ''
+  return getBackendAssetUrl(portalUserInfo.value.avatar)
 })
 
 const handleLogout = () => {
@@ -159,24 +167,22 @@ const handleClickOutside = (e) => {
   }
 }
 
-const ensureUserProfileLoaded = async (role) => {
+const ensureUserProfileLoaded = (role) => {
   const targetRole = String(role || currentPortal.value || 'student')
   if (!userStore.hasValidTokenByRole(targetRole)) return
 
   const roleAuth = userStore.getRoleAuth(targetRole)
   if (roleAuth.userInfo && roleAuth.profileLoaded) return
 
-  try {
-    await userStore.getUserInfo(targetRole)
-  } catch {
-    // Token 失效时会由 request 拦截器和路由守卫统一处理。
-  }
+  userStore.prefetchUserInfo(targetRole, {
+    force: Boolean(roleAuth.profileError)
+  })
 }
 
 watch(
   () => currentPortal.value,
   (role) => {
-    void ensureUserProfileLoaded(role)
+    ensureUserProfileLoaded(role)
   },
   { immediate: true }
 )

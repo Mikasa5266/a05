@@ -1,6 +1,7 @@
 <script setup>
 import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
 import { Timer, User, Mic, MicOff, Video, VideoOff } from 'lucide-vue-next'
+import { useDeferredModelViewerMount } from '../composables/useDeferredModelViewerMount'
 
 const props = defineProps({
   isCameraOn: {
@@ -64,6 +65,33 @@ const stageRootRef = ref(null)
 const isMobile = ref(false)
 
 let mobileMediaQuery = null
+
+const modelViewerEnabled = computed(() => props.modelViewerReady)
+const { shouldMountModelViewer, modelViewerDeferred } = useDeferredModelViewerMount({
+  containerRef: stageRootRef,
+  enabled: modelViewerEnabled,
+  startDelayMs: 480,
+  idleTimeoutMs: 2000,
+  rootMargin: '140px 0px',
+  threshold: 0.18
+})
+
+const modelViewerLoadingTitle = computed(() => {
+  if (!props.modelViewerReady) return '3D 引擎初始化中'
+  if (modelViewerDeferred.value) return '正在完成页面首屏渲染'
+  return 'AI 面试官模型加载中'
+})
+
+const modelViewerLoadingDesc = computed(() => {
+  if (!props.modelViewerReady) return '已优先渲染内容与交互区域，稍后进入 3D 渲染。'
+  return '页面已可交互，系统将在浏览器空闲时段挂载 3D 资产。'
+})
+
+const coachLoadingText = computed(() => {
+  if (!props.modelViewerReady) return '影子教练待命中'
+  if (modelViewerDeferred.value) return '等待空闲时段加载'
+  return '影子教练加载中'
+})
 
 const isHighPressure = computed(() => ['high', 'extreme'].includes(props.pressureLevel))
 
@@ -244,7 +272,7 @@ onBeforeUnmount(() => {
       <div v-if="!isMobile" class="absolute inset-y-0 right-0 w-36 interview-room-wall interview-room-wall--right pointer-events-none"></div>
       <div v-if="!isMobile" class="absolute left-0 right-0 bottom-0 h-28 interview-room-floor pointer-events-none"></div>
       <model-viewer
-        v-if="modelViewerReady"
+        v-if="shouldMountModelViewer"
         src="/interview3.glb"
         autoplay
         environment-image="neutral"
@@ -258,9 +286,12 @@ onBeforeUnmount(() => {
         :class="isAvatarSpeaking ? 'interviewer-speaking' : ''"
       ></model-viewer>
       <div v-else class="absolute inset-0 z-20 flex items-center justify-center text-center px-6">
-        <div class="rounded-2xl border border-white/20 bg-slate-900/45 text-slate-100 px-5 py-4 backdrop-blur-sm">
-          <p class="text-sm font-semibold">AI 面试官模型加载中</p>
-          <p class="text-xs text-slate-300 mt-1">当前网络较慢时，3D 模型可能延迟出现</p>
+        <div class="w-full max-w-sm rounded-3xl border border-white/20 bg-slate-900/45 text-slate-100 px-5 py-5 backdrop-blur-sm">
+          <div class="mx-auto mb-3 h-2 w-24 rounded-full bg-white/15 overflow-hidden">
+            <div class="h-full w-1/2 rounded-full bg-linear-to-r from-cyan-300/70 to-emerald-300/80 animate-pulse"></div>
+          </div>
+          <p class="text-sm font-semibold">{{ modelViewerLoadingTitle }}</p>
+          <p class="text-xs text-slate-300 mt-1">{{ modelViewerLoadingDesc }}</p>
         </div>
       </div>
 
@@ -286,7 +317,7 @@ onBeforeUnmount(() => {
       shadowCoachHintPending ? 'ring-2 ring-emerald-300/80 shadow-[0_0_24px_rgba(16,185,129,0.35)]' : ''
     ]">
       <model-viewer
-        v-if="modelViewerReady"
+        v-if="shouldMountModelViewer"
         src="/cute_ghost.glb"
         autoplay
         auto-rotate
@@ -295,7 +326,10 @@ onBeforeUnmount(() => {
         shadow-intensity="1"
         class="w-full h-full bg-linear-to-b from-zinc-900 to-zinc-800 pointer-events-none"
       ></model-viewer>
-      <div v-else class="w-full h-full flex items-center justify-center text-[11px] text-emerald-100 bg-zinc-900/70">影子教练加载中</div>
+      <div v-else class="w-full h-full flex flex-col items-center justify-center gap-1 text-[11px] text-emerald-100 bg-zinc-900/70">
+        <div class="h-6 w-6 rounded-full border-2 border-emerald-300/70 border-t-transparent animate-spin"></div>
+        <span>{{ coachLoadingText }}</span>
+      </div>
       <div class="absolute bottom-2 left-2 text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/85 text-white border border-emerald-300/60">
         影子教练
       </div>

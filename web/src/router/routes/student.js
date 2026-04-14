@@ -1,49 +1,26 @@
-import { defineAsyncComponent } from "vue";
+const Layout = () => import("../../components/layout/Layout.vue");
+const PracticeModeLayout = () =>
+  import("../../components/layout/PracticeModeLayout.vue");
 
-const Layout = defineAsyncComponent(
-  () => import("../../components/layout/Layout.vue"),
-);
-const PracticeModeLayout = defineAsyncComponent(
-  () => import("../../components/layout/PracticeModeLayout.vue"),
-);
-
-const Home = defineAsyncComponent(() => import("../../views/Home.vue"));
-const Interview = defineAsyncComponent(
-  () => import("../../views/Interview.vue"),
-);
-const MockInterview = defineAsyncComponent(
-  () => import("../../views/MockInterview.vue"),
-);
-const BlindBoxMode = defineAsyncComponent(
-  () => import("../../views/BlindBoxMode.vue"),
-);
-const InterviewModeSelect = defineAsyncComponent(
-  () => import("../../views/InterviewModeSelect.vue"),
-);
-const StudentLiveInterviewWorkbench = defineAsyncComponent(
-  () => import("../../views/student/LiveInterviewWorkbench.vue"),
-);
-const LiveInterviewRoomOneOnOne = defineAsyncComponent(
-  () => import("../../views/LiveInterviewRoomOneOnOne.vue"),
-);
-const LiveInterviewRoomGroup = defineAsyncComponent(
-  () => import("../../views/LiveInterviewRoomGroup.vue"),
-);
-const ResumeCenter = defineAsyncComponent(
-  () => import("../../views/student/ResumeCenter.vue"),
-);
-const History = defineAsyncComponent(() => import("../../views/History.vue"));
-const Report = defineAsyncComponent(() => import("../../views/Report.vue"));
-const Settings = defineAsyncComponent(() => import("../../views/Settings.vue"));
-const Community = defineAsyncComponent(
-  () => import("../../views/Community.vue"),
-);
-const CommunityPostDetail = defineAsyncComponent(
-  () => import("../../views/CommunityPostDetail.vue"),
-);
-const PracticeModeIndex = defineAsyncComponent(
-  () => import("../../views/student/PracticeMode/Index.vue"),
-);
+const Home = () => import("../../views/Home.vue");
+const Interview = () => import("../../views/Interview.vue");
+const MockInterview = () => import("../../views/MockInterview.vue");
+const BlindBoxMode = () => import("../../views/BlindBoxMode.vue");
+const InterviewModeSelect = () => import("../../views/InterviewModeSelect.vue");
+const StudentLiveInterviewWorkbench = () =>
+  import("../../views/student/LiveInterviewWorkbench.vue");
+const LiveInterviewRoomOneOnOne = () =>
+  import("../../views/LiveInterviewRoomOneOnOne.vue");
+const LiveInterviewRoomGroup = () =>
+  import("../../views/LiveInterviewRoomGroup.vue");
+const ResumeCenter = () => import("../../views/student/ResumeCenter.vue");
+const History = () => import("../../views/History.vue");
+const Report = () => import("../../views/Report.vue");
+const Settings = () => import("../../views/Settings.vue");
+const Community = () => import("../../views/Community.vue");
+const CommunityPostDetail = () => import("../../views/CommunityPostDetail.vue");
+const PracticeModeIndex = () =>
+  import("../../views/student/PracticeMode/Index.vue");
 
 const roleMeta = {
   requiresAuth: true,

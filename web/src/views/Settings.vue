@@ -15,7 +15,7 @@
         <div class="space-y-4">
           <div class="flex items-center gap-4">
             <div class="h-16 w-16 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xl overflow-hidden">
-              <img v-if="userStore.userInfo?.avatar" :src="avatarUrl" class="w-full h-full object-cover" />
+              <img v-if="portalUserInfo?.avatar" :src="avatarUrl" class="w-full h-full object-cover" />
               <span v-else>{{ userInitial }}</span>
             </div>
             <div>
@@ -29,6 +29,38 @@
               :disabled="profileSyncing || avatarUploading"
             >
               {{ avatarUploading ? '上传中...' : '更换头像' }}
+            </button>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+            <div>
+              <label class="block text-xs font-medium text-zinc-500 mb-1">昵称</label>
+              <input
+                v-model="profileForm.username"
+                class="w-full px-4 py-2 border border-zinc-200 rounded-lg bg-zinc-50 text-zinc-900 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all"
+                placeholder="请输入昵称"
+                :disabled="profileSyncing || profileSubmitting"
+              />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-zinc-500 mb-1">邮箱</label>
+              <input
+                v-model="profileForm.email"
+                class="w-full px-4 py-2 border border-zinc-200 rounded-lg bg-zinc-50 text-zinc-900 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all"
+                placeholder="请输入邮箱"
+                :disabled="profileSyncing || profileSubmitting"
+              />
+            </div>
+          </div>
+
+          <div class="flex justify-end">
+            <button
+              type="button"
+              class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+              :disabled="!canSubmitProfile || profileSyncing || profileSubmitting"
+              @click="handleUpdateProfile"
+            >
+              {{ profileSubmitting ? '保存中...' : '保存资料' }}
             </button>
           </div>
         </div>
@@ -111,12 +143,12 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { resolveRoleFromPath, useUserStore } from '../stores/user'
 import { getBackendAssetUrl } from '../utils/backend'
 import { User, Settings as SettingsIcon, Shield, LogOut } from 'lucide-vue-next'
-import { updateAvatar, updatePassword } from '../api/auth'
+import { updateAvatar, updatePassword, updateUserProfile } from '../api/auth'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
@@ -126,8 +158,13 @@ const userStore = useUserStore()
 const fileInput = ref(null)
 const showPasswordModal = ref(false)
 const profileSyncing = ref(false)
+const profileSubmitting = ref(false)
 const avatarUploading = ref(false)
 const passwordForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
+const profileForm = reactive({
+  username: '',
+  email: ''
+})
 
 const currentRole = computed(() => {
   const role = resolveRoleFromPath(route.path)
@@ -140,19 +177,27 @@ const roleLabelMap = {
   university: '高校用户'
 }
 
+const portalUserInfo = computed(() => userStore.getUserInfoByRole(currentRole.value))
+
+const canSubmitProfile = computed(() => {
+  const username = String(profileForm.username || '').trim()
+  const email = String(profileForm.email || '').trim()
+  return Boolean(username) && Boolean(email)
+})
+
 const displayName = computed(() => {
-  if (profileSyncing.value && !userStore.userInfo) return '正在同步账户信息'
-  const username = String(userStore.userInfo?.username || '').trim()
+  if (profileSyncing.value && !portalUserInfo.value) return '正在同步账户信息'
+  const username = String(portalUserInfo.value?.username || '').trim()
   if (username) return username
-  const email = String(userStore.userInfo?.email || '').trim()
+  const email = String(portalUserInfo.value?.email || '').trim()
   if (email) return email.split('@')[0] || email
   const label = roleLabelMap[currentRole.value] || roleLabelMap.student
   return label
 })
 
 const displayEmail = computed(() => {
-  if (profileSyncing.value && !userStore.userInfo) return '正在同步账户信息'
-  const email = String(userStore.userInfo?.email || '').trim()
+  if (profileSyncing.value && !portalUserInfo.value) return '正在同步账户信息'
+  const email = String(portalUserInfo.value?.email || '').trim()
   return email || '未设置邮箱'
 })
 
@@ -162,21 +207,71 @@ const userInitial = computed(() => {
 })
 
 const avatarUrl = computed(() => {
-  if (!userStore.userInfo?.avatar) return ''
-  return getBackendAssetUrl(userStore.userInfo.avatar)
+  if (!portalUserInfo.value?.avatar) return ''
+  return getBackendAssetUrl(portalUserInfo.value.avatar)
 })
+
+const resolveUserPayload = (payload) => {
+  if (!payload || typeof payload !== 'object') return null
+  const wrapped = payload?.user || payload?.data?.user
+  if (wrapped && typeof wrapped === 'object') return wrapped
+  if (Object.prototype.hasOwnProperty.call(payload, 'id') ||
+      Object.prototype.hasOwnProperty.call(payload, 'username') ||
+      Object.prototype.hasOwnProperty.call(payload, 'email')) {
+    return payload
+  }
+  return null
+}
+
+const hydrateProfileForm = () => {
+  profileForm.username = String(portalUserInfo.value?.username || '').trim()
+  profileForm.email = String(portalUserInfo.value?.email || '').trim()
+}
 
 const syncUserProfile = async () => {
   if (!userStore.hasValidTokenByRole(currentRole.value)) return
 
   const roleAuth = userStore.getRoleAuth(currentRole.value)
-  if (roleAuth.userInfo && roleAuth.profileLoaded) return
+  if (roleAuth.userInfo && roleAuth.profileLoaded && !roleAuth.profileError) {
+    hydrateProfileForm()
+    return
+  }
 
   profileSyncing.value = true
   try {
-    await userStore.getUserInfo(currentRole.value)
+    await userStore.getUserInfo(currentRole.value, {
+      force: Boolean(roleAuth.profileError)
+    })
+    hydrateProfileForm()
   } finally {
     profileSyncing.value = false
+  }
+}
+
+const handleUpdateProfile = async () => {
+  const username = String(profileForm.username || '').trim()
+  const email = String(profileForm.email || '').trim()
+
+  if (!username || !email) {
+    ElMessage.warning('昵称和邮箱不能为空')
+    return
+  }
+
+  profileSubmitting.value = true
+  try {
+    const res = await updateUserProfile({ username, email })
+    const nextUser = resolveUserPayload(res)
+    if (nextUser) {
+      userStore.setUserInfoByRole(currentRole.value, nextUser)
+    } else {
+      await userStore.getUserInfo(currentRole.value, { force: true })
+    }
+    hydrateProfileForm()
+    ElMessage.success('个人资料更新成功')
+  } catch (err) {
+    ElMessage.error('个人资料更新失败: ' + (err.response?.data?.error || err.message))
+  } finally {
+    profileSubmitting.value = false
   }
 }
 
@@ -201,11 +296,13 @@ const handleFileChange = async (e) => {
   avatarUploading.value = true
   try {
     const res = await updateAvatar(formData)
-    if (res?.user) {
-      userStore.setUserInfoByRole(currentRole.value, res.user)
+    const nextUser = resolveUserPayload(res)
+    if (nextUser) {
+      userStore.setUserInfoByRole(currentRole.value, nextUser)
     } else {
-      await userStore.getUserInfo(currentRole.value)
+      await userStore.getUserInfo(currentRole.value, { force: true })
     }
+    hydrateProfileForm()
     ElMessage.success('头像更新成功')
   } catch (err) {
     ElMessage.error('头像更新失败: ' + (err.response?.data?.error || err.message))
@@ -214,6 +311,14 @@ const handleFileChange = async (e) => {
     e.target.value = ''
   }
 }
+
+watch(
+  () => [currentRole.value, portalUserInfo.value?.username, portalUserInfo.value?.email],
+  () => {
+    hydrateProfileForm()
+  },
+  { immediate: true }
+)
 
 const handleUpdatePassword = async () => {
   if (!passwordForm.oldPassword || !passwordForm.newPassword) {

@@ -17,20 +17,18 @@
         <input v-model="searchQuery" placeholder="搜索目标岗位、公司、关键词..."
           class="w-full pl-11 pr-4 py-3 bg-white border border-zinc-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm" />
       </div>
-      <select v-model="filterType" class="px-4 py-3 bg-white border border-zinc-200 rounded-2xl text-sm shadow-sm">
-        <option value="">全部类型</option>
-        <option value="experience">面经分享</option>
-        <option value="tips">面试技巧</option>
-        <option value="jobReq">岗位要求</option>
-      </select>
-      <select v-model="filterCompany" class="px-4 py-3 bg-white border border-zinc-200 rounded-2xl text-sm shadow-sm">
-        <option value="">全部公司</option>
-        <option value="百度">百度</option>
-        <option value="阿里巴巴">阿里巴巴</option>
-        <option value="腾讯">腾讯</option>
-        <option value="华为">华为</option>
-        <option value="字节跳动">字节跳动</option>
-      </select>
+      <AppSelect
+        v-model="filterType"
+        :options="filterTypeOptions"
+        placeholder="全部类型"
+        size="md"
+      />
+      <AppSelect
+        v-model="filterCompany"
+        :options="filterCompanyOptions"
+        placeholder="全部公司"
+        size="md"
+      />
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -206,21 +204,21 @@
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label class="text-xs font-bold text-zinc-400 uppercase mb-1">面试难度 (1-5)</label>
-              <select v-model="shareForm.difficulty" class="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm">
-                <option :value="1">1 - 很简单</option>
-                <option :value="2">2 - 简单</option>
-                <option :value="3">3 - 一般</option>
-                <option :value="4">4 - 困难</option>
-                <option :value="5">5 - 很难</option>
-              </select>
+              <AppSelect
+                v-model="shareForm.difficulty"
+                :options="difficultyOptions"
+                full-width
+                size="md"
+              />
             </div>
             <div>
               <label class="text-xs font-bold text-zinc-400 uppercase mb-1">面试结果</label>
-              <select v-model="shareForm.offerStatus" class="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm">
-                <option value="Pending">等待中</option>
-                <option value="Received">已拿Offer</option>
-                <option value="Rejected">未通过</option>
-              </select>
+              <AppSelect
+                v-model="shareForm.offerStatus"
+                :options="offerStatusOptions"
+                full-width
+                size="md"
+              />
             </div>
           </div>
           <div class="grid grid-cols-2 gap-4">
@@ -266,9 +264,14 @@
         <div class="space-y-4">
           <div>
             <label class="text-xs font-bold text-zinc-400 uppercase mb-1">选择校友</label>
-            <select class="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm">
-              <option v-for="a in topAlumni" :key="a.name" :value="a.name">{{ a.name }} ({{ a.company }})</option>
-            </select>
+            <AppSelect
+              v-model="bookingForm.alumni"
+              :options="bookingAlumniOptions"
+              placeholder="请选择校友"
+              full-width
+              size="md"
+              searchable
+            />
           </div>
           <div>
             <label class="text-xs font-bold text-zinc-400 uppercase mb-1">目标岗位</label>
@@ -295,6 +298,7 @@ import { ElMessage } from 'element-plus'
 import { Search, ThumbsUp, MessageCircle, Eye, Award, BrainCircuit, Trash2 } from 'lucide-vue-next'
 import { getPosts, createPost, likePost, getTopAlumni, getHotCompanies, queryKnowledgeBase, deletePost } from '../api/community'
 import { useUserStore } from '../stores/user'
+import AppSelect from '../components/ui/AppSelect.vue'
 
 const userStore = useUserStore()
 const router = useRouter()
@@ -304,6 +308,46 @@ const filterCompany = ref('')
 const showShareModal = ref(false)
 const showBookingModal = ref(false)
 const totalExperiences = ref(1247)
+const bookingForm = reactive({
+  alumni: ''
+})
+
+const filterTypeOptions = [
+  { label: '全部类型', value: '' },
+  { label: '面经分享', value: 'experience' },
+  { label: '面试技巧', value: 'tips' },
+  { label: '岗位要求', value: 'jobReq' }
+]
+
+const filterCompanyOptions = [
+  { label: '全部公司', value: '' },
+  { label: '百度', value: '百度' },
+  { label: '阿里巴巴', value: '阿里巴巴' },
+  { label: '腾讯', value: '腾讯' },
+  { label: '华为', value: '华为' },
+  { label: '字节跳动', value: '字节跳动' }
+]
+
+const difficultyOptions = [
+  { label: '1 - 很简单', value: 1 },
+  { label: '2 - 简单', value: 2 },
+  { label: '3 - 一般', value: 3 },
+  { label: '4 - 困难', value: 4 },
+  { label: '5 - 很难', value: 5 }
+]
+
+const offerStatusOptions = [
+  { label: '等待中', value: 'Pending' },
+  { label: '已拿Offer', value: 'Received' },
+  { label: '未通过', value: 'Rejected' }
+]
+
+const bookingAlumniOptions = computed(() => {
+  return topAlumni.value.map((alumni) => ({
+    label: `${alumni.name || '匿名'} (${alumni.company || '未填写'})`,
+    value: alumni.name || ''
+  }))
+})
 
 const ragSearchQuery = ref('')
 const ragSearching = ref(false)
@@ -492,6 +536,7 @@ const handleDelete = async (id) => {
 }
 
 const openBookingModal = () => {
+  bookingForm.alumni = ''
   showBookingModal.value = true
 }
 

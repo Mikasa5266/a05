@@ -10,9 +10,6 @@ import { enterpriseRoutes } from "./routes/enterprise";
 import { universityRoutes } from "./routes/university";
 
 const ROLE_NAMES = ["student", "enterprise", "university"];
-const PROFILE_LOAD_BUDGET_MS = Number(
-  import.meta.env.VITE_PROFILE_LOAD_BUDGET_MS || 1200,
-);
 const ROLE_DASHBOARD = {
   student: "/student/dashboard",
   enterprise: "/enterprise/dashboard",
@@ -105,7 +102,7 @@ const extractRequiredRoles = (to, fallbackRole) => {
   return [normalizeRole(fallbackRole)];
 };
 
-router.beforeEach(async (to) => {
+router.beforeEach((to) => {
   const userStore = useUserStore();
   const pathRole = normalizeRole(resolveRoleFromPath(to.path));
   const requiresAuth = to.matched.some(
@@ -115,6 +112,7 @@ router.beforeEach(async (to) => {
   if (to.path === "/") {
     const loggedRole = findLoggedRole(userStore);
     if (loggedRole) {
+      userStore.prefetchUserInfo(loggedRole);
       return ROLE_DASHBOARD[loggedRole];
     }
   }
@@ -122,12 +120,7 @@ router.beforeEach(async (to) => {
   if (to.path.endsWith("/login")) {
     const token = readTokenByRole(userStore, pathRole);
     if (token && !userStore.isTokenExpired(token)) {
-      try {
-        await userStore.getUserInfo(pathRole);
-      } catch {
-        // token may still be unexpired locally but invalid on server (e.g. seeded user replaced)
-        return true;
-      }
+      userStore.prefetchUserInfo(pathRole);
 
       const redirectTarget = String(to.query?.redirect || "").trim();
       if (redirectTarget) {
@@ -156,16 +149,7 @@ router.beforeEach(async (to) => {
 
   const roleAuth = userStore.getRoleAuth(pathRole);
   if (!roleAuth.userInfo || !roleAuth.profileLoaded) {
-    try {
-      await Promise.race([
-        userStore.getUserInfo(pathRole),
-        new Promise((resolve) => {
-          setTimeout(resolve, PROFILE_LOAD_BUDGET_MS);
-        }),
-      ]);
-    } catch {
-      // Profile request can fail transiently; keep token-based access path.
-    }
+    userStore.prefetchUserInfo(pathRole);
   }
 
   if (!userStore.hasValidTokenByRole(pathRole)) {

@@ -35,16 +35,25 @@ const normalizeRole = (role = "") => {
 
 const createDefaultRoleAuth = () => {
   return ROLE_NAMES.reduce((acc, role) => {
-    acc[role] = { token: "", userInfo: null, profileLoaded: false };
+    acc[role] = {
+      token: "",
+      userInfo: null,
+      profileLoaded: false,
+      profileLoading: false,
+      profileError: "",
+    };
     return acc;
   }, {});
 };
 
 const normalizeRoleAuthEntry = (entry = {}) => {
   const token = typeof entry?.token === "string" ? entry.token : "";
-  const userInfo = entry?.userInfo || null;
-  const profileLoaded = Boolean(entry?.profileLoaded || userInfo);
-  return { token, userInfo, profileLoaded };
+  // profileLoading/profileError are transient runtime fields and must not be restored from persisted state.
+  const userInfo = token ? entry?.userInfo || null : null;
+  const profileLoaded = Boolean(token && (entry?.profileLoaded || userInfo));
+  const profileLoading = false;
+  const profileError = "";
+  return { token, userInfo, profileLoaded, profileLoading, profileError };
 };
 
 const getHashPath = (hash = "") => {
@@ -122,6 +131,25 @@ const normalizeUserInfo = (userInfo, role) => {
   return normalized;
 };
 
+const resolveUserPayload = (payload) => {
+  if (!payload || typeof payload !== "object") return null;
+
+  const wrapped = payload?.user || payload?.data?.user;
+  if (wrapped && typeof wrapped === "object") {
+    return wrapped;
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(payload, "id") ||
+    Object.prototype.hasOwnProperty.call(payload, "username") ||
+    Object.prototype.hasOwnProperty.call(payload, "email")
+  ) {
+    return payload;
+  }
+
+  return null;
+};
+
 export const useUserStore = defineStore("user", {
   state: () => ({
     roleAuth: createDefaultRoleAuth(),
@@ -138,6 +166,12 @@ export const useUserStore = defineStore("user", {
       const auth = state.roleAuth[this.currentRole];
       return Boolean(auth?.profileLoaded || auth?.userInfo);
     },
+    userInfoLoading(state) {
+      return Boolean(state.roleAuth[this.currentRole]?.profileLoading);
+    },
+    userInfoError(state) {
+      return String(state.roleAuth[this.currentRole]?.profileError || "");
+    },
   },
   actions: {
     getRoleAuth(role = resolveCurrentRole()) {
@@ -148,7 +182,9 @@ export const useUserStore = defineStore("user", {
         if (
           found.token !== normalized.token ||
           found.userInfo !== normalized.userInfo ||
-          found.profileLoaded !== normalized.profileLoaded
+          found.profileLoaded !== normalized.profileLoaded ||
+          found.profileLoading !== normalized.profileLoading ||
+          found.profileError !== normalized.profileError
         ) {
           this.roleAuth[safeRole] = normalized;
         }
@@ -158,6 +194,8 @@ export const useUserStore = defineStore("user", {
         token: "",
         userInfo: null,
         profileLoaded: false,
+        profileLoading: false,
+        profileError: "",
       };
       return this.roleAuth[safeRole];
     },
@@ -184,6 +222,8 @@ export const useUserStore = defineStore("user", {
         token: payload.token,
         userInfo: payload.userInfo,
         profileLoaded: payload.profileLoaded,
+        profileLoading: payload.profileLoading,
+        profileError: payload.profileError,
       });
       this.roleAuth[safeRole] = next;
     },
@@ -196,6 +236,8 @@ export const useUserStore = defineStore("user", {
         token: auth.token,
         userInfo: normalizedUser,
         profileLoaded: Boolean(normalizedUser),
+        profileLoading: false,
+        profileError: "",
       });
 
       if (normalizedUser) {
@@ -206,17 +248,29 @@ export const useUserStore = defineStore("user", {
     },
     async login(data) {
       const res = await login(data);
+      const loginUser = resolveUserPayload(res);
       const role = normalizeRole(
-        res?.user?.role || data?.role || resolveCurrentRole(),
+        loginUser?.role || data?.role || resolveCurrentRole(),
       );
+
+      // Reset role-scoped cache/in-flight state so account switching never reuses stale profile requests.
+      userInfoFetchInFlight.delete(role);
+      userInfoFetchedAt.delete(role);
+
       this.setRoleAuth(role, {
         token: res.token,
-        userInfo: normalizeUserInfo(res?.user, role),
-        profileLoaded: false,
+        userInfo: normalizeUserInfo(loginUser, role),
+        profileLoaded: Boolean(loginUser),
+        profileLoading: false,
+        profileError: "",
       });
 
       if (res?.token) {
-        await this.getUserInfo(role);
+        try {
+          await this.getUserInfo(role, { force: true });
+        } catch {
+          // Keep login success path even when profile endpoint is temporarily unstable.
+        }
       }
 
       return res;
@@ -252,16 +306,33 @@ export const useUserStore = defineStore("user", {
         return inFlight;
       }
 
+      this.setRoleAuth(safeRole, {
+        token: roleAuth.token,
+        userInfo: roleAuth.userInfo,
+        profileLoaded: roleAuth.profileLoaded,
+        profileLoading: true,
+        profileError: "",
+      });
+
       let requestPromise = null;
       requestPromise = getUserProfile()
         .then((res) => {
-          this.setUserInfoByRole(safeRole, res?.user);
+          this.setUserInfoByRole(safeRole, resolveUserPayload(res));
           return this.getUserInfoByRole(safeRole);
         })
         .catch((error) => {
           const status = Number(error?.response?.status || 0);
           if (status === 401 || status === 403) {
             this.logout(safeRole);
+          } else {
+            const latestAuth = this.getRoleAuth(safeRole);
+            this.setRoleAuth(safeRole, {
+              token: latestAuth.token,
+              userInfo: latestAuth.userInfo,
+              profileLoaded: latestAuth.profileLoaded,
+              profileLoading: false,
+              profileError: String(error?.message || "用户信息加载失败"),
+            });
           }
           throw error;
         })
@@ -274,6 +345,13 @@ export const useUserStore = defineStore("user", {
       userInfoFetchInFlight.set(safeRole, requestPromise);
       return requestPromise;
     },
+    prefetchUserInfo(role = resolveCurrentRole(), options = {}) {
+      const safeRole = normalizeRole(role);
+      if (!this.hasValidTokenByRole(safeRole)) return;
+      const roleAuth = this.getRoleAuth(safeRole);
+      if (roleAuth.profileLoading) return;
+      void this.getUserInfo(safeRole, options).catch(() => {});
+    },
     logout(role = resolveCurrentRole()) {
       const safeRole = normalizeRole(role);
       userInfoFetchInFlight.delete(safeRole);
@@ -282,6 +360,8 @@ export const useUserStore = defineStore("user", {
         token: "",
         userInfo: null,
         profileLoaded: false,
+        profileLoading: false,
+        profileError: "",
       });
     },
     logoutAll() {
@@ -292,6 +372,8 @@ export const useUserStore = defineStore("user", {
           token: "",
           userInfo: null,
           profileLoaded: false,
+          profileLoading: false,
+          profileError: "",
         });
       });
     },

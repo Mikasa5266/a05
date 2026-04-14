@@ -1,37 +1,19 @@
-import { defineAsyncComponent } from "vue";
+const Layout = () => import("../../components/layout/Layout.vue");
 
-const Layout = defineAsyncComponent(
-  () => import("../../components/layout/Layout.vue"),
-);
-
-const EnterpriseDashboard = defineAsyncComponent(
-  () => import("../../views/enterprise/EnterpriseDashboard.vue"),
-);
-const TalentPool = defineAsyncComponent(
-  () => import("../../views/enterprise/TalentPool.vue"),
-);
-const JobManagement = defineAsyncComponent(
-  () => import("../../views/enterprise/JobManagement.vue"),
-);
-const HRPanel = defineAsyncComponent(
-  () => import("../../views/enterprise/HRPanel.vue"),
-);
-const InterviewWorkbench = defineAsyncComponent(
-  () => import("../../views/enterprise/InterviewWorkbench.vue"),
-);
-const Analytics = defineAsyncComponent(
-  () => import("../../views/enterprise/Analytics.vue"),
-);
-const Standards = defineAsyncComponent(
-  () => import("../../views/enterprise/Standards.vue"),
-);
-const LiveInterviewRoomOneOnOne = defineAsyncComponent(
-  () => import("../../views/LiveInterviewRoomOneOnOne.vue"),
-);
-const LiveInterviewRoomGroup = defineAsyncComponent(
-  () => import("../../views/LiveInterviewRoomGroup.vue"),
-);
-const Settings = defineAsyncComponent(() => import("../../views/Settings.vue"));
+const EnterpriseDashboard = () =>
+  import("../../views/enterprise/EnterpriseDashboard.vue");
+const TalentPool = () => import("../../views/enterprise/TalentPool.vue");
+const JobManagement = () => import("../../views/enterprise/JobManagement.vue");
+const HRPanel = () => import("../../views/enterprise/HRPanel.vue");
+const InterviewWorkbench = () =>
+  import("../../views/enterprise/InterviewWorkbench.vue");
+const Analytics = () => import("../../views/enterprise/Analytics.vue");
+const Standards = () => import("../../views/enterprise/Standards.vue");
+const LiveInterviewRoomOneOnOne = () =>
+  import("../../views/LiveInterviewRoomOneOnOne.vue");
+const LiveInterviewRoomGroup = () =>
+  import("../../views/LiveInterviewRoomGroup.vue");
+const Settings = () => import("../../views/Settings.vue");
 
 const roleMeta = {
   requiresAuth: true,

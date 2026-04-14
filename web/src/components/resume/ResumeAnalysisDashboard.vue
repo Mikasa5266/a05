@@ -157,12 +157,6 @@
                         {{ skill.evidence || skill.lastUsed || '未补充证据' }}
                       </p>
                     </div>
-                    <span
-                      class="shrink-0 rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-                      :title="skill.level"
-                    >
-                      {{ skill.level }}
-                    </span>
                   </div>
                 </div>
 
@@ -661,7 +655,7 @@ const quickOverviewCards = computed(() => {
   const mapSkillItems = (group) =>
     (Array.isArray(group?.items) ? group.items : []).slice(0, 5).map((skill) => ({
       name: skill.name || '未命名技能',
-      meta: skill.level || 'Basic',
+      meta: '',
       description: skill.evidence || skill.lastUsed || '',
     }))
 
