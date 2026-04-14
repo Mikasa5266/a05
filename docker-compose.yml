@@ -12,7 +12,7 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD || mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD"]
+      test: [ "CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD || mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD" ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -45,6 +45,22 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.zhizengzeng.com/v1}
       LLM_MODEL: ${LLM_MODEL:-deepseek-v3}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_API_BASE_URL: ${EMBEDDING_API_BASE_URL:-https://api.openai.com/v1}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_TIMEOUT: ${EMBEDDING_TIMEOUT:-20s}
+      EMBEDDING_MAX_RETRIES: ${EMBEDDING_MAX_RETRIES:-3}
+      EMBEDDING_RETRY_INITIAL_BACKOFF: ${EMBEDDING_RETRY_INITIAL_BACKOFF:-400ms}
+      EMBEDDING_RETRY_MAX_BACKOFF: ${EMBEDDING_RETRY_MAX_BACKOFF:-4s}
+      QDRANT_URL: ${QDRANT_URL:-http://127.0.0.1:6333}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-rag_knowledge}
+      QDRANT_DISTANCE: ${QDRANT_DISTANCE:-Cosine}
+      QDRANT_VECTOR_SIZE: ${QDRANT_VECTOR_SIZE:-1536}
+      QDRANT_TIMEOUT: ${QDRANT_TIMEOUT:-8s}
+      QDRANT_MAX_RETRIES: ${QDRANT_MAX_RETRIES:-3}
+      QDRANT_RETRY_INITIAL_BACKOFF: ${QDRANT_RETRY_INITIAL_BACKOFF:-200ms}
+      QDRANT_RETRY_MAX_BACKOFF: ${QDRANT_RETRY_MAX_BACKOFF:-2s}
       ASR_PROVIDER: ${ASR_PROVIDER:-openai}
       ASR_API_KEY: ${ASR_API_KEY:-}
       ASR_BASE_URL: ${ASR_BASE_URL:-https://api.zhizengzeng.com/v1}
@@ -60,7 +76,7 @@ services:
       OCR_TESSDATA_PATH: ${OCR_TESSDATA_PATH:-/usr/share/tessdata}
     healthcheck:
       # --spider 表示只检查网页是否存在，不下载内容；-q 表示静默模式
-      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:8082/api/v1/ready || exit 1"]
+      test: [ "CMD-SHELL", "wget --spider -q http://127.0.0.1:8082/api/v1/ready || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -151,7 +167,7 @@ services:
       - "443:443"
     volumes:
       # 格式：[服务器上的路径] : [给容器内部看的路径] : [只读]
-     # 前两行是你原来的主项目证书（保持不动）
+      # 前两行是你原来的主项目证书（保持不动）
       - /home/zhengshu/aiinterview2244.xyz_nginx/aiinterview2244.xyz_bundle.crt:/etc/nginx/ssl/server.crt:ro
       - /home/zhengshu/aiinterview2244.xyz_nginx/aiinterview2244.xyz.key:/etc/nginx/ssl/server.key:ro
 
@@ -161,7 +177,7 @@ services:
 
     healthcheck:
       # 修改这里：使用 https 访问，并加上 --no-check-certificate 忽略证书校验
-      test: ["CMD-SHELL", "wget --no-check-certificate --quiet --tries=1 --spider https://127.0.0.1/ || exit 1"]
+      test: [ "CMD-SHELL", "wget --no-check-certificate --quiet --tries=1 --spider https://127.0.0.1/ || exit 1" ]
       interval: 30s
       timeout: 5s
       retries: 5

@@ -152,6 +152,10 @@ export default defineConfig(({ mode, command }) => {
       host: "0.0.0.0", // 强制监听所有网络接口
       allowedHosts: true,
       cors: true, // 关闭跨域拦截
+      headers: {
+        // Public tunnel debugging is sensitive to stale module cache; force fresh fetches.
+        "Cache-Control": "no-store",
+      },
       hmr: true, // 让 Vite 自动推断 HMR 连接参数
       strictPort: false,
       open: false,

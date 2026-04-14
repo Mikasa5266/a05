@@ -38,6 +38,26 @@ function Get-NgrokPublicUrl {
   return $null
 }
 
+function Test-NgrokInterstitial {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$PublicUrl,
+    [int]$TimeoutSeconds = 8
+  )
+
+  try {
+    $resp = Invoke-WebRequest -Uri $PublicUrl -UseBasicParsing -TimeoutSec $TimeoutSeconds
+    $content = [string]$resp.Content
+    if ($content -match 'ERR_NGROK_6024') {
+      return $true
+    }
+  } catch {
+    return $false
+  }
+
+  return $false
+}
+
 function Test-PortListening {
   param(
     [Parameter(Mandatory = $true)]
@@ -84,7 +104,7 @@ if (-not (Test-PortListening -Port 8082)) {
 }
 
 if (-not (Test-PortListening -Port 3001)) {
-  $viteCmd = "Set-Location '$projectRoot'; npm run dev:public"
+  $viteCmd = "Set-Location '$projectRoot'; npm run dev:public -- --force"
   Start-Process powershell -ArgumentList @('-NoExit', '-Command', $viteCmd)
 } else {
   Write-Host "Vite already listening on 3001, reusing existing process."
@@ -113,6 +133,11 @@ Write-Host "If this is first time, copy ngrok.yml.example to ngrok.yml and fill 
 $publicUrl = Get-NgrokPublicUrl -TimeoutSeconds 25
 if ($publicUrl) {
   Write-Host "Share this URL with interviewer: $publicUrl"
+  if (Test-NgrokInterstitial -PublicUrl $publicUrl) {
+    Write-Host "Detected ngrok warning page (ERR_NGROK_6024)."
+    Write-Host "First-time visitors must open the URL and click 'Visit Site' once."
+    Write-Host "For API tools, send request header: ngrok-skip-browser-warning: 1"
+  }
 } else {
   Write-Host "Could not fetch ngrok URL automatically yet."
   Write-Host "Open http://127.0.0.1:4040/api/tunnels to view public_url."
