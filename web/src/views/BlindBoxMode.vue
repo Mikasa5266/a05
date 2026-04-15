@@ -57,24 +57,34 @@ const startBlindBox = () => {
   min-height: calc(100vh - 220px);
   border-radius: 32px;
   overflow: hidden;
-  border: 1px solid rgba(148, 163, 184, 0.26);
+  border: 1px solid var(--app-border-color);
   background:
     radial-gradient(
       circle at 18% 18%,
-      rgba(56, 189, 248, 0.2),
-      transparent 33%
+      color-mix(in srgb, var(--el-color-primary-light-5) 26%, transparent),
+      transparent 42%
     ),
     radial-gradient(
       circle at 84% 22%,
-      rgba(99, 102, 241, 0.14),
-      transparent 36%
+      color-mix(in srgb, var(--el-color-primary-light-3) 24%, transparent),
+      transparent 44%
     ),
     radial-gradient(
       circle at 56% 86%,
-      rgba(16, 185, 129, 0.16),
-      transparent 38%
+      color-mix(in srgb, var(--el-color-success-light-5) 22%, transparent),
+      transparent 46%
     ),
-    linear-gradient(150deg, #f8fafc 0%, #f1f5f9 48%, #eef2ff 100%);
+    linear-gradient(
+      150deg,
+      var(--el-bg-color-page) 0%,
+      color-mix(
+          in srgb,
+          var(--el-color-primary-light-9) 45%,
+          var(--app-surface-soft)
+        )
+        50%,
+      var(--app-surface-soft) 100%
+    );
   display: grid;
   place-items: center;
   padding: 24px;
@@ -84,7 +94,7 @@ const startBlindBox = () => {
   position: absolute;
   border-radius: 999px;
   filter: blur(26px);
-  opacity: 0.42;
+  opacity: 0.24;
   animation: floatNebula 9s ease-in-out infinite;
 }
 
@@ -93,7 +103,11 @@ const startBlindBox = () => {
   height: 220px;
   top: 12%;
   left: 10%;
-  background: rgba(16, 185, 129, 0.28);
+  background: color-mix(
+    in srgb,
+    var(--el-color-success-light-5) 48%,
+    transparent
+  );
 }
 
 .nebula-b {
@@ -101,7 +115,11 @@ const startBlindBox = () => {
   height: 280px;
   right: 8%;
   top: 20%;
-  background: rgba(99, 102, 241, 0.26);
+  background: color-mix(
+    in srgb,
+    var(--el-color-primary-light-5) 44%,
+    transparent
+  );
   animation-delay: -2.5s;
 }
 
@@ -110,7 +128,11 @@ const startBlindBox = () => {
   height: 220px;
   bottom: 8%;
   left: 35%;
-  background: rgba(56, 189, 248, 0.24);
+  background: color-mix(
+    in srgb,
+    var(--el-color-primary-light-7) 46%,
+    transparent
+  );
   animation-delay: -5s;
 }
 
@@ -119,16 +141,16 @@ const startBlindBox = () => {
   z-index: 2;
   width: min(760px, 100%);
   border-radius: 28px;
-  border: 1px solid rgba(148, 163, 184, 0.24);
+  border: 1px solid var(--app-border-color);
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.92),
-    rgba(248, 250, 252, 0.88)
+    color-mix(in srgb, var(--app-surface) 94%, white),
+    color-mix(in srgb, var(--app-surface-soft) 92%, white)
   );
   backdrop-filter: blur(10px);
   padding: 32px;
-  color: #0f172a;
-  box-shadow: 0 20px 46px rgba(71, 85, 105, 0.2);
+  color: var(--app-text-primary);
+  box-shadow: var(--app-shadow-soft);
   animation: panelRise 0.45s ease;
 }
 
@@ -137,21 +159,21 @@ const startBlindBox = () => {
   font-size: 12px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: #0284c7;
+  color: var(--el-color-primary);
 }
 
 .blindbox-card h1 {
   margin: 14px 0 0;
   font-size: clamp(30px, 5vw, 46px);
   line-height: 1.08;
-  color: #0f172a;
+  color: var(--app-text-primary);
 }
 
 .blindbox-desc {
   margin: 18px 0 0;
   font-size: 15px;
   line-height: 1.85;
-  color: #475569;
+  color: var(--app-text-regular);
 }
 
 .blindbox-features {
@@ -163,11 +185,15 @@ const startBlindBox = () => {
 
 .blindbox-features span {
   border-radius: 999px;
-  border: 1px solid rgba(59, 130, 246, 0.2);
-  background: rgba(239, 246, 255, 0.95);
+  border: 1px solid color-mix(in srgb, var(--el-color-primary) 20%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--el-color-primary-light-9) 58%,
+    var(--app-surface)
+  );
   padding: 8px 12px;
   font-size: 12px;
-  color: #0c4a6e;
+  color: var(--el-color-primary);
 }
 
 .blindbox-actions {
@@ -193,14 +219,19 @@ const startBlindBox = () => {
 
 .primary-btn {
   color: #ffffff;
-  background: linear-gradient(120deg, #0284c7 0%, #4f46e5 100%);
-  box-shadow: 0 14px 24px rgba(79, 70, 229, 0.25);
+  background: linear-gradient(
+    120deg,
+    var(--el-color-primary) 0%,
+    var(--el-color-primary-light-3) 100%
+  );
+  box-shadow: 0 14px 24px
+    color-mix(in srgb, var(--el-color-primary) 28%, transparent);
 }
 
 .ghost-btn {
-  color: #0f172a;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(148, 163, 184, 0.34);
+  color: var(--app-text-primary);
+  background: color-mix(in srgb, var(--app-surface) 92%, white);
+  border: 1px solid var(--app-border-color);
 }
 
 .primary-btn:hover,
