@@ -834,8 +834,12 @@ func SubmitAnswer(userID, interviewID, questionID uint, answer, audioData, audio
 }
 
 func EndInterview(userID, interviewID uint) (*model.Interview, error) {
+	return EndInterviewWithOptions(userID, interviewID, EndInterviewOptions{})
+}
+
+func EndInterviewWithOptions(userID, interviewID uint, options EndInterviewOptions) (*model.Interview, error) {
 	svc := NewInterviewService()
-	return svc.EndInterview(userID, interviewID)
+	return svc.EndInterviewWithOptions(userID, interviewID, options)
 }
 
 func ListInviteCandidates(currentUserID uint, role, keyword string, page, pageSize int) ([]model.User, int64, error) {
@@ -1669,7 +1673,11 @@ func (s *InterviewService) isMeaninglessFollowUpQuestion(q *model.Question) bool
 }
 
 func (s *InterviewService) EndInterview(userID, interviewID uint) (*model.Interview, error) {
-	return s.interviewLifecycleUseCase().EndInterview(userID, interviewID)
+	return s.EndInterviewWithOptions(userID, interviewID, EndInterviewOptions{})
+}
+
+func (s *InterviewService) EndInterviewWithOptions(userID, interviewID uint, options EndInterviewOptions) (*model.Interview, error) {
+	return s.interviewLifecycleUseCase().EndInterviewWithOptions(userID, interviewID, options)
 }
 
 func (s *InterviewService) GenerateShadowHint(userID, interviewID uint, question, transcript string, silenceSeconds int) (string, error) {

@@ -33,21 +33,25 @@ func (s *AIService) GenerateOverallAnalysis(ctx context.Context, interview *mode
 	return s.EnsureChineseOutput(ctx, response, "本场面试整体表现中等，建议继续提升回答深度与结构化表达。"), nil
 }
 
-func (s *AIService) GenerateReportInsights(ctx context.Context, interview *model.Interview, answers []model.AnswerResult) (*ReportInsights, error) {
+func (s *AIService) GenerateReportInsights(ctx context.Context, interview *model.Interview, answers []model.AnswerResult, policy ReportScoringPolicy) (*ReportInsights, error) {
 	payload := struct {
 		Position   string               `json:"position"`
 		Difficulty string               `json:"difficulty"`
 		Mode       string               `json:"mode"`
 		Style      string               `json:"style"`
 		Answers    []model.AnswerResult `json:"answers"`
-	}{Position: interview.Position, Difficulty: interview.Difficulty, Mode: interview.Mode, Style: interview.Style, Answers: answers}
+		Scoring    ReportScoringPolicy  `json:"scoring"`
+	}{Position: interview.Position, Difficulty: interview.Difficulty, Mode: interview.Mode, Style: interview.Style, Answers: answers, Scoring: policy}
 
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal report payload: %w", err)
 	}
 
-	prompt, err := s.renderPrompt("generate_report_insights.tmpl", map[string]interface{}{"PayloadJSON": string(body)})
+	prompt, err := s.renderPrompt("generate_report_insights.tmpl", map[string]interface{}{
+		"PayloadJSON":      string(body),
+		"ScoringRulesText": buildReportScoringRulesText(policy),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to render report insights prompt: %w", err)
 	}
@@ -75,6 +79,33 @@ func (s *AIService) GenerateReportInsights(ctx context.Context, interview *model
 	insights.BehaviorScore = clampScore(insights.BehaviorScore)
 
 	return &insights, nil
+}
+
+func buildReportScoringRulesText(policy ReportScoringPolicy) string {
+	expected := policy.ExpectedCount
+	actual := policy.ActualCount
+	missing := policy.MissingCount
+	if expected < 0 {
+		expected = 0
+	}
+	if actual < 0 {
+		actual = 0
+	}
+	if missing < 0 {
+		missing = 0
+	}
+
+	mode := "正常完成"
+	if policy.EarlyExit {
+		mode = "提前交卷"
+	}
+
+	zeroRule := "缺失题可按缺考处理"
+	if policy.MissingAsZero {
+		zeroRule = "缺失题必须按 0 分处理，不得忽略"
+	}
+
+	return fmt.Sprintf("结算模式：%s；计划题数(expected_count)=%d，实际作答(actual_count)=%d，缺失题数(missing_count)=%d。%s。请在 overall_analysis 明确说明该结算事实，并确保所有维度评分体现缺失题惩罚后再输出。", mode, expected, actual, missing, zeroRule)
 }
 
 func ensureChineseList(ctx context.Context, s *AIService, items []string, fallback []string) []string {

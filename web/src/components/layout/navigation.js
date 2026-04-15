@@ -186,6 +186,11 @@ export const portalTopNavMap = {
       icon: ClipboardList,
     },
     {
+      name: "群面工作台",
+      href: "/enterprise/group-interview/workbench",
+      icon: Users,
+    },
+    {
       name: "岗位管理",
       href: "/enterprise/jobs",
       icon: Briefcase,
@@ -212,6 +217,11 @@ export const portalTopNavMap = {
       name: "面试工作台",
       href: "/university/interview-workbench",
       icon: ClipboardList,
+    },
+    {
+      name: "群面工作台",
+      href: "/university/group-interview/workbench",
+      icon: Users,
     },
     {
       name: "学生跟踪",

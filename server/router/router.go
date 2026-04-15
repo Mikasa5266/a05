@@ -31,6 +31,8 @@ func SetupRouter(aiService aidomain.AIFacade) *gin.Engine {
 			public.POST("/enterprise/apply", handler.ApplyEnterprise)
 			public.POST("/university/apply", handler.ApplyUniversity)
 			public.POST("/login", handler.Login)
+			public.GET("/ws/interview/live", handler.InterviewLiveWS)
+			public.GET("/ws/interview/group", handler.InterviewGroupWS)
 			public.GET("/interview/live/ws", handler.InterviewSignalWS)
 		}
 

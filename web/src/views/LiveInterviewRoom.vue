@@ -1,9 +1,11 @@
 <script setup>
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Code2, Copy, Link2, Loader2, Mic, MicOff, PhoneOff, SendHorizontal, Users } from 'lucide-vue-next'
 import { useUserStore } from '../stores/user'
+import { useGroupInterviewStore } from '../stores/useGroupInterviewStore'
 import {
   analyzeSpeechChunk,
   endInterview,
@@ -44,14 +46,21 @@ const joining = ref(false)
 const startingInterview = ref(false)
 const isRouteLeaving = ref(false)
 
-const groupStarted = ref(false)
-const groupReadyCount = ref(0)
-const groupStartThreshold = ref(TEST_START_THRESHOLD)
-const groupTargetParticipants = ref(TARGET_PARTICIPANTS)
+const groupInterviewStore = useGroupInterviewStore()
+const {
+  groupStarted,
+  groupReadyCount,
+  groupStartThreshold,
+  groupTargetParticipants,
+  speakingQueue,
+  currentSpeakerUserId,
+  countdownSeconds,
+} = storeToRefs(groupInterviewStore)
 
 const messageInput = ref('')
 const messages = ref([])
 const members = ref([])
+const roomEvents = ref([])
 const codePanelOpen = ref(false)
 const mockCodeSubmitting = ref(false)
 const codeDraft = ref('')
@@ -71,6 +80,7 @@ let remoteStream = null
 
 let chunkRecorder = null
 let chunkRecorderStream = null
+let announcedGroupStarted = false
 
 const role = computed(() => userStore.userInfo?.role || '')
 const selfUserId = computed(() => String(userStore.userInfo?.id || ''))
@@ -78,9 +88,11 @@ const isStudent = computed(() => role.value === 'student')
 const isInterviewer = computed(() => role.value === 'enterprise' || role.value === 'university')
 
 const backPath = computed(() => {
-  if (role.value === 'enterprise') return '/enterprise/interview-workbench'
-  if (role.value === 'university') return '/university/interview-workbench'
-  return '/interview/live/workbench'
+  const returnTo = String(route.query?.return_to || '').trim()
+  if (returnTo.startsWith('/')) return returnTo
+  if (role.value === 'enterprise') return '/enterprise/group-interview/workbench'
+  if (role.value === 'university') return '/university/group-interview/workbench'
+  return '/interview/group/workbench'
 })
 
 const hasRoom = computed(() => Boolean(roomId.value))
@@ -96,7 +108,18 @@ const roomMembers = computed(() => {
   return [...members.value].sort((a, b) => (a.isSelf === b.isSelf ? 0 : a.isSelf ? -1 : 1))
 })
 
+const recentRoomEvents = computed(() => {
+  return [...roomEvents.value].slice(-30).reverse()
+})
+
 const remoteMembers = computed(() => roomMembers.value.filter((item) => !item.isSelf).slice(0, 3))
+
+const currentSpeakerName = computed(() => {
+  const speakerID = String(currentSpeakerUserId.value || '').trim()
+  if (!speakerID) return '暂无'
+  const member = members.value.find((item) => item.userId === speakerID)
+  return member?.displayName || `成员 ${speakerID}`
+})
 
 const inviteLink = computed(() => {
   if (!invitation.value?.id) return ''
@@ -145,7 +168,7 @@ function resolveInvitationCodeFromRoute() {
 function getWsSignalUrl() {
   const url = new URL(API_BASE_URL, window.location.origin)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-  url.pathname = `${url.pathname.replace(/\/$/, '')}/interview/live/ws`
+  url.pathname = `${url.pathname.replace(/\/$/, '')}/ws/interview/group`
   url.searchParams.set('room_id', roomId.value)
   url.searchParams.set('invitation_code', invitationCode.value || resolveInvitationCodeFromRoute())
   url.searchParams.set('token', userStore.token || '')
@@ -183,7 +206,7 @@ function removeMember(userId) {
   members.value = members.value.filter((item) => item.userId !== id)
 }
 
-function appendMessage(kind, text, fromSelf, senderName) {
+function appendMessage(kind, text, fromSelf, senderName, senderRole = '') {
   const content = String(text || '').trim()
   if (!content) return
   messages.value.push({
@@ -192,8 +215,44 @@ function appendMessage(kind, text, fromSelf, senderName) {
     text: content,
     fromSelf,
     senderName,
+    senderRole: String(senderRole || '').trim().toLowerCase(),
     createdAt: new Date().toLocaleTimeString()
   })
+}
+
+function appendRoomEvent(eventType, text, actorName = '系统', actorRole = 'system') {
+  const content = String(text || '').trim()
+  if (!content) return
+  roomEvents.value.push({
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    eventType: String(eventType || 'system').trim().toLowerCase(),
+    text: content,
+    actorName: String(actorName || '系统').trim() || '系统',
+    actorRole: String(actorRole || 'system').trim().toLowerCase(),
+    createdAt: new Date().toLocaleTimeString()
+  })
+  if (roomEvents.value.length > 120) {
+    roomEvents.value.splice(0, roomEvents.value.length - 120)
+  }
+}
+
+function resolveMemberDisplayName(userID, fallbackName = '') {
+  const id = String(userID || '').trim()
+  if (!id) return String(fallbackName || '成员').trim() || '成员'
+  const member = members.value.find((item) => item.userId === id)
+  if (member?.displayName) return member.displayName
+  const fallback = String(fallbackName || '').trim()
+  if (fallback) return fallback
+  return `成员 ${id}`
+}
+
+function formatRoleLabel(senderRole, fromSelf = false) {
+  if (fromSelf) return '我'
+  const roleValue = String(senderRole || '').trim().toLowerCase()
+  if (roleValue === 'student') return '候选人'
+  if (roleValue === 'enterprise') return '企业面试官'
+  if (roleValue === 'university') return '高校导师'
+  return '成员'
 }
 
 async function loadInvitationByID(invitationID) {
@@ -422,7 +481,7 @@ function buildStarterCode(language) {
     '  return nums',
     '}',
     '',
-    'console.log(solve([1, 2, 2, 3]))',
+    'const result = solve([1, 2, 2, 3])',
   ].join('\n')
 }
 
@@ -546,8 +605,27 @@ function voteGroupStart() {
   sendSignal('group_start_vote', {
     sender_name: getSelfDisplayName(),
     role: role.value,
-    target_participants: TARGET_PARTICIPANTS,
-    start_threshold: TEST_START_THRESHOLD,
+    target_participants: groupTargetParticipants.value,
+    start_threshold: groupStartThreshold.value,
+    interview_id: interviewId.value
+  })
+}
+
+function claimMicRound() {
+  if (!signalSocket || signalSocket.readyState !== WebSocket.OPEN) return
+  sendSignal('group_claim_mic', {
+    sender_name: getSelfDisplayName(),
+    role: role.value,
+    round_duration_sec: 90,
+    interview_id: interviewId.value
+  })
+}
+
+function passToNextSpeaker() {
+  if (!signalSocket || signalSocket.readyState !== WebSocket.OPEN) return
+  sendSignal('group_round_next', {
+    sender_name: getSelfDisplayName(),
+    role: role.value,
     interview_id: interviewId.value
   })
 }
@@ -577,7 +655,7 @@ async function triggerStartInterview() {
       }
     }
 
-    groupStarted.value = true
+    groupInterviewStore.markGroupStarted()
     statusText.value = '主控已开始面试'
 
     sendSignal('group_start', {
@@ -635,38 +713,66 @@ async function handleSignalMessage(raw) {
       'chat',
       data.display_text || data.text,
       isSelfSignal,
-      data.sender_name || (isSelfSignal ? getSelfDisplayName() : '成员')
+      data.sender_name || (isSelfSignal ? getSelfDisplayName() : '成员'),
+      data.role
     )
     return
   }
 
   if (msg.type === 'group_invite') {
-    groupStartThreshold.value = Number(data.start_threshold || TEST_START_THRESHOLD)
-    groupTargetParticipants.value = Number(data.target_participants || TARGET_PARTICIPANTS)
+    groupInterviewStore.syncGroupInvite(data, {
+      startThreshold: TEST_START_THRESHOLD,
+      targetParticipants: TARGET_PARTICIPANTS,
+    })
     appendMessage(
       'system',
       `${data.sender_name || '系统'} 发起了群面邀请，目标 ${groupTargetParticipants.value} 人，测试开考阈值 ${groupStartThreshold.value} 人。`,
       false,
       '系统'
     )
+    appendRoomEvent(
+      'invite',
+      `${data.sender_name || '系统'} 更新群面配置：目标 ${groupTargetParticipants.value} 人，阈值 ${groupStartThreshold.value} 人。`,
+      data.sender_name || '系统',
+      data.role || 'system'
+    )
     return
   }
 
   if (msg.type === 'group_start_status') {
-    groupReadyCount.value = Number(data.ready_count || 0)
-    groupStartThreshold.value = Number(data.start_threshold || TEST_START_THRESHOLD)
-    groupTargetParticipants.value = Number(data.target_participants || TARGET_PARTICIPANTS)
-    if (data.started) {
-      groupStarted.value = true
+    groupInterviewStore.syncGroupStartStatus(data, {
+      startThreshold: TEST_START_THRESHOLD,
+      targetParticipants: TARGET_PARTICIPANTS,
+    })
+    if (Boolean(data.started)) {
       statusText.value = '群面已开始'
+      if (!announcedGroupStarted) {
+        announcedGroupStarted = true
+        appendRoomEvent('start', `群面已达开考条件（${groupReadyCount.value}/${groupStartThreshold.value}），流程开始。`)
+      }
     }
     return
   }
 
   if (msg.type === 'group_start') {
-    groupStarted.value = true
+    groupInterviewStore.markGroupStarted()
     statusText.value = String(data.message || '群面流程已开始')
     appendMessage('system', statusText.value, false, '系统')
+    if (!announcedGroupStarted) {
+      announcedGroupStarted = true
+      appendRoomEvent('start', statusText.value)
+    }
+    return
+  }
+
+  if (msg.type === 'group_round_sync') {
+    const previousSpeakerID = String(currentSpeakerUserId.value || '').trim()
+    groupInterviewStore.syncRoundRobinState(data)
+    const nextSpeakerID = String(currentSpeakerUserId.value || '').trim()
+    if (nextSpeakerID && nextSpeakerID !== previousSpeakerID) {
+      const speakerName = resolveMemberDisplayName(nextSpeakerID)
+      appendRoomEvent('round', `轮到 ${speakerName} 发言${countdownSeconds.value > 0 ? `（${countdownSeconds.value}s）` : ''}`)
+    }
     return
   }
 
@@ -692,6 +798,9 @@ async function handleSignalMessage(raw) {
 
   if (msg.type === 'join') {
     statusText.value = '成员已进入房间'
+    if (!isSelfSignal) {
+      appendRoomEvent('member', `${resolveMemberDisplayName(senderID, data.sender_name)} 加入房间`, data.sender_name, data.role)
+    }
     if (isStudent.value) {
       await createAndSendOffer()
     } else {
@@ -740,8 +849,10 @@ async function handleSignalMessage(raw) {
   }
 
   if (msg.type === 'leave') {
+    const leftName = resolveMemberDisplayName(senderID, data.sender_name)
     removeMember(senderID)
     statusText.value = '成员已离开房间'
+    appendRoomEvent('member', `${leftName} 离开房间`, data.sender_name, data.role)
     return
   }
 
@@ -758,6 +869,7 @@ function connectSignalSocket() {
 
   signalSocket.onopen = () => {
     statusText.value = '已进入房间，等待群面开始'
+    appendRoomEvent('member', `${getSelfDisplayName()} 进入房间`, getSelfDisplayName(), role.value)
 
     upsertMember({
       userId: selfUserId.value,
@@ -775,6 +887,7 @@ function connectSignalSocket() {
     }
 
     sendGroupInvite()
+    sendSignal('group_round_sync_request', { interview_id: interviewId.value })
   }
 
   signalSocket.onmessage = async (event) => {
@@ -919,6 +1032,7 @@ async function finalizeInterviewAndReport() {
 
 function cleanup() {
   stopRealtimeASR()
+  groupInterviewStore.cleanup()
 
   if (signalSocket) {
     if (signalSocket.readyState === WebSocket.OPEN) {
@@ -960,6 +1074,7 @@ function cleanup() {
   if (remoteVideoRefC.value) remoteVideoRefC.value.srcObject = null
 
   pendingCandidates = []
+  announcedGroupStarted = false
 }
 
 async function leaveRoom() {
@@ -988,10 +1103,11 @@ async function initAndJoinRoom(invitationID = 0) {
     cleanup()
     members.value = []
     messages.value = []
-    groupStarted.value = false
-    groupReadyCount.value = 0
-    groupStartThreshold.value = TEST_START_THRESHOLD
-    groupTargetParticipants.value = TARGET_PARTICIPANTS
+    roomEvents.value = []
+    groupInterviewStore.resetSessionState({
+      startThreshold: TEST_START_THRESHOLD,
+      targetParticipants: TARGET_PARTICIPANTS,
+    })
     codePanelOpen.value = false
     mockCodeSubmitting.value = false
     codeDraft.value = ''
@@ -1079,10 +1195,10 @@ watch(micOn, (enabled) => {
   }
 })
 
-onBeforeRouteLeave((_to, _from, next) => {
+onBeforeRouteLeave(() => {
   isRouteLeaving.value = true
   cleanup()
-  next()
+  return true
 })
 
 onBeforeUnmount(() => {
@@ -1143,6 +1259,13 @@ onBeforeUnmount(() => {
                   <div class="mt-3 text-xs text-slate-100/80">
                     开考投票：{{ groupReadyCount }} / {{ groupStartThreshold }}（目标容量 {{ groupTargetParticipants }} 人）
                   </div>
+                  <div class="mt-2 text-xs text-slate-100/80">
+                    当前发言：{{ currentSpeakerName }}
+                    <span v-if="countdownSeconds > 0">（剩余 {{ countdownSeconds }}s）</span>
+                  </div>
+                  <div class="mt-2 text-xs text-slate-100/80">
+                    抢麦队列：{{ speakingQueue.length > 0 ? speakingQueue.join(' -> ') : '暂无排队' }}
+                  </div>
                 </div>
               </div>
 
@@ -1194,6 +1317,12 @@ onBeforeUnmount(() => {
                 </button>
                 <button class="btn-subtle" :disabled="!canVoteStart" @click="voteGroupStart">
                   发送准备信号（阈值 {{ groupStartThreshold }}）
+                </button>
+                <button class="btn-subtle" :disabled="!hasRoom || !groupStarted" @click="claimMicRound">
+                  抢麦发言
+                </button>
+                <button class="btn-subtle" :disabled="!hasRoom || !groupStarted" @click="passToNextSpeaker">
+                  轮到下一位
                 </button>
                 <button class="btn-subtle" @click="toggleCodePanel">
                   <Code2 class="w-4 h-4" />
@@ -1247,6 +1376,23 @@ onBeforeUnmount(() => {
               <p v-if="roomMembers.length === 0" class="text-xs text-slate-100/70">暂无成员</p>
             </div>
 
+            <div class="event-board mb-3">
+              <div class="event-board-head">
+                <h3>系统事件时间轴</h3>
+                <span>{{ roomEvents.length }} 条</span>
+              </div>
+              <div class="event-scroll">
+                <p v-if="recentRoomEvents.length === 0" class="text-xs text-slate-100/65">等待事件同步...</p>
+                <div v-for="event in recentRoomEvents" :key="event.id" class="event-item" :class="`event-${event.eventType}`">
+                  <div class="event-item-head">
+                    <span>{{ event.actorName }}</span>
+                    <span>{{ event.createdAt }}</span>
+                  </div>
+                  <p>{{ event.text }}</p>
+                </div>
+              </div>
+            </div>
+
             <div class="chat-scroll flex-1 min-h-0">
               <p v-if="messages.length === 0" class="text-sm text-slate-100/70 text-center py-10">等待消息中...</p>
               <div
@@ -1256,7 +1402,10 @@ onBeforeUnmount(() => {
                 :class="item.fromSelf ? 'bubble-self' : (item.kind === 'system' ? 'bubble-system' : 'bubble-other')"
               >
                 <div class="bubble-head">
-                  <span>{{ item.senderName }}</span>
+                  <div class="bubble-head-main">
+                    <span>{{ item.senderName }}</span>
+                    <span class="bubble-role">{{ formatRoleLabel(item.senderRole, item.fromSelf) }}</span>
+                  </div>
                   <span>{{ item.createdAt }}</span>
                 </div>
                 <p class="bubble-text">{{ item.text }}</p>
@@ -1383,6 +1532,70 @@ onBeforeUnmount(() => {
   background: rgba(25, 56, 96, 0.35);
 }
 
+.event-board {
+  border: 1px solid rgba(165, 213, 255, 0.22);
+  border-radius: 14px;
+  background: rgba(10, 22, 43, 0.52);
+  padding: 10px;
+}
+
+.event-board-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.event-board-head h3 {
+  font-size: 12px;
+  color: rgba(235, 247, 255, 0.92);
+}
+
+.event-board-head span {
+  font-size: 11px;
+  color: rgba(201, 226, 249, 0.76);
+}
+
+.event-scroll {
+  max-height: 132px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-right: 3px;
+}
+
+.event-item {
+  border-radius: 10px;
+  border: 1px solid rgba(166, 213, 255, 0.2);
+  background: rgba(22, 49, 84, 0.35);
+  padding: 7px 8px;
+}
+
+.event-item-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: rgba(208, 231, 252, 0.78);
+  margin-bottom: 3px;
+}
+
+.event-item p {
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(236, 246, 255, 0.94);
+}
+
+.event-start {
+  border-color: rgba(137, 239, 184, 0.36);
+  background: rgba(43, 120, 81, 0.28);
+}
+
+.event-round {
+  border-color: rgba(250, 209, 128, 0.36);
+  background: rgba(121, 86, 32, 0.26);
+}
+
 .chat-scroll {
   overflow-y: auto;
   padding-right: 4px;
@@ -1394,16 +1607,19 @@ onBeforeUnmount(() => {
   padding: 10px 12px;
   margin-bottom: 10px;
   backdrop-filter: blur(8px);
+  box-shadow: 0 10px 20px rgba(5, 18, 38, 0.25);
 }
 
 .bubble-self {
   background: linear-gradient(135deg, rgba(76, 159, 255, 0.28), rgba(98, 174, 255, 0.18));
   border-color: rgba(156, 214, 255, 0.45);
+  margin-left: 18px;
 }
 
 .bubble-other {
   background: linear-gradient(135deg, rgba(34, 76, 128, 0.35), rgba(37, 86, 145, 0.24));
   border-color: rgba(142, 194, 247, 0.35);
+  margin-right: 18px;
 }
 
 .bubble-system {
@@ -1418,6 +1634,21 @@ onBeforeUnmount(() => {
   font-size: 11px;
   color: rgba(230, 244, 255, 0.85);
   margin-bottom: 6px;
+}
+
+.bubble-head-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bubble-role {
+  font-size: 10px;
+  border: 1px solid rgba(184, 222, 255, 0.46);
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: rgba(233, 246, 255, 0.95);
+  background: rgba(60, 123, 193, 0.28);
 }
 
 .bubble-text {

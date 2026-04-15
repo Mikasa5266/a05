@@ -142,7 +142,6 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import { getGrowthStats } from '../api/growth'
 import { 
   Award, Target, TrendingUp, ChevronRight, BookOpen, FileText 
@@ -171,7 +170,6 @@ ChartJS.register(
   LinearScale
 )
 
-const router = useRouter()
 const loading = ref(true)
 const radarData = ref(null)
 const lineData = ref(null)
@@ -186,6 +184,7 @@ const resumeTipsLoading = ref(false)
 const isMobile = ref(false)
 
 let mobileMediaQuery = null
+let resumeTipsTimer = null
 
 const learningPhases = ref([
   { title: '基础巩固期', duration: '第1-2周', color: 'bg-indigo-500', dotColor: 'bg-indigo-400', tasks: ['数据结构与算法复习', '编程语言核心特性回顾', '常见设计模式学习', '代码规范与最佳实践'] },
@@ -258,8 +257,12 @@ const syncMobileState = () => {
 
 const generateResumeTips = async () => {
   resumeTipsLoading.value = true
-  // Simulate API call for resume optimization suggestions
-  setTimeout(() => {
+  if (resumeTipsTimer) {
+    clearTimeout(resumeTipsTimer)
+    resumeTipsTimer = null
+  }
+  resumeTipsTimer = setTimeout(() => {
+    resumeTipsTimer = null
     resumeTips.value = [
       '突出面试中展现的技术亮点，例如分布式系统设计经验',
       '将项目描述与目标岗位JD高度对齐，减少无关经历',
@@ -334,6 +337,10 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  if (resumeTipsTimer) {
+    clearTimeout(resumeTipsTimer)
+    resumeTipsTimer = null
+  }
   if (!mobileMediaQuery) return
   if (mobileMediaQuery.removeEventListener) {
     mobileMediaQuery.removeEventListener('change', syncMobileState)

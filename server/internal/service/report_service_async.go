@@ -9,6 +9,7 @@ import (
 
 	"your-project/internal/model"
 	internalruntime "your-project/internal/runtime"
+	aidomain "your-project/internal/service/ai"
 )
 
 func buildGeneratingReportRecord(existing *model.Report, interview *model.Interview, userID uint, answers []model.AnswerResult) *model.Report {
@@ -18,14 +19,8 @@ func buildGeneratingReportRecord(existing *model.Report, interview *model.Interv
 		end = *interview.EndTime
 	}
 
-	totalScore := 0
-	for _, answer := range answers {
-		totalScore += answer.Score
-	}
-	averageScore := 0
-	if len(answers) > 0 {
-		averageScore = totalScore / len(answers)
-	}
+	coverage := buildReportCoverageStats(interview, answers)
+	averageScore := computePenalizedAverageScore(answers, coverage.ExpectedCount)
 
 	report := existing
 	if report == nil {
@@ -44,7 +39,7 @@ func buildGeneratingReportRecord(existing *model.Report, interview *model.Interv
 	report.InterviewID = interview.ID
 	report.Position = interview.Position
 	report.Difficulty = interview.Difficulty
-	report.TotalQuestions = len(answers)
+	report.TotalQuestions = coverage.ExpectedCount
 	report.AverageScore = averageScore
 	report.OverallAnalysis = "报告生成中，请稍后刷新。"
 	report.Status = reportStatusGenerating
@@ -107,16 +102,9 @@ func (s *ReportService) generateAndPersistCompletedReport(ctx context.Context, u
 		return fmt.Errorf("load answers failed: %w", err)
 	}
 
-	totalScore := 0
-	for _, answer := range answers {
-		totalScore += answer.Score
-	}
-	averageScore := 0
-	if len(answers) > 0 {
-		averageScore = totalScore / len(answers)
-	}
-
-	aggregated := aggregateReportDimensionScores(answers, averageScore)
+	coverage := buildReportCoverageStats(interview, answers)
+	averageScore := computePenalizedAverageScore(answers, coverage.ExpectedCount)
+	aggregated := aggregateReportDimensionScores(answers, averageScore, coverage)
 	qaDetails := buildReportQADetailsFromAnswers(answers)
 	strengths, weaknesses, suggestions := s.analyzePerformance(answers)
 	overallAnalysis := "基于面试表现，建议继续提升技术能力。"
@@ -126,7 +114,15 @@ func (s *ReportService) generateAndPersistCompletedReport(ctx context.Context, u
 	matchingScore := aggregated.Matching
 	behaviorScore := aggregated.Behavior
 
-	if insights, aiErr := s.aiService.GenerateReportInsights(ctx, interview, answers); aiErr == nil && insights != nil {
+	policy := aidomain.ReportScoringPolicy{
+		ExpectedCount: coverage.ExpectedCount,
+		ActualCount:   coverage.ActualCount,
+		MissingCount:  coverage.MissingCount,
+		MissingAsZero: true,
+		EarlyExit:     normalizeInterviewExitType(interview.ExitType) == interviewExitTypeEarlyExit,
+	}
+
+	if insights, aiErr := s.aiService.GenerateReportInsights(ctx, interview, answers, policy); aiErr == nil && insights != nil {
 		overallAnalysis = insights.OverallAnalysis
 		if len(insights.Strengths) > 0 {
 			strengths = insights.Strengths
@@ -151,6 +147,16 @@ func (s *ReportService) generateAndPersistCompletedReport(ctx context.Context, u
 		}
 	}
 
+	if coverage.MissingCount > 0 {
+		technicalScore = minScore(technicalScore, aggregated.Technical)
+		expressionScore = minScore(expressionScore, aggregated.Expression)
+		logicScore = minScore(logicScore, aggregated.Logic)
+		matchingScore = minScore(matchingScore, aggregated.Matching)
+		behaviorScore = minScore(behaviorScore, aggregated.Behavior)
+		settlementNote := fmt.Sprintf("本场面试按提前结算规则处理：计划 %d 题，实际作答 %d 题，缺失 %d 题按 0 分计入。", coverage.ExpectedCount, coverage.ActualCount, coverage.MissingCount)
+		overallAnalysis = strings.TrimSpace(settlementNote + " " + strings.TrimSpace(overallAnalysis))
+	}
+
 	end := time.Now()
 	if interview.EndTime != nil {
 		end = *interview.EndTime
@@ -169,7 +175,7 @@ func (s *ReportService) generateAndPersistCompletedReport(ctx context.Context, u
 	report.InterviewID = interviewID
 	report.Position = interview.Position
 	report.Difficulty = interview.Difficulty
-	report.TotalQuestions = len(answers)
+	report.TotalQuestions = coverage.ExpectedCount
 	report.AverageScore = averageScore
 	report.OverallAnalysis = overallAnalysis
 	report.Status = reportStatusCompleted
@@ -214,6 +220,13 @@ func (s *ReportService) generateAndPersistCompletedReport(ctx context.Context, u
 		return fmt.Errorf("persist completed report failed: %w", err)
 	}
 	return nil
+}
+
+func minScore(left, right int) int {
+	if left < right {
+		return clampScore(left)
+	}
+	return clampScore(right)
 }
 
 func (s *ReportService) markReportFailed(interviewID uint, reason string) {

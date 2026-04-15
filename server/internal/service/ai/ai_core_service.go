@@ -90,6 +90,14 @@ type ReportInsights struct {
 	QADetails       []ReportQADetail `json:"qa_details"`
 }
 
+type ReportScoringPolicy struct {
+	ExpectedCount int  `json:"expected_count"`
+	ActualCount   int  `json:"actual_count"`
+	MissingCount  int  `json:"missing_count"`
+	MissingAsZero bool `json:"missing_as_zero"`
+	EarlyExit     bool `json:"early_exit"`
+}
+
 // Chat exposes the raw LLM chat capability.
 func (s *AIService) Chat(ctx context.Context, prompt string) (string, error) {
 	return s.chat(ctx, prompt, "chat", nil)

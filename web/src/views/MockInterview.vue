@@ -9,7 +9,7 @@ import InterviewContainer from '../components/InterviewContainer.vue'
 import { useInterviewConfig } from '../composables/useInterviewConfig'
 import { useInterviewChat } from '../composables/useInterviewChat'
 import { useInterviewCore } from '../composables/useInterviewCore'
-import { useInterviewStore } from '../stores/useInterviewStore'
+import { useMockInterviewStore } from '../stores/useMockInterviewStore'
 
 const route = useRoute()
 const router = useRouter()
@@ -23,7 +23,7 @@ const {
 let getChatAdditionalStreams = () => []
 let stopChatSpeechAnalysis = () => {}
 
-const interviewStore = useInterviewStore()
+const interviewStore = useMockInterviewStore()
 const {
   interviewId,
   questions,
@@ -527,14 +527,15 @@ const advanceToNextQuestion = () => {
   scrollToBottom()
 }
 
-const completeInterview = async () => {
+const completeInterview = async (options = {}) => {
+  const forceSubmit = options?.forceSubmit === true
   if (isFinishing.value || !interviewId.value) return
   isFinishing.value = true
   isGeneratingReport.value = true
   stopAISpeech()
   try {
     const replayUploaded = await stopAndUploadInterviewRecording()
-    await apiEndInterview(interviewId.value)
+    await apiEndInterview(interviewId.value, forceSubmit ? { force_submit: true } : {})
     if (settings.value.interviewMode === 'human') {
       await loadUserInvitations()
     }
@@ -568,6 +569,15 @@ const completeInterview = async () => {
     isFinishing.value = false
     scrollToBottom()
   }
+}
+
+const submitInterviewEarly = async () => {
+  if (isFinishing.value || !interviewId.value) return
+  const firstConfirm = window.confirm('提前交卷后，未作答题目将按 0 分计入结算。是否继续？')
+  if (!firstConfirm) return
+  const secondConfirm = window.confirm('请再次确认：确定立即结束面试并生成报告吗？')
+  if (!secondConfirm) return
+  await completeInterview({ forceSubmit: true })
 }
 
 const viewReport = async () => {
@@ -753,6 +763,7 @@ const chatProps = computed(() => ({
   processingHint: processingHint.value,
   canAnswerCurrentQuestion: canAnswerCurrentQuestion.value,
   pendingEnd: pendingEnd.value,
+  canEarlySubmit: Boolean(interviewId.value) && !pendingEnd.value,
   energyLevel: energyLevel.value,
   speechAnalysisActive: speechAnalysisActive.value,
   messages: messages.value,
@@ -814,9 +825,9 @@ onMounted(() => {
   })
 })
 
-onBeforeRouteLeave((_to, _from, next) => {
+onBeforeRouteLeave(() => {
   cleanupInterviewPageSideEffects()
-  next()
+  return true
 })
 
 onBeforeUnmount(() => {
@@ -841,6 +852,7 @@ onBeforeUnmount(() => {
       @update:user-input="onUserInputUpdate"
       @send-message="onSendMessage"
       @toggle-answer-recording="onToggleAnswerRecording"
+      @early-submit="submitInterviewEarly"
       @close-random-reveal="randomStyleRevealed = false"
     />
 

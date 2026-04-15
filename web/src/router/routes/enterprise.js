@@ -7,6 +7,8 @@ const JobManagement = () => import("../../views/enterprise/JobManagement.vue");
 const HRPanel = () => import("../../views/enterprise/HRPanel.vue");
 const InterviewWorkbench = () =>
   import("../../views/enterprise/InterviewWorkbench.vue");
+const GroupInterviewWorkbench = () =>
+  import("../../views/enterprise/GroupInterviewWorkbench.vue");
 const Analytics = () => import("../../views/enterprise/Analytics.vue");
 const Standards = () => import("../../views/enterprise/Standards.vue");
 const LiveInterviewRoomOneOnOne = () =>
@@ -62,14 +64,22 @@ export const enterpriseRoutes = [
         meta: roleMeta,
       },
       {
+        path: "group-interview/workbench",
+        name: "EnterpriseGroupInterviewWorkbench",
+        component: GroupInterviewWorkbench,
+        meta: roleMeta,
+      },
+      {
         path: "live-interview",
         redirect: (to) => {
           const invitationId = String(to.query?.invitation_id || "").trim();
+          const isGroup = String(to.query?.group_mode || "").trim() === "1";
           if (!invitationId) {
-            return "/enterprise/interview-workbench";
+            return isGroup
+              ? "/enterprise/group-interview/workbench"
+              : "/enterprise/interview-workbench";
           }
           const invitationCode = String(to.query?.invitation_code || "").trim();
-          const isGroup = String(to.query?.group_mode || "").trim() === "1";
           const targetPath = isGroup
             ? `/enterprise/live-interview/group/${encodeURIComponent(invitationId)}`
             : `/enterprise/live-interview/1v1/${encodeURIComponent(invitationId)}`;

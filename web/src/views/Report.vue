@@ -42,23 +42,40 @@
             <span>{{ qaDetails.length }} 个题目节点</span>
           </div>
 
-          <div class="replay-tabs">
-            <button
-              v-for="source in playbackSources"
-              :key="source.key"
-              class="tab-pill"
-              :class="{ active: activePlaybackTab === source.key }"
-              @click="activePlaybackTab = source.key"
-            >
-              {{ source.label }}
-            </button>
+          <div v-if="isGroupScenario" class="group-replay-layout">
+            <section class="group-replay-main">
+              <p class="replay-hint">群面报告默认展示多人回放主轨，便于复盘成员互动。</p>
+              <div class="replay-stage">
+                <video v-if="groupPrimaryPlaybackUrl" :src="groupPrimaryPlaybackUrl" controls class="replay-video"></video>
+                <div v-else class="replay-placeholder">
+                  <p>暂无多人回放视频</p>
+                  <small>可稍后重试或上传群面录屏文件。</small>
+                </div>
+              </div>
+            </section>
+
+            <section class="group-replay-side">
+              <div class="group-replay-side-card">
+                <h3>单人视角回放（可选）</h3>
+                <div class="replay-stage compact">
+                  <video v-if="groupSecondaryPlaybackUrl" :src="groupSecondaryPlaybackUrl" controls class="replay-video"></video>
+                  <div v-else class="replay-placeholder compact">
+                    <p>暂无单人视角视频</p>
+                    <small>当前报告仅提供群面主轨。</small>
+                  </div>
+                </div>
+              </div>
+            </section>
           </div>
 
-          <div class="replay-stage">
-            <video v-if="activePlaybackUrl" :src="activePlaybackUrl" controls class="replay-video"></video>
-            <div v-else class="replay-placeholder">
-              <p>暂无可播放视频</p>
-              <small>回放字段已预留单人/多人切换能力</small>
+          <div v-else>
+            <p class="replay-hint">单人面试仅展示单人回放轨道。</p>
+            <div class="replay-stage">
+              <video v-if="singlePlaybackUrl" :src="singlePlaybackUrl" controls class="replay-video"></video>
+              <div v-else class="replay-placeholder">
+                <p>暂无单人回放视频</p>
+                <small>可稍后重试或上传单人录屏文件。</small>
+              </div>
             </div>
           </div>
 
@@ -77,7 +94,7 @@
             </article>
           </div>
 
-          <div class="conversation-grid">
+          <div v-if="isGroupScenario" class="conversation-grid">
             <section>
               <h3>语音转写片段</h3>
               <ul>
@@ -195,7 +212,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { downloadReport, generateReport, getReport, getReports } from '../api/report'
 import GlassEchart from '../components/report/GlassEchart.vue'
@@ -205,7 +222,6 @@ const route = useRoute()
 const report = ref({})
 const historyData = ref([])
 const showFeedbackModal = ref(false)
-const activePlaybackTab = ref('single')
 
 const feedbackForm = reactive({
   accuracy: 7,
@@ -371,31 +387,36 @@ const overallAnalysis = computed(() => String(report.value.overall_analysis || '
 const audioTranscripts = computed(() => normalizeMessageList(report.value.audio_transcripts, 'speaker_id'))
 const chatMessages = computed(() => normalizeMessageList(report.value.chat_messages, 'sender_id'))
 
-const playbackSources = computed(() => {
+const resolvedScenarioType = computed(() => {
+  const scenarioRaw = String(report.value.scenario_type || '').trim().toLowerCase()
+  if (scenarioRaw === 'group') return 'group'
+  if (scenarioRaw === 'single') return 'single'
+  if (typeof report.value.is_group === 'boolean') {
+    return report.value.is_group ? 'group' : 'single'
+  }
+  const hasMultiPlayback = String(report.value.multi_playback || '').trim() !== ''
+  return hasMultiPlayback ? 'group' : 'single'
+})
+
+const isGroupScenario = computed(() => resolvedScenarioType.value === 'group')
+const replayFallbackUrl = computed(() => resolveReplayUrl(report.value.replay_url))
+
+const singlePlaybackUrl = computed(() => {
   const single = resolveReplayUrl(report.value.single_playback)
+  if (single) return single
+  if (!isGroupScenario.value) return replayFallbackUrl.value
+  return ''
+})
+
+const multiPlaybackUrl = computed(() => {
   const multi = resolveReplayUrl(report.value.multi_playback)
-  const fallback = resolveReplayUrl(report.value.replay_url)
-
-  return [
-    { key: 'single', label: '单人回放', url: single || fallback },
-    { key: 'multi', label: '多人回放', url: multi }
-  ]
+  if (multi) return multi
+  if (isGroupScenario.value) return replayFallbackUrl.value
+  return ''
 })
 
-const activePlaybackUrl = computed(() => {
-  const selected = playbackSources.value.find((item) => item.key === activePlaybackTab.value)
-  return selected?.url || ''
-})
-
-watch(
-  () => playbackSources.value,
-  (sources) => {
-    if (!sources.find((item) => item.key === activePlaybackTab.value)) {
-      activePlaybackTab.value = 'single'
-    }
-  },
-  { immediate: true }
-)
+const groupPrimaryPlaybackUrl = computed(() => multiPlaybackUrl.value || singlePlaybackUrl.value)
+const groupSecondaryPlaybackUrl = computed(() => singlePlaybackUrl.value)
 
 const scoreGaugeOption = computed(() => ({
   backgroundColor: 'transparent',
@@ -807,23 +828,35 @@ onMounted(async () => {
   font-size: 12px;
 }
 
-.replay-tabs {
-  display: flex;
-  gap: 8px;
-}
-
-.tab-pill {
-  border-radius: 999px;
-  border: 1px solid rgba(169, 205, 247, 0.32);
-  background: rgba(31, 63, 103, 0.45);
-  color: rgba(219, 237, 255, 0.88);
+.replay-hint {
+  margin-top: 8px;
   font-size: 12px;
-  padding: 6px 12px;
+  color: rgba(196, 220, 245, 0.78);
 }
 
-.tab-pill.active {
-  background: rgba(104, 177, 255, 0.27);
-  border-color: rgba(185, 226, 255, 0.64);
+.group-replay-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.group-replay-main,
+.group-replay-side {
+  min-width: 0;
+}
+
+.group-replay-side-card {
+  border-radius: 14px;
+  border: 1px solid rgba(172, 207, 248, 0.24);
+  background: rgba(9, 22, 43, 0.45);
+  padding: 10px;
+}
+
+.group-replay-side-card h3 {
+  color: rgba(228, 241, 255, 0.94);
+  font-size: 12px;
+  margin-bottom: 8px;
 }
 
 .replay-stage {
@@ -832,6 +865,10 @@ onMounted(async () => {
   border: 1px solid rgba(172, 207, 248, 0.24);
   overflow: hidden;
   background: rgba(7, 15, 31, 0.86);
+}
+
+.replay-stage.compact {
+  margin-top: 0;
 }
 
 .replay-video {
@@ -849,6 +886,10 @@ onMounted(async () => {
   justify-content: center;
   color: rgba(204, 226, 250, 0.72);
   gap: 8px;
+}
+
+.replay-placeholder.compact {
+  min-height: 180px;
 }
 
 .replay-placeholder small {
@@ -1072,6 +1113,10 @@ onMounted(async () => {
 
 @media (max-width: 1280px) {
   .content-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .group-replay-layout {
     grid-template-columns: 1fr;
   }
 

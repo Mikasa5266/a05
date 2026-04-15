@@ -8,6 +8,8 @@ const SupportSystem = () => import("../../views/university/SupportSystem.vue");
 const Courses = () => import("../../views/university/Courses.vue");
 const InterviewWorkbench = () =>
   import("../../views/university/InterviewWorkbench.vue");
+const GroupInterviewWorkbench = () =>
+  import("../../views/university/GroupInterviewWorkbench.vue");
 const Employment = () => import("../../views/university/Employment.vue");
 const TalentPush = () => import("../../views/university/TalentPush.vue");
 const LiveInterviewRoomOneOnOne = () =>
@@ -75,14 +77,22 @@ export const universityRoutes = [
         meta: roleMeta,
       },
       {
+        path: "group-interview/workbench",
+        name: "UniversityGroupInterviewWorkbench",
+        component: GroupInterviewWorkbench,
+        meta: roleMeta,
+      },
+      {
         path: "live-interview",
         redirect: (to) => {
           const invitationId = String(to.query?.invitation_id || "").trim();
+          const isGroup = String(to.query?.group_mode || "").trim() === "1";
           if (!invitationId) {
-            return "/university/interview-workbench";
+            return isGroup
+              ? "/university/group-interview/workbench"
+              : "/university/interview-workbench";
           }
           const invitationCode = String(to.query?.invitation_code || "").trim();
-          const isGroup = String(to.query?.group_mode || "").trim() === "1";
           const targetPath = isGroup
             ? `/university/live-interview/group/${encodeURIComponent(invitationId)}`
             : `/university/live-interview/1v1/${encodeURIComponent(invitationId)}`;

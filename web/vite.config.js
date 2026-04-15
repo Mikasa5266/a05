@@ -66,28 +66,29 @@ export default defineConfig(({ mode, command }) => {
 
   return {
     plugins,
-    optimizeDeps: isServeCommand
-      ? {
-          // Prebundle heavy libraries once at startup to avoid repeated slow route switches in dev.
-          include: [
-            "vue",
-            "vue-router",
-            "pinia",
-            "axios",
-            "dayjs",
-            "element-plus",
-            "@element-plus/icons-vue",
-            "lucide-vue-next",
-            "echarts/core",
-            "echarts/charts",
-            "echarts/components",
-            "echarts/renderers",
-            "chart.js",
-            "vue-chartjs",
-            "monaco-editor",
-          ],
-        }
-      : undefined,
+    optimizeDeps: {
+      // ngrok is sensitive to many tiny module requests; aggressively prebundle heavy deps.
+      force: isServeCommand,
+      include: [
+        "vue",
+        "vue-router",
+        "pinia",
+        "axios",
+        "dayjs",
+        "element-plus",
+        "@element-plus/icons-vue",
+        "lucide-vue-next",
+        "echarts",
+        "echarts/core",
+        "echarts/charts",
+        "echarts/components",
+        "echarts/renderers",
+        "zrender",
+        "chart.js",
+        "vue-chartjs",
+        "monaco-editor",
+      ],
+    },
     build: {
       sourcemap: false,
       cssCodeSplit: true,

@@ -44,6 +44,10 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  canEarlySubmit: {
+    type: Boolean,
+    default: false
+  },
   userInput: {
     type: String,
     default: ''
@@ -76,7 +80,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['toggle-answer-recording', 'send-message', 'toggle-mute', 'end-interview'])
+const emit = defineEmits(['toggle-answer-recording', 'send-message', 'toggle-mute', 'early-submit'])
 
 const showSendButton = computed(() => {
   return !props.isAlgorithmStyle && (!props.isVideoInterviewMode || props.latestAiMessage?.type === 'feedback')
@@ -90,6 +94,10 @@ const recordDisabled = computed(() => {
   return props.isSubmitting || props.isFinishing || !props.canAnswerCurrentQuestion || props.answerVoiceStatus === 'requesting' || props.answerVoiceStatus === 'transcribing' || props.answerVoiceStatus === 'submitting'
 })
 
+const earlySubmitDisabled = computed(() => {
+  return !props.canEarlySubmit || props.isProcessing || props.isSubmitting || props.isFinishing || props.answerVoiceStatus === 'recording'
+})
+
 const onToggleAnswerRecording = () => {
   if (props.isSubmitting || props.isFinishing) return
   emit('toggle-answer-recording')
@@ -98,6 +106,11 @@ const onToggleAnswerRecording = () => {
 const onSendMessage = () => {
   if (props.isSubmitting || props.isFinishing) return
   emit('send-message')
+}
+
+const onEarlySubmit = () => {
+  if (earlySubmitDisabled.value) return
+  emit('early-submit')
 }
 </script>
 
@@ -127,6 +140,15 @@ const onSendMessage = () => {
       <MicOff v-else class="h-4 w-4" />
       <span v-if="answerVoiceStatus === 'recording'">结束语音并开始分析</span>
       <span v-else>{{ canAnswerCurrentQuestion ? (isVideoInterviewMode ? '开始语音回答' : '语音回答') : '等待题目描述完成' }}</span>
+    </button>
+
+    <button
+      @click="onEarlySubmit"
+      :disabled="earlySubmitDisabled"
+      class="w-full py-2.5 rounded-2xl font-semibold text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 border shrink-0"
+      :class="earlySubmitDisabled ? 'bg-zinc-100 text-zinc-400 border-zinc-200' : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'"
+    >
+      提前交卷并生成报告
     </button>
 
     <button

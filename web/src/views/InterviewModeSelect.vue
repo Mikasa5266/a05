@@ -70,16 +70,13 @@ const cards = [
   },
   {
     title: '群面模式',
-    description: '进入 AI 群面模拟场景，还原无领导小组讨论流程，支持多角色 AI 队友/面试官。',
+    description: '进入独立群面工作台，邀请 3-5 人协同讨论（测试可 2 人），全程视频与公屏聊天记录同步沉淀。',
     icon: Users,
     iconWrapClass: 'bg-emerald-100',
     iconClass: 'text-emerald-600',
     enabled: true,
-    path: '/interview/live/workbench',
-    query: {
-      group_mode: '1',
-      source: 'group_mode'
-    }
+    path: '/interview/group/workbench',
+    query: {}
   },
   {
     title: '盲盒模式',

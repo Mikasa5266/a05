@@ -94,8 +94,22 @@ func GetReport(c *gin.Context) {
 	}
 	interview, _ := service.GetInterviewByID(userID, report.InterviewID)
 	replayURL := ""
+	singlePlayback := normalizeReplayURL(report.SinglePlayback)
+	multiPlayback := normalizeReplayURL(report.MultiPlayback)
+	scenarioType := "single"
+	isGroup := false
 	if interview != nil {
 		replayURL = normalizeReplayURL(interview.RecordingURL)
+		isGroup = interview.IsGroup
+		if isGroup {
+			scenarioType = "group"
+		}
+	}
+	if singlePlayback == "" && !isGroup {
+		singlePlayback = replayURL
+	}
+	if multiPlayback == "" && isGroup {
+		multiPlayback = replayURL
 	}
 
 	resp := gin.H{
@@ -117,9 +131,15 @@ func GetReport(c *gin.Context) {
 		"end_time":         report.EndTime,
 		"duration":         report.Duration,
 		"replay_url":       replayURL,
+		"single_playback":  singlePlayback,
+		"multi_playback":   multiPlayback,
+		"is_group":         isGroup,
+		"scenario_type":    scenarioType,
 		"created_at":       report.CreatedAt,
 		"updated_at":       report.UpdatedAt,
 		"qa_details":       report.GetQADetails(),
+		"audio_transcripts": report.GetAudioTranscripts(),
+		"chat_messages":     report.GetChatMessages(),
 	}
 	for k, v := range buildReportResponse(report) {
 		resp[k] = v
@@ -147,8 +167,22 @@ func GenerateReport(c *gin.Context) {
 	}
 	interview, _ := service.GetInterviewByID(userID, report.InterviewID)
 	replayURL := ""
+	singlePlayback := normalizeReplayURL(report.SinglePlayback)
+	multiPlayback := normalizeReplayURL(report.MultiPlayback)
+	scenarioType := "single"
+	isGroup := false
 	if interview != nil {
 		replayURL = normalizeReplayURL(interview.RecordingURL)
+		isGroup = interview.IsGroup
+		if isGroup {
+			scenarioType = "group"
+		}
+	}
+	if singlePlayback == "" && !isGroup {
+		singlePlayback = replayURL
+	}
+	if multiPlayback == "" && isGroup {
+		multiPlayback = replayURL
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -172,12 +206,18 @@ func GenerateReport(c *gin.Context) {
 			"end_time":         report.EndTime,
 			"duration":         report.Duration,
 			"replay_url":       replayURL,
+			"single_playback":  singlePlayback,
+			"multi_playback":   multiPlayback,
+			"is_group":         isGroup,
+			"scenario_type":    scenarioType,
 			"created_at":       report.CreatedAt,
 			"updated_at":       report.UpdatedAt,
 			"strengths":        report.GetStrengths(),
 			"weaknesses":       report.GetWeaknesses(),
 			"suggestions":      report.GetSuggestions(),
 			"qa_details":       report.GetQADetails(),
+			"audio_transcripts": report.GetAudioTranscripts(),
+			"chat_messages":     report.GetChatMessages(),
 		},
 	})
 }

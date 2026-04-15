@@ -12,6 +12,13 @@ const (
 )
 
 const (
+	interviewEventForceSubmit = "force_submit"
+
+	interviewExitTypeNormal    = "normal"
+	interviewExitTypeEarlyExit = "early_exit"
+)
+
+const (
 	invitationStatusPending    = "pending"
 	invitationStatusAccepted   = "accepted"
 	invitationStatusRejected   = "rejected"
@@ -22,6 +29,18 @@ const (
 
 func normalizeStatusValue(status string) string {
 	return strings.ToLower(strings.TrimSpace(status))
+}
+
+func normalizeInterviewExitType(exitType string) string {
+	value := strings.ToLower(strings.TrimSpace(exitType))
+	switch value {
+	case interviewExitTypeEarlyExit:
+		return interviewExitTypeEarlyExit
+	case interviewExitTypeNormal:
+		return interviewExitTypeNormal
+	default:
+		return ""
+	}
 }
 
 func transitionInterviewStatus(current, target string) (string, error) {
@@ -51,6 +70,25 @@ func transitionInterviewStatus(current, target string) (string, error) {
 	}
 
 	return "", fmt.Errorf("非法面试状态流转: %s -> %s", current, target)
+}
+
+func transitionInterviewStatusByEvent(current, event string) (string, string, error) {
+	from := normalizeStatusValue(current)
+	evt := normalizeStatusValue(event)
+
+	if from == "" || evt == "" {
+		return "", "", fmt.Errorf("面试状态或事件不能为空")
+	}
+
+	switch evt {
+	case interviewEventForceSubmit:
+		switch from {
+		case interviewStatusPending, interviewStatusInProgress, interviewStatusCompleted:
+			return interviewStatusCompleted, interviewExitTypeEarlyExit, nil
+		}
+	}
+
+	return "", "", fmt.Errorf("非法面试事件流转: %s + %s", current, event)
 }
 
 func transitionInvitationStatus(current, target string) (string, error) {

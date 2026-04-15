@@ -62,7 +62,7 @@ type AIEvaluationService interface {
 
 type AIReportService interface {
 	GenerateOverallAnalysis(ctx context.Context, interview *model.Interview, answers []model.AnswerResult) (string, error)
-	GenerateReportInsights(ctx context.Context, interview *model.Interview, answers []model.AnswerResult) (*ReportInsights, error)
+	GenerateReportInsights(ctx context.Context, interview *model.Interview, answers []model.AnswerResult, policy ReportScoringPolicy) (*ReportInsights, error)
 }
 
 type AISpeechService interface {

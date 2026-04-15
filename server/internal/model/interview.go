@@ -116,7 +116,8 @@ type Interview struct {
 	RecordingStatus        string         `gorm:"default:'none';size:20" json:"recording_status,omitempty"`
 	ASRCallCount           int            `gorm:"default:0" json:"asr_call_count,omitempty"`
 	TTSCharCount           int            `gorm:"default:0" json:"tts_char_count,omitempty"`
-	Status                 string         `gorm:"default:'pending';size:20" json:"status"` // pending, in_progress, completed
+	Status                 string         `gorm:"default:'pending';size:20" json:"status"`       // pending, in_progress, completed
+	ExitType               string         `gorm:"size:20;default:''" json:"exit_type,omitempty"` // normal, early_exit
 	StartTime              time.Time      `json:"start_time"`
 	EndTime                *time.Time     `json:"end_time,omitempty"`
 	CurrentIndex           int            `gorm:"default:0" json:"current_index"`

@@ -9,6 +9,8 @@ const BlindBoxMode = () => import("../../views/BlindBoxMode.vue");
 const InterviewModeSelect = () => import("../../views/InterviewModeSelect.vue");
 const StudentLiveInterviewWorkbench = () =>
   import("../../views/student/LiveInterviewWorkbench.vue");
+const StudentGroupInterviewWorkbench = () =>
+  import("../../views/student/GroupInterviewWorkbench.vue");
 const LiveInterviewRoomOneOnOne = () =>
   import("../../views/LiveInterviewRoomOneOnOne.vue");
 const LiveInterviewRoomGroup = () =>
@@ -66,11 +68,13 @@ export const studentRoutes = [
         path: "live-interview",
         redirect: (to) => {
           const invitationId = String(to.query?.invitation_id || "").trim();
+          const isGroup = String(to.query?.group_mode || "").trim() === "1";
           if (!invitationId) {
-            return "/interview/live/workbench";
+            return isGroup
+              ? "/interview/group/workbench"
+              : "/interview/live/workbench";
           }
           const invitationCode = String(to.query?.invitation_code || "").trim();
-          const isGroup = String(to.query?.group_mode || "").trim() === "1";
           const targetPath = isGroup
             ? `/interview/live/group/${encodeURIComponent(invitationId)}`
             : `/interview/live/1v1/${encodeURIComponent(invitationId)}`;
@@ -81,12 +85,6 @@ export const studentRoutes = [
         },
         meta: roleMeta,
       },
-      // {
-      //   path: "growth",
-      //   name: "GrowthCenter",
-      //   component: GrowthCenter,
-      //   meta: roleMeta,
-      // },
       {
         path: "resume",
         name: "ResumeCenter",
@@ -210,6 +208,12 @@ export const studentRoutes = [
         meta: roleMeta,
       },
       {
+        path: "group/workbench",
+        name: "StudentGroupInterviewWorkbench",
+        component: StudentGroupInterviewWorkbench,
+        meta: roleMeta,
+      },
+      {
         path: "live/1v1/:id",
         name: "StudentLiveInterviewRoomOneOnOne",
         component: LiveInterviewRoomOneOnOne,
@@ -225,11 +229,13 @@ export const studentRoutes = [
         path: "live/room",
         redirect: (to) => {
           const invitationId = String(to.query?.invitation_id || "").trim();
+          const isGroup = String(to.query?.group_mode || "").trim() === "1";
           if (!invitationId) {
-            return "/interview/live/workbench";
+            return isGroup
+              ? "/interview/group/workbench"
+              : "/interview/live/workbench";
           }
           const invitationCode = String(to.query?.invitation_code || "").trim();
-          const isGroup = String(to.query?.group_mode || "").trim() === "1";
           const targetPath = isGroup
             ? `/interview/live/group/${encodeURIComponent(invitationId)}`
             : `/interview/live/1v1/${encodeURIComponent(invitationId)}`;

@@ -10,9 +10,9 @@ const invitationId = computed(() => String(route.params?.id || '').trim())
 
 const fallbackPath = computed(() => {
   const currentPath = String(route.path || '')
-  if (currentPath.startsWith('/enterprise/')) return '/enterprise/interview-workbench'
-  if (currentPath.startsWith('/university/')) return '/university/interview-workbench'
-  return '/interview/live/workbench'
+  if (currentPath.startsWith('/enterprise/')) return '/enterprise/group-interview/workbench'
+  if (currentPath.startsWith('/university/')) return '/university/group-interview/workbench'
+  return '/interview/group/workbench'
 })
 
 watch(

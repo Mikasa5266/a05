@@ -37,6 +37,7 @@ const emit = defineEmits([
   'update:user-input',
   'send-message',
   'toggle-answer-recording',
+  'early-submit',
   'close-random-reveal'
 ])
 
@@ -73,6 +74,7 @@ const currentInterviewProps = computed(() => {
       @update:user-input="emit('update:user-input', $event)"
       @send-message="emit('send-message')"
       @toggle-answer-recording="emit('toggle-answer-recording')"
+      @early-submit="emit('early-submit')"
       @close-random-reveal="emit('close-random-reveal')"
     />
   </div>

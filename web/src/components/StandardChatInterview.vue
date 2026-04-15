@@ -113,6 +113,10 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  canEarlySubmit: {
+    type: Boolean,
+    default: false
+  },
   energyLevel: {
     type: Number,
     default: 0
@@ -169,6 +173,7 @@ const emit = defineEmits([
   'update:user-input',
   'send-message',
   'toggle-answer-recording',
+  'early-submit',
   'view-report',
   'close-random-reveal'
 ])
@@ -309,6 +314,7 @@ const voiceStatusClass = computed(() => {
         :is-video-interview-mode="isVideoInterviewMode"
         :latest-ai-message="latestAiMessage"
         :pending-end="pendingEnd"
+        :can-early-submit="canEarlySubmit"
         :user-input="userInput"
         :speech-metrics="speechMetrics"
         :energy-level="energyLevel"
@@ -317,6 +323,7 @@ const voiceStatusClass = computed(() => {
         :mic-volume="energyLevel"
         @toggle-answer-recording="emit('toggle-answer-recording')"
         @send-message="emit('send-message')"
+        @early-submit="emit('early-submit')"
       />
     </div>
 

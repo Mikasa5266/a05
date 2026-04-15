@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -22,18 +23,7 @@ const coreRequestTimeout = 10 * time.Second
 
 // InterviewSignalWS provides a websocket signaling channel for live human interview rooms.
 func InterviewSignalWS(c *gin.Context) {
-	handshake, statusCode, errMsg := resolveLiveSignalHandshake(c)
-	if handshake == nil {
-		c.JSON(statusCode, gin.H{"error": errMsg})
-		return
-	}
-
-	if err := ensureSingleRoomConnection(handshake.identity, handshake.roomID); err != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-		return
-	}
-
-	proxyLiveSignalToHub(c, handshake.identity, handshake.roomID)
+	InterviewLiveWS(c)
 }
 
 func JoinInterview(c *gin.Context) {
@@ -251,6 +241,9 @@ func CreateHumanInvitation(c *gin.Context) {
 		Style          string `json:"style" binding:"required"`
 		Company        string `json:"company"`
 		Notes          string `json:"notes"`
+		ScenarioType   string `json:"scenario_type,omitempty"`
+		TargetParticipants int `json:"target_participants,omitempty"`
+		StartThreshold int `json:"start_threshold,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -274,6 +267,42 @@ func CreateHumanInvitation(c *gin.Context) {
 		inviteeIDs = append(inviteeIDs, req.InviteeUserID)
 	}
 
+	requestedScenarioType := strings.ToLower(strings.TrimSpace(req.ScenarioType))
+	if requestedScenarioType == "" {
+		if req.TargetParticipants > 2 || req.StartThreshold > 2 || len(inviteeIDs) > 1 {
+			requestedScenarioType = "group"
+		} else {
+			requestedScenarioType = "single"
+		}
+	}
+	if requestedScenarioType != "single" && requestedScenarioType != "group" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scenario_type 仅支持 single 或 group"})
+		return
+	}
+
+	uniqueInvitee := map[uint]struct{}{}
+	for _, id := range inviteeIDs {
+		if id == 0 {
+			continue
+		}
+		uniqueInvitee[id] = struct{}{}
+	}
+	inviteeCount := len(uniqueInvitee)
+	if requestedScenarioType == "single" && inviteeCount > 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "单人面试仅支持 1 位受邀者"})
+		return
+	}
+	if requestedScenarioType == "group" {
+		if inviteeCount < 1 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "群面至少需要邀请 1 位同伴"})
+			return
+		}
+		if inviteeCount > 4 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "群面最多支持邀请 4 位同伴（总人数最多 5）"})
+			return
+		}
+	}
+
 	invitation, err := service.CreateHumanInvitationBatch(
 		initiatorUserID,
 		inviteeIDs,
@@ -290,7 +319,18 @@ func CreateHumanInvitation(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "邀请已发送", "invitation": invitation})
+	configured, err := service.ConfigureHumanInvitationScenario(
+		invitation.ID,
+		requestedScenarioType,
+		req.TargetParticipants,
+		req.StartThreshold,
+	)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"message": "邀请已发送", "invitation": configured})
 }
 
 func GetHumanInvitations(c *gin.Context) {
@@ -520,7 +560,17 @@ func EndInterview(c *gin.Context) {
 		return
 	}
 
-	interview, err := service.EndInterview(userID, uint(interviewID))
+	var req struct {
+		ForceSubmit bool `json:"force_submit"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	interview, err := service.EndInterviewWithOptions(userID, uint(interviewID), service.EndInterviewOptions{
+		ForceSubmit: req.ForceSubmit,
+	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

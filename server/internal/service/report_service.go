@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 
 	"your-project/internal/model"
@@ -123,7 +124,79 @@ type reportDimensionScores struct {
 	Behavior   int
 }
 
-func aggregateReportDimensionScores(answers []model.AnswerResult, fallback int) reportDimensionScores {
+type reportCoverageStats struct {
+	ExpectedCount   int
+	ActualCount     int
+	MissingCount    int
+	CompletionRatio float64
+}
+
+func buildReportCoverageStats(interview *model.Interview, answers []model.AnswerResult) reportCoverageStats {
+	actualCount := len(answers)
+	expectedCount := 0
+	if interview != nil {
+		expectedCount = interview.TotalQuestionTarget
+		if arranged := len(interview.InterviewQuestions); arranged > expectedCount {
+			expectedCount = arranged
+		}
+	}
+	if expectedCount <= 0 {
+		expectedCount = actualCount
+	}
+	if expectedCount < actualCount {
+		expectedCount = actualCount
+	}
+
+	missingCount := expectedCount - actualCount
+	if missingCount < 0 {
+		missingCount = 0
+	}
+
+	completionRatio := 1.0
+	if expectedCount > 0 {
+		completionRatio = float64(actualCount) / float64(expectedCount)
+	}
+	if completionRatio < 0 {
+		completionRatio = 0
+	}
+	if completionRatio > 1 {
+		completionRatio = 1
+	}
+
+	return reportCoverageStats{
+		ExpectedCount:   expectedCount,
+		ActualCount:     actualCount,
+		MissingCount:    missingCount,
+		CompletionRatio: completionRatio,
+	}
+}
+
+func computePenalizedAverageScore(answers []model.AnswerResult, expectedCount int) int {
+	totalScore := 0
+	for _, answer := range answers {
+		totalScore += answer.Score
+	}
+
+	denominator := expectedCount
+	if denominator <= 0 {
+		denominator = len(answers)
+	}
+	if denominator <= 0 {
+		return 0
+	}
+	return clampScore(totalScore / denominator)
+}
+
+func applyCoveragePenalty(score int, coverage reportCoverageStats) int {
+	base := clampScore(score)
+	if coverage.MissingCount <= 0 {
+		return base
+	}
+	penalized := int(math.Round(float64(base) * coverage.CompletionRatio))
+	return clampScore(penalized)
+}
+
+func aggregateReportDimensionScores(answers []model.AnswerResult, fallback int, coverage reportCoverageStats) reportDimensionScores {
 	totalTech := 0
 	totalExpr := 0
 	totalLogic := 0
@@ -154,13 +227,19 @@ func aggregateReportDimensionScores(answers []model.AnswerResult, fallback int) 
 	}
 
 	if count == 0 {
-		return reportDimensionScores{
+		scores := reportDimensionScores{
 			Technical:  clampScore(fallback),
 			Expression: clampScore(fallback + 3),
 			Logic:      clampScore(fallback),
 			Matching:   clampScore(fallback - 2),
 			Behavior:   clampScore(fallback + 2),
 		}
+		scores.Technical = applyCoveragePenalty(scores.Technical, coverage)
+		scores.Expression = applyCoveragePenalty(scores.Expression, coverage)
+		scores.Logic = applyCoveragePenalty(scores.Logic, coverage)
+		scores.Matching = applyCoveragePenalty(scores.Matching, coverage)
+		scores.Behavior = applyCoveragePenalty(scores.Behavior, coverage)
+		return scores
 	}
 
 	avgTech := totalTech / count
@@ -171,13 +250,19 @@ func aggregateReportDimensionScores(answers []model.AnswerResult, fallback int) 
 	matching := (avgTech*45 + avgComp*35 + avgLogic*20 + 50) / 100
 	behavior := (avgExpr*60 + avgLogic*40 + 50) / 100
 
-	return reportDimensionScores{
+	scores := reportDimensionScores{
 		Technical:  clampScore(avgTech),
 		Expression: clampScore(avgExpr),
 		Logic:      clampScore(avgLogic),
 		Matching:   clampScore(matching),
 		Behavior:   clampScore(behavior),
 	}
+	scores.Technical = applyCoveragePenalty(scores.Technical, coverage)
+	scores.Expression = applyCoveragePenalty(scores.Expression, coverage)
+	scores.Logic = applyCoveragePenalty(scores.Logic, coverage)
+	scores.Matching = applyCoveragePenalty(scores.Matching, coverage)
+	scores.Behavior = applyCoveragePenalty(scores.Behavior, coverage)
+	return scores
 }
 
 func isFlatDimensionReport(report *model.Report) bool {

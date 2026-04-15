@@ -39,6 +39,56 @@ func TestTransitionInterviewStatus(t *testing.T) {
 	}
 }
 
+func TestTransitionInterviewStatusByEvent(t *testing.T) {
+	tests := []struct {
+		name         string
+		from         string
+		event        string
+		wantStatus   string
+		wantExitType string
+		wantErr      bool
+	}{
+		{name: "in_progress force submit", from: interviewStatusInProgress, event: interviewEventForceSubmit, wantStatus: interviewStatusCompleted, wantExitType: interviewExitTypeEarlyExit},
+		{name: "pending force submit", from: interviewStatusPending, event: interviewEventForceSubmit, wantStatus: interviewStatusCompleted, wantExitType: interviewExitTypeEarlyExit},
+		{name: "completed force submit idempotent", from: interviewStatusCompleted, event: interviewEventForceSubmit, wantStatus: interviewStatusCompleted, wantExitType: interviewExitTypeEarlyExit},
+		{name: "invalid event", from: interviewStatusInProgress, event: "submit", wantErr: true},
+		{name: "empty status", from: "", event: interviewEventForceSubmit, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotStatus, gotExitType, err := transitionInterviewStatusByEvent(tt.from, tt.event)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if gotStatus != tt.wantStatus {
+				t.Fatalf("unexpected status: got=%s want=%s", gotStatus, tt.wantStatus)
+			}
+			if gotExitType != tt.wantExitType {
+				t.Fatalf("unexpected exit type: got=%s want=%s", gotExitType, tt.wantExitType)
+			}
+		})
+	}
+}
+
+func TestNormalizeInterviewExitType(t *testing.T) {
+	if got := normalizeInterviewExitType(" EARLY_EXIT "); got != interviewExitTypeEarlyExit {
+		t.Fatalf("normalize early_exit failed: %s", got)
+	}
+	if got := normalizeInterviewExitType("normal"); got != interviewExitTypeNormal {
+		t.Fatalf("normalize normal failed: %s", got)
+	}
+	if got := normalizeInterviewExitType("unknown"); got != "" {
+		t.Fatalf("unknown exit type should be empty, got=%s", got)
+	}
+}
+
 func TestTransitionInvitationStatus(t *testing.T) {
 	tests := []struct {
 		name    string

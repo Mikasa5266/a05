@@ -3,7 +3,7 @@
     <header class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-2xl md:text-3xl font-bold text-zinc-900">{{ titleText }}</h1>
-        <p class="text-sm text-zinc-500 mt-1">邀请处理、面试进行中监控与历史评价统一视图</p>
+        <p class="text-sm text-zinc-500 mt-1">{{ subtitleText }}</p>
       </div>
       <button
         class="px-4 py-2 rounded-xl border border-zinc-200 bg-white text-zinc-700 text-sm font-medium hover:bg-zinc-50 transition-colors disabled:opacity-60"
@@ -25,13 +25,13 @@
         正在加载面试工作台数据...
       </div>
 
-      <div v-else-if="store.currentList.length === 0" class="h-56 flex items-center justify-center text-zinc-400 text-sm">
+      <div v-else-if="currentList.length === 0" class="h-56 flex items-center justify-center text-zinc-400 text-sm">
         当前状态暂无记录
       </div>
 
       <div v-else class="space-y-4">
         <article
-          v-for="item in store.currentList"
+          v-for="item in currentList"
           :key="item.id"
           class="rounded-2xl border border-zinc-100 p-4 md:p-5 hover:shadow-sm transition-shadow"
         >
@@ -66,30 +66,100 @@ import { ElMessage } from 'element-plus'
 import WorkbenchActionPanel from '../../components/workbench/WorkbenchActionPanel.vue'
 import WorkbenchSidebarTabs from '../../components/workbench/WorkbenchSidebarTabs.vue'
 import WorkbenchStatusDisplay from '../../components/workbench/WorkbenchStatusDisplay.vue'
+import { getHumanInvitations, getReceivedHumanInvitations } from '../../api/interview'
 import { useInterviewWorkbenchStore } from '../../stores/interviewWorkbench'
 
 const props = defineProps({
   portal: {
     type: String,
     required: true
+  },
+  scenario: {
+    type: String,
+    default: 'all'
   }
 })
 
 const router = useRouter()
 const store = useInterviewWorkbenchStore()
 const nowTick = ref(Date.now())
+const invitationMetaMap = ref({})
 let countdownTimer = null
 let refreshTimer = null
 
 const routePrefix = computed(() => (props.portal === 'university' ? '/university' : '/enterprise'))
-const titleText = computed(() => (props.portal === 'university' ? '高校端面试管理工作台' : '企业端面试管理工作台'))
+const normalizedScenario = computed(() => {
+  const raw = String(props.scenario || '').trim().toLowerCase()
+  return raw === 'group' || raw === 'single' ? raw : 'all'
+})
+const titleText = computed(() => {
+  if (props.portal === 'university') {
+    if (normalizedScenario.value === 'group') return '高校端群面工作台'
+    if (normalizedScenario.value === 'single') return '高校端真人面试工作台'
+    return '高校端面试管理工作台'
+  }
+  if (normalizedScenario.value === 'group') return '企业端群面工作台'
+  if (normalizedScenario.value === 'single') return '企业端真人面试工作台'
+  return '企业端面试管理工作台'
+})
+const subtitleText = computed(() => {
+  if (normalizedScenario.value === 'group') {
+    return '群面邀请处理、开考状态追踪与房间进入'
+  }
+  if (normalizedScenario.value === 'single') {
+    return '真人 1v1 邀请处理、进行中监控与历史评价'
+  }
+  return '邀请处理、面试进行中监控与历史评价统一视图'
+})
+
+function getItemMeta(item) {
+  const id = String(item?.id || '').trim()
+  if (!id) return {}
+  return invitationMetaMap.value[id] || {}
+}
+
+function normalizeScenarioType(rawScenario) {
+  const normalized = String(rawScenario || '').trim().toLowerCase()
+  return normalized === 'group' ? 'group' : normalized === 'single' ? 'single' : ''
+}
+
+function getItemTargetParticipants(item) {
+  const raw = Number(item?.target_participants ?? getItemMeta(item)?.target_participants ?? 0)
+  return Number.isFinite(raw) ? raw : 0
+}
+
+const isGroupInvitation = (item) => {
+  const scenarioType = normalizeScenarioType(item?.scenario_type || getItemMeta(item)?.scenario_type)
+  const targetParticipants = getItemTargetParticipants(item)
+  return scenarioType === 'group' || targetParticipants > 2
+}
+
+const matchesScenarioFilter = (item) => {
+  if (normalizedScenario.value === 'group') return isGroupInvitation(item)
+  if (normalizedScenario.value === 'single') return !isGroupInvitation(item)
+  return true
+}
+
+const scopedInviteList = computed(() => store.inviteList.filter(matchesScenarioFilter))
+const scopedPending = computed(() => store.pending.filter(matchesScenarioFilter))
+const scopedProcessed = computed(() => store.processed.filter(matchesScenarioFilter))
+const scopedInProgress = computed(() => store.inProgress.filter(matchesScenarioFilter))
+const scopedHistory = computed(() => store.history.filter(matchesScenarioFilter))
+
+const currentList = computed(() => {
+  if (store.activeTab === 'pending') return scopedPending.value
+  if (store.activeTab === 'processed') return scopedProcessed.value
+  if (store.activeTab === 'in_progress') return scopedInProgress.value
+  if (store.activeTab === 'history') return scopedHistory.value
+  return scopedInviteList.value
+})
 
 const tabs = computed(() => ([
-  { key: 'invite_list', label: '邀请列表', count: store.summary.invite_count },
-  { key: 'pending', label: '待处理', count: store.summary.pending_count },
-  { key: 'processed', label: '已处理', count: store.summary.processed_count },
-  { key: 'in_progress', label: '正在面试', count: store.summary.in_progress_count },
-  { key: 'history', label: '面试历史', count: store.summary.history_count }
+  { key: 'invite_list', label: '邀请列表', count: scopedInviteList.value.length },
+  { key: 'pending', label: '待处理', count: scopedPending.value.length },
+  { key: 'processed', label: '已处理', count: scopedProcessed.value.length },
+  { key: 'in_progress', label: '正在面试', count: scopedInProgress.value.length },
+  { key: 'history', label: '面试历史', count: scopedHistory.value.length }
 ]))
 
 const statusLabel = (status) => {
@@ -159,7 +229,28 @@ const formatCountdown = (item) => {
 
 const refreshWorkbench = async () => {
   try {
-    await store.fetchWorkbench()
+    await Promise.all([
+      store.fetchWorkbench(),
+      (async () => {
+        const [sentRes, receivedRes] = await Promise.all([
+          getHumanInvitations(),
+          getReceivedHumanInvitations()
+        ])
+        const sent = Array.isArray(sentRes?.invitations) ? sentRes.invitations : []
+        const received = Array.isArray(receivedRes?.invitations) ? receivedRes.invitations : []
+        const merged = {}
+        ;[...sent, ...received].forEach((inv) => {
+          const id = String(inv?.id || '').trim()
+          if (!id) return
+          merged[id] = {
+            scenario_type: inv?.scenario_type,
+            target_participants: inv?.target_participants,
+            start_threshold: inv?.start_threshold,
+          }
+        })
+        invitationMetaMap.value = merged
+      })()
+    ])
   } catch (error) {
     ElMessage.error(error?.response?.data?.error || '工作台数据加载失败')
   }
@@ -174,12 +265,6 @@ const respondInvitation = async (invitationId, action) => {
   }
 }
 
-const isGroupInvitation = (item) => {
-  const scenarioType = String(item?.scenario_type || '').trim().toLowerCase()
-  const targetParticipants = Number(item?.target_participants || 0)
-  return scenarioType === 'group' || targetParticipants > 2
-}
-
 const enterLiveRoom = (item) => {
   const invitationId = String(item?.id || '').trim()
   if (!invitationId) {
@@ -187,7 +272,7 @@ const enterLiveRoom = (item) => {
     return
   }
 
-  const isGroup = isGroupInvitation(item)
+  const isGroup = normalizedScenario.value === 'group' ? true : isGroupInvitation(item)
   const query = {}
   const invitationCode = String(item?.invitation_code || '').trim()
   if (invitationCode) {

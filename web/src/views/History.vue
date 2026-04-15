@@ -145,8 +145,8 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ChevronRight, FileText } from 'lucide-vue-next'
 import dayjs from 'dayjs'
-import { generateReport, getReport, getReports } from '../api/report'
-import { getInterviews } from '../api/interview'
+import { generateReport, getReport } from '../api/report'
+import { getStudentInterviewHistory } from '../api/interview'
 import GlassEchart from '../components/report/GlassEchart.vue'
 
 const router = useRouter()
@@ -185,25 +185,6 @@ const parseStringList = (raw) => {
     }
   }
   return []
-}
-
-const isSuccessfulInterview = (interview, report) => {
-  if (report?.id || interview?.report?.id) {
-    return true
-  }
-
-  if (!interview || interview.status !== 'completed') return false
-
-  const plannedCount = Number(interview.total_question_target) || 0
-  const arrangedCount = Array.isArray(interview.questions) ? interview.questions.length : 0
-  const completedCount = Number(interview.current_index) || 0
-
-  const target = Math.max(plannedCount, arrangedCount)
-  if (target <= 0) {
-    return true
-  }
-
-  return completedCount >= target
 }
 
 const filteredRecords = computed(() => {
@@ -298,49 +279,34 @@ const detailMoodOption = computed(() => ({
 
 const fetchReports = async () => {
   try {
-    const [reportSettled, interviewSettled] = await Promise.allSettled([
-      getReports({ page: 1, page_size: 100 }),
-      getInterviews({ page: 1, page_size: 100 })
-    ])
+    const res = await getStudentInterviewHistory({ page: 1, page_size: 100 })
+    const rows = Array.isArray(res?.records) ? res.records : []
 
-    const reportList = reportSettled.status === 'fulfilled' ? (reportSettled.value?.reports || []) : []
-    const interviewList = interviewSettled.status === 'fulfilled' ? (interviewSettled.value?.interviews || []) : []
-    const reportMap = new Map(reportList.map((item) => [item.interview_id, item]))
+    records.value = rows.map((row) => {
+      const interviewId = Number(row?.interview_id ?? row?.id ?? 0)
+      const reportId = Number(row?.report_id ?? row?.report?.id ?? 0)
+      const successByStatus = String(row?.status || '').trim().toLowerCase() === 'completed'
+      const isSuccessful = Boolean(row?.is_successful ?? (reportId > 0 || successByStatus))
 
-    records.value = interviewList.map((interview) => {
-      const report = reportMap.get(interview.id)
-      const isSuccessful = isSuccessfulInterview(interview, report)
       return {
-        interview_id: interview.id,
-        position: interview.position,
-        difficulty: interview.difficulty,
-        status: interview.status,
-        current_index: interview.current_index,
-        total_question_target: interview.total_question_target,
-        questions: interview.questions,
-        created_at: interview.created_at,
-        average_score: report?.average_score ?? null,
-        report_id: report?.id ?? interview.report?.id ?? null,
+        interview_id: interviewId,
+        position: row?.position || '',
+        difficulty: row?.difficulty || '',
+        status: row?.status || '',
+        exit_type: row?.exit_type || '',
+        current_index: Number(row?.current_index || 0),
+        total_question_target: Number(row?.total_question_target || 0),
+        questions: Array.isArray(row?.questions) ? row.questions : [],
+        created_at: row?.created_at,
+        average_score: row?.average_score ?? null,
+        report_id: reportId > 0 ? reportId : null,
         is_successful: isSuccessful,
         is_interrupted: !isSuccessful
       }
     })
-
-    if (records.value.length === 0 && reportList.length > 0) {
-      records.value = reportList.map((report) => ({
-        interview_id: report.interview_id,
-        position: report.position,
-        difficulty: report.difficulty,
-        status: 'completed',
-        created_at: report.created_at,
-        average_score: report.average_score ?? null,
-        report_id: report.id,
-        is_successful: true,
-        is_interrupted: false
-      }))
-    }
   } catch (error) {
     console.error('Failed to fetch reports:', error)
+    records.value = []
   } finally {
     loading.value = false
   }

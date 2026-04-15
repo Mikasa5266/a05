@@ -51,6 +51,14 @@ export function getInterviews(params) {
   });
 }
 
+export function getStudentInterviewHistory(params = {}) {
+  return request({
+    url: "/student/interviews/history",
+    method: "get",
+    params,
+  });
+}
+
 export function submitAnswer(id, data) {
   return request({
     url: `/interview/${id}/answer`,
@@ -69,10 +77,11 @@ export function submitMockCode(interviewId, data) {
   });
 }
 
-export function endInterview(id) {
+export function endInterview(id, data = {}) {
   return request({
     url: `/interview/${id}/end`,
     method: "post",
+    data,
   });
 }
 

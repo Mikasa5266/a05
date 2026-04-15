@@ -12,6 +12,11 @@ import (
 type InterviewLifecycleUseCase interface {
 	SubmitAnswer(userID, interviewID, questionID uint, answer, audioData, audioMime, questionTitle, questionContent string) (*model.AnswerResult, error)
 	EndInterview(userID, interviewID uint) (*model.Interview, error)
+	EndInterviewWithOptions(userID, interviewID uint, options EndInterviewOptions) (*model.Interview, error)
+}
+
+type EndInterviewOptions struct {
+	ForceSubmit bool
 }
 
 type interviewLifecycleUseCase struct {
@@ -22,6 +27,22 @@ var _ InterviewLifecycleUseCase = (*interviewLifecycleUseCase)(nil)
 
 func NewInterviewLifecycleUseCase(service *InterviewService) InterviewLifecycleUseCase {
 	return &interviewLifecycleUseCase{service: service}
+}
+
+func markInterviewCompleted(interview *model.Interview, exitType string) error {
+	completedStatus, transitionErr := transitionInterviewStatus(interview.Status, interviewStatusCompleted)
+	if transitionErr != nil {
+		return transitionErr
+	}
+	interview.Status = completedStatus
+	if normalized := normalizeInterviewExitType(exitType); normalized != "" {
+		interview.ExitType = normalized
+	}
+	if interview.EndTime == nil {
+		t := time.Now()
+		interview.EndTime = &t
+	}
+	return nil
 }
 
 func (u *interviewLifecycleUseCase) SubmitAnswer(userID, interviewID, questionID uint, answer, audioData, audioMime, questionTitle, questionContent string) (*model.AnswerResult, error) {
@@ -143,22 +164,14 @@ func (u *interviewLifecycleUseCase) SubmitAnswer(userID, interviewID, questionID
 
 	allQuestions, _ := u.service.interviewRepo.GetInterviewQuestions(interviewID)
 	if interview.TotalQuestionTarget > 0 && len(answers) >= interview.TotalQuestionTarget {
-		completedStatus, transitionErr := transitionInterviewStatus(interview.Status, interviewStatusCompleted)
-		if transitionErr != nil {
-			return nil, transitionErr
+		if err := markInterviewCompleted(interview, interviewExitTypeNormal); err != nil {
+			return nil, err
 		}
-		interview.Status = completedStatus
-		t := time.Now()
-		interview.EndTime = &t
 		result.InterviewCompleted = true
 	} else if interview.CurrentIndex >= len(allQuestions) && result.NextQuestion == nil {
-		completedStatus, transitionErr := transitionInterviewStatus(interview.Status, interviewStatusCompleted)
-		if transitionErr != nil {
-			return nil, transitionErr
+		if err := markInterviewCompleted(interview, interviewExitTypeNormal); err != nil {
+			return nil, err
 		}
-		interview.Status = completedStatus
-		t := time.Now()
-		interview.EndTime = &t
 		result.InterviewCompleted = true
 	}
 
@@ -170,22 +183,42 @@ func (u *interviewLifecycleUseCase) SubmitAnswer(userID, interviewID, questionID
 }
 
 func (u *interviewLifecycleUseCase) EndInterview(userID, interviewID uint) (*model.Interview, error) {
+	return u.EndInterviewWithOptions(userID, interviewID, EndInterviewOptions{})
+}
+
+func (u *interviewLifecycleUseCase) EndInterviewWithOptions(userID, interviewID uint, options EndInterviewOptions) (*model.Interview, error) {
 	interview, err := u.service.GetInterviewByID(userID, interviewID)
 	if err != nil {
 		return nil, err
 	}
 
 	if normalizeStatusValue(interview.Status) == interviewStatusCompleted {
+		if options.ForceSubmit && normalizeInterviewExitType(interview.ExitType) != interviewExitTypeEarlyExit {
+			interview.ExitType = interviewExitTypeEarlyExit
+			if updateErr := u.service.interviewRepo.Update(interview); updateErr != nil {
+				return nil, fmt.Errorf("failed to update interview exit type: %w", updateErr)
+			}
+		}
 		return interview, nil
 	}
 
-	completedStatus, transitionErr := transitionInterviewStatus(interview.Status, interviewStatusCompleted)
-	if transitionErr != nil {
-		return nil, transitionErr
+	if options.ForceSubmit {
+		completedStatus, exitType, transitionErr := transitionInterviewStatusByEvent(interview.Status, interviewEventForceSubmit)
+		if transitionErr != nil {
+			return nil, transitionErr
+		}
+		interview.Status = completedStatus
+		interview.ExitType = normalizeInterviewExitType(exitType)
+	} else {
+		if err := markInterviewCompleted(interview, interviewExitTypeNormal); err != nil {
+			return nil, err
+		}
 	}
-	interview.Status = completedStatus
-	t := time.Now()
-	interview.EndTime = &t
+
+	if interview.EndTime == nil {
+		t := time.Now()
+		interview.EndTime = &t
+	}
 
 	if err := u.service.interviewRepo.Update(interview); err != nil {
 		return nil, fmt.Errorf("failed to update interview: %w", err)

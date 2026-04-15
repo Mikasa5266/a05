@@ -292,7 +292,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, reactive, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Search, ThumbsUp, MessageCircle, Eye, Award, BrainCircuit, Trash2 } from 'lucide-vue-next'
@@ -589,5 +589,11 @@ onMounted(() => {
   fetchPosts()
   runWhenIdle(fetchTopAlumni)
   runWhenIdle(fetchHotCompanies)
+})
+
+onBeforeUnmount(() => {
+  if (!debounceTimer) return
+  clearTimeout(debounceTimer)
+  debounceTimer = null
 })
 </script>
