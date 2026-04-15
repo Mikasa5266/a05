@@ -133,6 +133,8 @@ Copy-Item .env.example .env
 docker compose up -d --build
 ```
 
+说明：`docker-compose.yml` 默认开启 `INIT_DEMO_ACCOUNTS=true`，后端启动时会幂等补齐演示登录账号（不会重复创建同邮箱账号）。
+
 常用排查命令：
 
 ```bash

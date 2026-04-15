@@ -1,25 +1,18 @@
 # AI Interview Pro (a05)
 
 语言切换: [English](./README.md) | **中文**
-
 AI Interview Pro 是一个全栈的智能面试训练与人才协同平台。
 项目覆盖学生求职训练、企业招聘管理、高校就业支持，以及 AI 驱动的知识与社区能力。
 
-English version: [README.md](./README.md)
 
 ## 核心亮点
-
 - 三端门户统一架构：`student`、`enterprise`、`university`
 - 简历解析与岗位匹配（结构化结果）
 - 模拟面试主流程 + AI 追问策略 + 风格模式
-- 语音答题链路（录音 + Whisper 兼容 ASR 转写）
 - 面试报告、成长分析、历史记录
 - 企业模块：人才池、岗位管理、能力标准、招聘分析
 - 高校模块：学生跟踪、帮扶动作、人才推送
 - 社区模块：发帖、评论、点赞、导师预约
-
-## 技术栈
-
 - 后端：Go、Gin、GORM、MySQL、JWT
 - 前端：Vue 3、Vite、Pinia、Vue Router、Element Plus
 - AI/基础设施：LLM Provider 抽象、Whisper 兼容 ASR、OCR（Tesseract + pdftoppm）

@@ -40,6 +40,7 @@ services:
       DB_USERNAME: ${DB_USERNAME:-a05}
       DB_PASSWORD: lyh985211
       DB_DATABASE: ${DB_DATABASE:-interview_ai}
+      INIT_DEMO_ACCOUNTS: ${INIT_DEMO_ACCOUNTS:-true}
       JWT_SECRET: ${JWT_SECRET:-change_me_jwt_secret}
       LLM_PROVIDER: ${LLM_PROVIDER:-zhizengzeng}
       LLM_API_KEY: ${LLM_API_KEY:-}

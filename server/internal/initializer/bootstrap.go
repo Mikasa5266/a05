@@ -13,16 +13,24 @@ import (
 type BootstrapOptions struct {
 	EnsureDefaultPositions bool
 	SeedSampleQuestions    bool
+	SeedDemoAccounts       bool
 }
 
 func BootstrapOptionsFromEnv() BootstrapOptions {
 	return BootstrapOptions{
 		EnsureDefaultPositions: parseBoolEnv("INIT_DEFAULT_POSITIONS"),
 		SeedSampleQuestions:    parseBoolEnv("INIT_SAMPLE_QUESTIONS"),
+		SeedDemoAccounts:       parseBoolEnv("INIT_DEMO_ACCOUNTS"),
 	}
 }
 
 func RunBootstrap(db *gorm.DB, opts BootstrapOptions) error {
+	if opts.SeedDemoAccounts {
+		if err := EnsureDemoAccounts(db); err != nil {
+			return fmt.Errorf("failed to initialize demo accounts: %w", err)
+		}
+	}
+
 	if opts.EnsureDefaultPositions {
 		if err := repository.NewPositionRepository().EnsureDefaults(); err != nil {
 			return fmt.Errorf("failed to ensure default job positions: %w", err)
