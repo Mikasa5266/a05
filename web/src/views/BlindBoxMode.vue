@@ -18,33 +18,37 @@
       </div>
 
       <div class="blindbox-actions">
-        <button type="button" class="ghost-btn" @click="goHome">返回首页</button>
-        <button type="button" class="primary-btn" @click="startBlindBox">开始抽取盲盒</button>
+        <button type="button" class="ghost-btn" @click="goHome">
+          返回首页
+        </button>
+        <button type="button" class="primary-btn" @click="startBlindBox">
+          开始抽取盲盒
+        </button>
       </div>
     </article>
   </section>
 </template>
 
 <script setup>
-import { useRouter } from 'vue-router'
+import { useRouter } from "vue-router";
 
-const router = useRouter()
+const router = useRouter();
 
 const goHome = () => {
-  router.push('/student/dashboard')
-}
+  router.push("/student/dashboard");
+};
 
 const startBlindBox = () => {
   router.push({
-    path: '/interview/standard/setup',
+    path: "/interview/standard/setup",
     query: {
-      mode: 'blindbox',
-      style: 'gentle',
-      interviewMode: 'ai',
-      presentationMode: 'text_voice',
+      mode: "blindbox",
+      style: "gentle",
+      interviewMode: "ai",
+      presentationMode: "text_voice",
     },
-  })
-}
+  });
+};
 </script>
 
 <style scoped>
@@ -53,12 +57,24 @@ const startBlindBox = () => {
   min-height: calc(100vh - 220px);
   border-radius: 32px;
   overflow: hidden;
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  border: 1px solid rgba(148, 163, 184, 0.26);
   background:
-    radial-gradient(circle at 20% 15%, rgba(34, 197, 94, 0.16), transparent 30%),
-    radial-gradient(circle at 80% 25%, rgba(59, 130, 246, 0.22), transparent 34%),
-    radial-gradient(circle at 50% 85%, rgba(14, 165, 233, 0.18), transparent 36%),
-    linear-gradient(140deg, #0b1220 0%, #111827 50%, #0f172a 100%);
+    radial-gradient(
+      circle at 18% 18%,
+      rgba(56, 189, 248, 0.2),
+      transparent 33%
+    ),
+    radial-gradient(
+      circle at 84% 22%,
+      rgba(99, 102, 241, 0.14),
+      transparent 36%
+    ),
+    radial-gradient(
+      circle at 56% 86%,
+      rgba(16, 185, 129, 0.16),
+      transparent 38%
+    ),
+    linear-gradient(150deg, #f8fafc 0%, #f1f5f9 48%, #eef2ff 100%);
   display: grid;
   place-items: center;
   padding: 24px;
@@ -77,7 +93,7 @@ const startBlindBox = () => {
   height: 220px;
   top: 12%;
   left: 10%;
-  background: rgba(34, 197, 94, 0.38);
+  background: rgba(16, 185, 129, 0.28);
 }
 
 .nebula-b {
@@ -85,7 +101,7 @@ const startBlindBox = () => {
   height: 280px;
   right: 8%;
   top: 20%;
-  background: rgba(59, 130, 246, 0.42);
+  background: rgba(99, 102, 241, 0.26);
   animation-delay: -2.5s;
 }
 
@@ -94,7 +110,7 @@ const startBlindBox = () => {
   height: 220px;
   bottom: 8%;
   left: 35%;
-  background: rgba(56, 189, 248, 0.34);
+  background: rgba(56, 189, 248, 0.24);
   animation-delay: -5s;
 }
 
@@ -103,12 +119,16 @@ const startBlindBox = () => {
   z-index: 2;
   width: min(760px, 100%);
   border-radius: 28px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(15, 23, 42, 0.2));
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.92),
+    rgba(248, 250, 252, 0.88)
+  );
   backdrop-filter: blur(10px);
   padding: 32px;
-  color: #e5edf8;
-  box-shadow: 0 24px 64px rgba(2, 6, 23, 0.45);
+  color: #0f172a;
+  box-shadow: 0 20px 46px rgba(71, 85, 105, 0.2);
   animation: panelRise 0.45s ease;
 }
 
@@ -117,21 +137,21 @@ const startBlindBox = () => {
   font-size: 12px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: rgba(165, 243, 252, 0.88);
+  color: #0284c7;
 }
 
 .blindbox-card h1 {
   margin: 14px 0 0;
   font-size: clamp(30px, 5vw, 46px);
   line-height: 1.08;
-  color: #f8fafc;
+  color: #0f172a;
 }
 
 .blindbox-desc {
   margin: 18px 0 0;
   font-size: 15px;
   line-height: 1.85;
-  color: rgba(226, 232, 240, 0.88);
+  color: #475569;
 }
 
 .blindbox-features {
@@ -143,11 +163,11 @@ const startBlindBox = () => {
 
 .blindbox-features span {
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  background: rgba(239, 246, 255, 0.95);
   padding: 8px 12px;
   font-size: 12px;
-  color: rgba(224, 242, 254, 0.95);
+  color: #0c4a6e;
 }
 
 .blindbox-actions {
@@ -165,19 +185,22 @@ const startBlindBox = () => {
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    opacity 180ms ease;
 }
 
 .primary-btn {
-  color: #082f49;
-  background: linear-gradient(120deg, #67e8f9 0%, #93c5fd 100%);
-  box-shadow: 0 14px 28px rgba(14, 165, 233, 0.3);
+  color: #ffffff;
+  background: linear-gradient(120deg, #0284c7 0%, #4f46e5 100%);
+  box-shadow: 0 14px 24px rgba(79, 70, 229, 0.25);
 }
 
 .ghost-btn {
-  color: #e2e8f0;
-  background: rgba(15, 23, 42, 0.45);
-  border: 1px solid rgba(226, 232, 240, 0.2);
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.34);
 }
 
 .primary-btn:hover,
