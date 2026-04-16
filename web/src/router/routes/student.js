@@ -205,6 +205,14 @@ export const studentRoutes = [
         path: "live/workbench",
         name: "StudentLiveInterviewWorkbench",
         component: StudentLiveInterviewWorkbench,
+        beforeEnter: (to) => {
+          if (String(to.query?.group_mode || "").trim() === "1") {
+            return {
+              path: "/interview/group/workbench",
+            };
+          }
+          return true;
+        },
         meta: roleMeta,
       },
       {

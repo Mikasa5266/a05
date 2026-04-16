@@ -134,6 +134,7 @@ const {
   getVoiceStatusLabel,
   stopSpeechAnalysis,
   getAdditionalStreams,
+  forceInterruptCurrentAnswerFlow,
   cleanupInterviewChat
 } = useInterviewChat({
   phase,
@@ -616,7 +617,11 @@ const completeInterview = async (options = {}) => {
   clearAutoExitAfterFailure()
   isFinishing.value = true
   isGeneratingReport.value = true
+  isSubmitting.value = false
+  forceInterruptCurrentAnswerFlow()
   stopAISpeech()
+  stopQuestionTimer()
+  stopCamera()
   try {
     const replayUploaded = await stopAndUploadInterviewRecording()
     await apiEndInterview(interviewId.value, forceSubmit ? { force_submit: true } : {})
@@ -662,6 +667,13 @@ const submitInterviewEarly = async () => {
   if (!firstConfirm) return
   const secondConfirm = window.confirm('请再次确认：确定立即结束面试并生成报告吗？')
   if (!secondConfirm) return
+
+  appendMessage({
+    role: 'system',
+    content: '已执行提前交卷，正在中断当前作答并生成报告，请稍候。',
+    type: 'system'
+  })
+  scrollToBottom()
   await completeInterview({ forceSubmit: true })
 }
 
@@ -713,6 +725,8 @@ const endInterviewEarly = async () => {
   if (isFinishing.value) return
   if (confirm('确定要结束面试吗？进度将不会保存。')) {
     isFinishing.value = true
+    isSubmitting.value = false
+    forceInterruptCurrentAnswerFlow()
     answerVoiceStatus.value = 'idle'
     answerVoiceError.value = ''
     answerVoiceSeconds.value = 0

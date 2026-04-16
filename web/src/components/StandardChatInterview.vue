@@ -205,9 +205,54 @@ const voiceStatusClass = computed(() => {
   return 'bg-zinc-50 text-zinc-500 border-zinc-200'
 })
 
+const buildLiveCodingStarter = (language) => {
+  const lang = String(language || 'javascript').trim().toLowerCase()
+  if (lang === 'go') {
+    return [
+      'package main',
+      '',
+      'func twoSum(nums []int, target int) []int {',
+      '\tlookup := make(map[int]int)',
+      '\tfor i, n := range nums {',
+      '\t\tif j, ok := lookup[target-n]; ok {',
+      '\t\t\treturn []int{j, i}',
+      '\t\t}',
+      '\t\tlookup[n] = i',
+      '\t}',
+      '\treturn nil',
+      '}',
+    ].join('\n')
+  }
+
+  if (lang === 'python') {
+    return [
+      'def two_sum(nums: list[int], target: int) -> list[int]:',
+      '    lookup = {}',
+      '    for i, n in enumerate(nums):',
+      '        if target - n in lookup:',
+      '            return [lookup[target - n], i]',
+      '        lookup[n] = i',
+      '    return []',
+    ].join('\n')
+  }
+
+  return [
+    'function twoSum(nums, target) {',
+    '  const lookup = new Map();',
+    '  for (let i = 0; i < nums.length; i += 1) {',
+    '    const n = nums[i];',
+    '    const pair = target - n;',
+    '    if (lookup.has(pair)) return [lookup.get(pair), i];',
+    '    lookup.set(n, i);',
+    '  }',
+    '  return [];',
+    '}',
+  ].join('\n')
+}
+
 const openLiveCodingDemo = () => {
-  liveCodingCode.value = ''
   liveCodingLanguage.value = 'javascript'
+  liveCodingCode.value = buildLiveCodingStarter(liveCodingLanguage.value)
   liveCodingSubmitting.value = false
   showLiveCoding.value = true
 }
@@ -222,7 +267,15 @@ const closeLiveCodingDemo = () => {
 }
 
 const handleLiveCodingLanguageChange = (nextLanguage) => {
-  liveCodingLanguage.value = String(nextLanguage || 'javascript').trim().toLowerCase() || 'javascript'
+  const prevLanguage = liveCodingLanguage.value
+  const normalized = String(nextLanguage || 'javascript').trim().toLowerCase() || 'javascript'
+  const previousStarter = buildLiveCodingStarter(prevLanguage).trim()
+  const currentCode = String(liveCodingCode.value || '').trim()
+
+  liveCodingLanguage.value = normalized
+  if (!currentCode || currentCode === previousStarter) {
+    liveCodingCode.value = buildLiveCodingStarter(normalized)
+  }
 }
 
 const submitLiveCodingDemo = () => {

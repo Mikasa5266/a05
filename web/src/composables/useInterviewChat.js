@@ -315,6 +315,7 @@ export function useInterviewChat(options = {}) {
   const currentQuestionIndex = ref(0);
   const pendingNextQuestion = ref(null);
   const pendingEnd = ref(false);
+  const interactionAbortVersion = ref(0);
 
   const answerVoiceStatus = ref("idle");
   const answerVoiceSeconds = ref(0);
@@ -416,6 +417,10 @@ export function useInterviewChat(options = {}) {
     pendingNextQuestion.value = null;
     pendingEnd.value = false;
     userInput.value = "";
+  };
+
+  const isInteractionAborted = (version) => {
+    return version !== interactionAbortVersion.value;
   };
 
   const sendSpeechChunk = async (
@@ -642,6 +647,7 @@ export function useInterviewChat(options = {}) {
     answerText = "",
     audioData = "",
     audioMime = "",
+    requestVersion = interactionAbortVersion.value,
   ) => {
     const currentQ = currentQuestion.value;
     if (!currentQ || !currentQ.questionId) {
@@ -660,6 +666,9 @@ export function useInterviewChat(options = {}) {
     }
 
     const res = await apiSubmitAnswer(interviewId.value, payload);
+    if (isInteractionAborted(requestVersion)) {
+      return { aborted: true };
+    }
     const result = res.result;
     const formatted = formatFeedback(result.feedback);
     const feedbackSections = splitFeedbackSections(formatted);
@@ -699,6 +708,7 @@ export function useInterviewChat(options = {}) {
   const submitAudioAnswer = async (audioData, audioMime = "") => {
     if (!audioData) return;
     if (isProcessing.value) return;
+    const requestVersion = interactionAbortVersion.value;
 
     const userMsg = {
       role: "user",
@@ -714,7 +724,17 @@ export function useInterviewChat(options = {}) {
     answerVoiceError.value = "";
 
     try {
-      const result = await submitCurrentAnswer("", audioData, audioMime);
+      const result = await submitCurrentAnswer(
+        "",
+        audioData,
+        audioMime,
+        requestVersion,
+      );
+      if (isInteractionAborted(requestVersion) || result?.aborted) {
+        answerVoiceStatus.value = "idle";
+        answerVoiceError.value = "";
+        return;
+      }
       const transcript = String(result?.answer || "").trim();
       const plainText = transcript || "（未识别到有效语音文本）";
       const rendered = `【语音回答】\n${plainText}`;
@@ -734,6 +754,9 @@ export function useInterviewChat(options = {}) {
         }
       }, 1600);
     } catch (error) {
+      if (isInteractionAborted(requestVersion)) {
+        return;
+      }
       const rawErrMsg =
         error?.response?.data?.error || error?.message || "未知错误";
       const errMsg = normalizeAnswerSubmitError(rawErrMsg);
@@ -916,11 +939,18 @@ export function useInterviewChat(options = {}) {
 
     isProcessing.value = true;
     processingHint.value = "面试官正在评估你的回答...";
+    const requestVersion = interactionAbortVersion.value;
 
     try {
-      await submitCurrentAnswer(answer, "");
+      const result = await submitCurrentAnswer(answer, "", "", requestVersion);
+      if (isInteractionAborted(requestVersion) || result?.aborted) {
+        return;
+      }
       processingHint.value = "面试官正在生成下一轮追问...";
     } catch (error) {
+      if (isInteractionAborted(requestVersion)) {
+        return;
+      }
       console.error("Failed to submit answer:", error);
       const rawErrMsg =
         error?.response?.data?.error || error?.message || "未知错误";
@@ -947,6 +977,41 @@ export function useInterviewChat(options = {}) {
     }
   };
 
+  const forceInterruptCurrentAnswerFlow = () => {
+    interactionAbortVersion.value += 1;
+    isProcessing.value = false;
+    processingHint.value = "";
+    onResetQuietSeconds();
+
+    if (answerStatusResetTimer) {
+      clearTimeout(answerStatusResetTimer);
+      answerStatusResetTimer = null;
+    }
+
+    if (answerMediaRecorder && answerMediaRecorder.state === "recording") {
+      skipNextAnswerSubmit = true;
+      stopSpeechAnalysis();
+      answerMediaRecorder.stop();
+    } else {
+      stopSpeechAnalysis();
+    }
+
+    if (answerRecorderStream) {
+      answerRecorderStream.getTracks().forEach((track) => track.stop());
+      answerRecorderStream = null;
+    }
+
+    if (answerVoiceTimer) {
+      clearInterval(answerVoiceTimer);
+      answerVoiceTimer = null;
+    }
+
+    answerAudioChunks = [];
+    answerVoiceStatus.value = "idle";
+    answerVoiceError.value = "";
+    answerVoiceSeconds.value = 0;
+  };
+
   const getVoiceStatusLabel = () => {
     const labels = {
       idle: "待命",
@@ -964,23 +1029,7 @@ export function useInterviewChat(options = {}) {
     [answerRecorderStream, analysisSourceStream].filter(Boolean);
 
   const cleanupInterviewChat = () => {
-    if (answerMediaRecorder && answerMediaRecorder.state === "recording") {
-      skipNextAnswerSubmit = true;
-      answerMediaRecorder.stop();
-    }
-    if (answerRecorderStream) {
-      answerRecorderStream.getTracks().forEach((track) => track.stop());
-      answerRecorderStream = null;
-    }
-    if (answerVoiceTimer) {
-      clearInterval(answerVoiceTimer);
-      answerVoiceTimer = null;
-    }
-    if (answerStatusResetTimer) {
-      clearTimeout(answerStatusResetTimer);
-      answerStatusResetTimer = null;
-    }
-    stopSpeechAnalysis();
+    forceInterruptCurrentAnswerFlow();
     answerMediaRecorder = null;
     answerAudioChunks = [];
     answerVoiceStatus.value = "idle";
@@ -1019,6 +1068,7 @@ export function useInterviewChat(options = {}) {
     stopSpeechAnalysis,
     getAdditionalStreams,
     normalizeAnswerSubmitError,
+    forceInterruptCurrentAnswerFlow,
     cleanupInterviewChat,
   };
 }

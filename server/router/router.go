@@ -84,6 +84,7 @@ func SetupRouter(aiService aidomain.AIFacade) *gin.Engine {
 			protected.GET("/interview/invitations", handler.GetHumanInvitations)
 			protected.GET("/interview/invitations/received", handler.GetReceivedHumanInvitations)
 			protected.POST("/interview/invitations/:id/respond", handler.RespondHumanInvitation)
+			protected.DELETE("/interview/invitations/:id", handler.DeleteHumanInvitation)
 
 			protected.POST("/resume/parse", handler.ParseResume)
 			protected.GET("/resume/latest", handler.GetLatestResumeAnalysis)

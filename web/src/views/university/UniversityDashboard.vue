@@ -311,9 +311,6 @@ const goToInterviewZone = (invitation) => {
   if (invitationCode) {
     query.invitation_code = invitationCode
   }
-  if (isGroup) {
-    query.group_mode = '1'
-  }
 
   router.push({
     path: isGroup

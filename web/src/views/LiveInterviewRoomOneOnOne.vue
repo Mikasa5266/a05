@@ -1,5 +1,5 @@
 ﻿<script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Loader2, Mic, MicOff, PhoneOff } from 'lucide-vue-next'
@@ -231,10 +231,6 @@ async function initAndJoinRoom(invitationID = 0) {
 
     await initLocalMedia()
     connectSignalSocket()
-
-    await nextTick()
-    bindLocalStream()
-    bindRemoteStream()
   } catch (error) {
     ElMessage.error(error?.response?.data?.error || error?.message || '进入房间失败')
     cleanup()
@@ -261,6 +257,28 @@ watch(
     const invitationID = resolveInvitationIdFromRoute()
     if (invitationID <= 0 || joining.value || isRouteLeaving.value) return
     await initAndJoinRoom(invitationID)
+  }
+)
+
+watch(localVideoRef, () => {
+  bindLocalStream()
+})
+
+watch(remoteVideoRef, () => {
+  bindRemoteStream()
+})
+
+watch(
+  () => liveHumanStore.localStream,
+  () => {
+    bindLocalStream()
+  }
+)
+
+watch(
+  () => liveHumanStore.remoteStream,
+  () => {
+    bindRemoteStream()
   }
 )
 

@@ -7,7 +7,6 @@ import LiveInterviewRoomOneOnOne from './LiveInterviewRoomOneOnOne.vue'
 const route = useRoute()
 
 const isGroupMode = computed(() => {
-  if (String(route.query?.group_mode || '').trim() === '1') return true
   return String(route.path || '').includes('/group/')
 })
 </script>

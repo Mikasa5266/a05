@@ -224,14 +224,12 @@ func (u *interviewLifecycleUseCase) EndInterviewWithOptions(userID, interviewID 
 		return nil, fmt.Errorf("failed to update interview: %w", err)
 	}
 
-	if interview.InterviewMode == "human" {
-		inv, invErr := u.service.interviewRepo.GetInvitationByInterviewID(interviewID)
-		if invErr == nil && inv != nil {
-			nextStatus, inviteTransitionErr := transitionInvitationStatus(inv.Status, invitationStatusCompleted)
-			if inviteTransitionErr == nil {
-				inv.Status = nextStatus
-				_ = u.service.interviewRepo.UpdateInvitation(inv)
-			}
+	inv, invErr := u.service.interviewRepo.GetInvitationByInterviewID(interviewID)
+	if invErr == nil && inv != nil {
+		nextStatus, inviteTransitionErr := transitionInvitationStatus(inv.Status, invitationStatusCompleted)
+		if inviteTransitionErr == nil {
+			inv.Status = nextStatus
+			_ = u.service.interviewRepo.UpdateInvitation(inv)
 		}
 	}
 

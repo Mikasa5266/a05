@@ -60,7 +60,7 @@ const cards = [
   },
   {
     title: '真人面试',
-    description: '进入真人面试工作台，发起面试邀请、实时音视频连线，同步面试状态与记录。',
+    description: '进入真人 1v1 工作台：1 位面试者对接 1 位真人面试官，按系统评分模板人工给分。',
     icon: UserCheck,
     iconWrapClass: 'bg-sky-100',
     iconClass: 'text-sky-700',
@@ -70,7 +70,7 @@ const cards = [
   },
   {
     title: '群面模式',
-    description: '进入独立群面工作台，邀请 3-5 人协同讨论（测试可 2 人），全程视频与公屏聊天记录同步沉淀。',
+    description: '进入独立群面工作台：多位面试者协作讨论，由 AI 面试官主导并由系统自动评分。',
     icon: Users,
     iconWrapClass: 'bg-emerald-100',
     iconClass: 'text-emerald-600',

@@ -95,7 +95,7 @@ const recordDisabled = computed(() => {
 })
 
 const earlySubmitDisabled = computed(() => {
-  return !props.canEarlySubmit || props.isProcessing || props.isSubmitting || props.isFinishing || props.answerVoiceStatus === 'recording'
+  return !props.canEarlySubmit || props.isFinishing
 })
 
 const onToggleAnswerRecording = () => {
@@ -109,14 +109,14 @@ const onSendMessage = () => {
 }
 
 const onEarlySubmit = () => {
-  if (earlySubmitDisabled.value) return
+  if (props.isFinishing || !props.canEarlySubmit) return
   emit('early-submit')
 }
 </script>
 
 <template>
   <template v-if="!isAlgorithmStyle">
-    <div class="bg-white rounded-3xl p-4 border border-zinc-100 shadow-sm shrink-0 lg:resizable-panel lg:flex-none lg:h-[250px]">
+    <div class="bg-white rounded-3xl p-4 border border-zinc-100 shadow-sm shrink-0 lg:resizable-panel lg:flex-none lg:h-62.5">
       <SpeechDashboard
         :speechRate="speechMetrics.speechRate"
         :speechRateLevel="speechMetrics.speechRateLevel"

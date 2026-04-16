@@ -1,4 +1,5 @@
 <script setup>
+import { computed } from 'vue';
 import { ArrowLeft, Loader2, Mic, MicOff, PhoneOff, SendHorizontal, Users } from 'lucide-vue-next';
 import { useLiveInterviewGroupRoom } from '../composables/useLiveInterviewGroupRoom';
 
@@ -38,6 +39,28 @@ const {
   triggerStartInterview,
   leaveRoom,
 } = useLiveInterviewGroupRoom();
+
+const genericMemberPattern = /^成员\s*\d+$/;
+
+const resolveMemberDisplayName = (member) => {
+  const normalized = String(member?.displayName || '').trim();
+  if (!normalized) return '';
+  if (!genericMemberPattern.test(normalized)) return normalized;
+
+  const idx = roomMembers.value.findIndex((item) => item.userId === member.userId);
+  if (idx >= 0) {
+    return `成员 ${idx + 1}`;
+  }
+  return normalized;
+};
+
+const resolveRemoteSeatLabel = (seatIndex) => {
+  const member = remoteMembers.value?.[seatIndex];
+  if (!member) return `席位 ${seatIndex + 2}（待接入）`;
+  return resolveMemberDisplayName(member);
+};
+
+const totalMemberLabel = computed(() => `${roomMembers.value.length} 人`);
 </script>
 
 <template>
@@ -46,7 +69,7 @@ const {
       <header class="flex items-start justify-between gap-4 mb-5">
         <div>
           <h1 class="text-2xl md:text-3xl font-semibold tracking-wide">群面实战房间</h1>
-          <p class="text-sm text-slate-300 mt-1">多人 AI / 真人混合群面</p>
+          <p class="text-sm text-slate-300 mt-1">多位面试者 + 1 位 AI 面试官协作群面</p>
         </div>
         <button class="px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 inline-flex items-center gap-2" @click="goBack">
           <ArrowLeft class="w-4 h-4" />
@@ -54,7 +77,7 @@ const {
         </button>
       </header>
 
-      <div v-if="!hasRoom && !loading" class="h-[calc(100vh-12rem)] flex items-center justify-center">
+      <div v-if="!hasRoom && !loading" class="h-[calc(100vh-9rem)] flex items-center justify-center">
         <div class="w-full max-w-xl rounded-2xl border border-slate-700 bg-slate-900 p-8">
           <h2 class="text-xl font-semibold">等待房间授权</h2>
           <p class="text-sm text-slate-300 mt-3">群面房间仅允许受邀用户进入。</p>
@@ -62,7 +85,7 @@ const {
         </div>
       </div>
 
-      <div v-else class="rounded-2xl border border-slate-700 bg-slate-900 p-4 md:p-5 h-[calc(100vh-12rem)] flex flex-col gap-4">
+      <div v-else class="rounded-2xl border border-slate-700 bg-slate-900 p-4 md:p-5 h-[calc(100vh-9rem)] min-h-155 flex flex-col gap-4">
         <div v-if="loading" class="h-full flex items-center justify-center gap-2 text-slate-300">
           <Loader2 class="w-5 h-5 animate-spin" />
           <span>正在初始化设备与连接...</span>
@@ -83,37 +106,7 @@ const {
             </div>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1 min-h-0">
-            <article class="rounded-xl border border-slate-700 bg-slate-800/60 p-3 flex flex-col min-h-0">
-              <div class="text-xs text-slate-300 mb-2">我的画面 · {{ getSelfDisplayName() }}</div>
-              <div class="relative rounded-lg overflow-hidden border border-slate-700 bg-slate-950 aspect-video">
-                <video ref="localVideoRef" autoplay playsinline muted class="w-full h-full object-cover"></video>
-              </div>
-            </article>
-
-            <article class="rounded-xl border border-slate-700 bg-slate-800/60 p-3 flex flex-col min-h-0">
-              <div class="text-xs text-slate-300 mb-2">{{ remoteMembers[0]?.displayName || '席位 2（待接入）' }}</div>
-              <div class="relative rounded-lg overflow-hidden border border-slate-700 bg-slate-950 aspect-video">
-                <video ref="remoteVideoRefA" autoplay playsinline class="w-full h-full object-cover"></video>
-              </div>
-            </article>
-
-            <article class="rounded-xl border border-slate-700 bg-slate-800/60 p-3 flex flex-col min-h-0">
-              <div class="text-xs text-slate-300 mb-2">{{ remoteMembers[1]?.displayName || '席位 3（待接入）' }}</div>
-              <div class="relative rounded-lg overflow-hidden border border-slate-700 bg-slate-950 aspect-video">
-                <video ref="remoteVideoRefB" autoplay playsinline class="w-full h-full object-cover"></video>
-              </div>
-            </article>
-
-            <article class="rounded-xl border border-slate-700 bg-slate-800/60 p-3 flex flex-col min-h-0">
-              <div class="text-xs text-slate-300 mb-2">{{ remoteMembers[2]?.displayName || '席位 4（待接入）' }}</div>
-              <div class="relative rounded-lg overflow-hidden border border-slate-700 bg-slate-950 aspect-video">
-                <video ref="remoteVideoRefC" autoplay playsinline class="w-full h-full object-cover"></video>
-              </div>
-            </article>
-          </div>
-
-          <div class="flex flex-wrap gap-2">
+          <div class="flex flex-wrap gap-2 shrink-0">
             <button class="px-3 py-2 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 inline-flex items-center gap-2" @click="sendGroupInvite">
               <Users class="w-4 h-4" />
               同步群面配置
@@ -146,41 +139,93 @@ const {
             </button>
           </div>
 
-          <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-3 min-h-0">
-            <div class="rounded-xl border border-slate-700 bg-slate-800/40 p-3 flex flex-wrap gap-2">
-              <div v-for="member in roomMembers" :key="member.userId" class="inline-flex items-center gap-1 rounded-full border border-slate-600 px-2 py-1 text-xs text-slate-200">
-                <Users class="w-3 h-3" />
-                {{ member.displayName }}
-              </div>
+          <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1.75fr)_minmax(320px,1fr)] gap-3 flex-1 min-h-0">
+            <div class="grid grid-cols-1 md:grid-cols-2 auto-rows-fr gap-3 min-h-0">
+              <article class="rounded-xl border border-slate-700 bg-slate-800/60 p-3 flex flex-col min-h-0">
+                <div class="text-xs text-slate-300 mb-2">我的画面 · {{ getSelfDisplayName() }}</div>
+                <div class="relative rounded-lg overflow-hidden border border-slate-700 bg-slate-950 h-full min-h-42.5">
+                  <video ref="localVideoRef" autoplay playsinline muted class="w-full h-full object-cover"></video>
+                </div>
+              </article>
+
+              <article class="rounded-xl border border-slate-700 bg-slate-800/60 p-3 flex flex-col min-h-0">
+                <div class="text-xs text-slate-300 mb-2">{{ resolveRemoteSeatLabel(0) }}</div>
+                <div class="relative rounded-lg overflow-hidden border border-slate-700 bg-slate-950 h-full min-h-42.5">
+                  <video ref="remoteVideoRefA" autoplay playsinline class="w-full h-full object-cover"></video>
+                </div>
+              </article>
+
+              <article class="rounded-xl border border-slate-700 bg-slate-800/60 p-3 flex flex-col min-h-0">
+                <div class="text-xs text-slate-300 mb-2">{{ resolveRemoteSeatLabel(1) }}</div>
+                <div class="relative rounded-lg overflow-hidden border border-slate-700 bg-slate-950 h-full min-h-42.5">
+                  <video ref="remoteVideoRefB" autoplay playsinline class="w-full h-full object-cover"></video>
+                </div>
+              </article>
+
+              <article class="rounded-xl border border-slate-700 bg-slate-800/60 p-3 flex flex-col min-h-0">
+                <div class="text-xs text-slate-300 mb-2">{{ resolveRemoteSeatLabel(2) }}</div>
+                <div class="relative rounded-lg overflow-hidden border border-slate-700 bg-slate-950 h-full min-h-42.5">
+                  <video ref="remoteVideoRefC" autoplay playsinline class="w-full h-full object-cover"></video>
+                </div>
+              </article>
             </div>
 
-            <div class="rounded-xl border border-slate-700 bg-slate-800/40 p-3 flex flex-col min-h-0">
-              <div class="flex-1 min-h-0 overflow-y-auto space-y-2">
-                <p v-if="messages.length === 0" class="text-xs text-slate-400">等待消息中...</p>
-                <div
-                  v-for="item in messages"
-                  :key="item.id"
-                  class="rounded-lg border px-3 py-2 text-sm"
-                  :class="item.fromSelf ? 'border-sky-400/40 bg-sky-500/10' : 'border-slate-600 bg-slate-800/70'"
-                >
-                  <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
-                    <span>{{ item.senderName }}</span>
-                    <span>{{ item.createdAt }}</span>
+            <div class="grid grid-rows-[minmax(0,1fr)_minmax(0,210px)] gap-3 min-h-90 lg:min-h-0">
+              <div class="rounded-xl border border-slate-700 bg-slate-800/40 p-3 flex flex-col min-h-0 overflow-hidden">
+                <div class="flex items-center justify-between gap-2 mb-2 shrink-0">
+                  <p class="text-xs text-slate-300">群面公屏</p>
+                  <span class="text-xs text-slate-400">{{ messages.length }} 条</span>
+                </div>
+                <div class="flex-1 min-h-0 overflow-y-auto pr-1 space-y-2">
+                  <p v-if="messages.length === 0" class="text-xs text-slate-400 rounded-lg border border-slate-700/70 bg-slate-900/35 px-3 py-3 leading-5">
+                    公屏已就绪，消息会在此区域滚动展示。建议先发送准备信号，再同步关键观点与结论。
+                  </p>
+                  <div
+                    v-for="item in messages"
+                    :key="item.id"
+                    class="rounded-lg border px-3 py-2 text-sm"
+                    :class="item.fromSelf ? 'border-sky-400/40 bg-sky-500/10' : 'border-slate-600 bg-slate-800/70'"
+                  >
+                    <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
+                      <span>{{ item.senderName }}</span>
+                      <span>{{ item.createdAt }}</span>
+                    </div>
+                    <p class="wrap-break-word whitespace-pre-wrap">{{ item.text }}</p>
                   </div>
-                  <p class="wrap-break-word whitespace-pre-wrap">{{ item.text }}</p>
+                </div>
+                <div class="mt-2 flex gap-2 shrink-0">
+                  <input
+                    v-model="messageInput"
+                    type="text"
+                    class="flex-1 rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm"
+                    placeholder="输入群面公屏消息"
+                    @keyup.enter="sendChatMessage"
+                  />
+                  <button class="px-3 rounded-lg bg-sky-600 hover:bg-sky-500" @click="sendChatMessage">
+                    <SendHorizontal class="w-4 h-4" />
+                  </button>
                 </div>
               </div>
-              <div class="mt-2 flex gap-2">
-                <input
-                  v-model="messageInput"
-                  type="text"
-                  class="flex-1 rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm"
-                  placeholder="输入群面公屏消息"
-                  @keyup.enter="sendChatMessage"
-                />
-                <button class="px-3 rounded-lg bg-sky-600 hover:bg-sky-500" @click="sendChatMessage">
-                  <SendHorizontal class="w-4 h-4" />
-                </button>
+
+              <div class="rounded-xl border border-slate-700 bg-slate-800/40 p-3 flex flex-col min-h-0 overflow-hidden">
+                <div class="flex items-center justify-between gap-2 mb-2 shrink-0">
+                  <p class="text-xs text-slate-300">在场成员</p>
+                  <span class="text-xs rounded-full border border-slate-600 px-2 py-0.5 text-slate-200">{{ totalMemberLabel }}</span>
+                </div>
+                <div class="flex-1 min-h-0 overflow-y-auto pr-1 space-y-2">
+                  <p v-if="roomMembers.length === 0" class="text-xs text-slate-400 py-2">等待成员进入房间...</p>
+                  <div
+                    v-for="member in roomMembers"
+                    :key="member.userId"
+                    class="rounded-lg border border-slate-700/80 bg-slate-900/40 px-3 py-2 flex items-center justify-between gap-2"
+                  >
+                    <div class="inline-flex items-center gap-2 text-sm text-slate-100">
+                      <Users class="w-4 h-4 text-slate-300" />
+                      <span>{{ resolveMemberDisplayName(member) || '成员' }}</span>
+                    </div>
+                    <span class="text-xs text-slate-400">{{ member.isSelf ? '我' : '在线' }}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

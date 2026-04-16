@@ -102,6 +102,13 @@
               拒绝邀请
             </button>
             <button
+              v-if="canDeleteInvitation(inv)"
+              class="px-3 py-1.5 rounded-lg bg-zinc-100 text-zinc-700 text-xs font-semibold hover:bg-zinc-200"
+              @click="deleteInvitation(inv)"
+            >
+              删除记录
+            </button>
+            <button
               v-if="canEnterRoom(inv)"
               class="ml-auto px-3.5 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-semibold hover:bg-indigo-100"
               @click="enterLiveRoom(inv)"
@@ -248,6 +255,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   createHumanInvitation,
+  deleteHumanInvitation,
   getHumanInvitations,
   getInviteCandidates,
   getReceivedHumanInvitations,
@@ -394,6 +402,13 @@ function canRespondInvitation(inv) {
   return invitationDirection(inv) === 'incoming' && inv?.status === 'pending'
 }
 
+function canDeleteInvitation(inv) {
+  if (!inv) return false
+  if (inv.status === 'in_progress') return false
+  if (String(inv.interview_status || '').trim() === 'in_progress') return false
+  return true
+}
+
 function canEnterRoom(inv) {
   if (!inv) return false
   if (inv.status === 'accepted' || inv.status === 'in_progress') return true
@@ -452,6 +467,21 @@ async function respondInvitation(invitation, action) {
     await fetchInvitations()
   } catch (error) {
     ElMessage.error(error?.response?.data?.error || '处理邀请失败')
+  }
+}
+
+async function deleteInvitation(invitation) {
+  const invitationId = Number(invitation?.id || 0)
+  if (!invitationId) return
+  if (!window.confirm('删除后该邀请记录将从工作台移除，是否继续？')) {
+    return
+  }
+  try {
+    await deleteHumanInvitation(invitationId)
+    ElMessage.success('邀请记录已删除')
+    await fetchInvitations()
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '删除邀请失败')
   }
 }
 

@@ -51,6 +51,7 @@
             :action-loading-id="store.actionLoadingId"
             @accept="respondInvitation($event, 'accept')"
             @reject="respondInvitation($event, 'reject')"
+            @delete-invitation="deleteInvitation"
             @enter-room="enterLiveRoom"
           />
         </article>
@@ -66,7 +67,6 @@ import { ElMessage } from 'element-plus'
 import WorkbenchActionPanel from '../../components/workbench/WorkbenchActionPanel.vue'
 import WorkbenchSidebarTabs from '../../components/workbench/WorkbenchSidebarTabs.vue'
 import WorkbenchStatusDisplay from '../../components/workbench/WorkbenchStatusDisplay.vue'
-import { getHumanInvitations, getReceivedHumanInvitations } from '../../api/interview'
 import { useInterviewWorkbenchStore } from '../../stores/interviewWorkbench'
 
 const props = defineProps({
@@ -83,7 +83,6 @@ const props = defineProps({
 const router = useRouter()
 const store = useInterviewWorkbenchStore()
 const nowTick = ref(Date.now())
-const invitationMetaMap = ref({})
 let countdownTimer = null
 let refreshTimer = null
 
@@ -104,19 +103,13 @@ const titleText = computed(() => {
 })
 const subtitleText = computed(() => {
   if (normalizedScenario.value === 'group') {
-    return '群面邀请处理、开考状态追踪与房间进入'
+    return '群面邀请处理、开考状态追踪与房间进入（AI 面试官 + 系统评分）'
   }
   if (normalizedScenario.value === 'single') {
-    return '真人 1v1 邀请处理、进行中监控与历史评价'
+    return '真人 1v1 邀请处理、进行中监控与历史评价（按评分模板人工给分）'
   }
   return '邀请处理、面试进行中监控与历史评价统一视图'
 })
-
-function getItemMeta(item) {
-  const id = String(item?.id || '').trim()
-  if (!id) return {}
-  return invitationMetaMap.value[id] || {}
-}
 
 function normalizeScenarioType(rawScenario) {
   const normalized = String(rawScenario || '').trim().toLowerCase()
@@ -124,14 +117,15 @@ function normalizeScenarioType(rawScenario) {
 }
 
 function getItemTargetParticipants(item) {
-  const raw = Number(item?.target_participants ?? getItemMeta(item)?.target_participants ?? 0)
+  const raw = Number(item?.target_participants ?? 0)
   return Number.isFinite(raw) ? raw : 0
 }
 
 const isGroupInvitation = (item) => {
-  const scenarioType = normalizeScenarioType(item?.scenario_type || getItemMeta(item)?.scenario_type)
+  const scenarioType = normalizeScenarioType(item?.scenario_type)
   const targetParticipants = getItemTargetParticipants(item)
-  return scenarioType === 'group' || targetParticipants > 2
+  const startThreshold = Number(item?.start_threshold || 0)
+  return scenarioType === 'group' || targetParticipants > 2 || startThreshold > 2
 }
 
 const matchesScenarioFilter = (item) => {
@@ -229,28 +223,7 @@ const formatCountdown = (item) => {
 
 const refreshWorkbench = async () => {
   try {
-    await Promise.all([
-      store.fetchWorkbench(),
-      (async () => {
-        const [sentRes, receivedRes] = await Promise.all([
-          getHumanInvitations(),
-          getReceivedHumanInvitations()
-        ])
-        const sent = Array.isArray(sentRes?.invitations) ? sentRes.invitations : []
-        const received = Array.isArray(receivedRes?.invitations) ? receivedRes.invitations : []
-        const merged = {}
-        ;[...sent, ...received].forEach((inv) => {
-          const id = String(inv?.id || '').trim()
-          if (!id) return
-          merged[id] = {
-            scenario_type: inv?.scenario_type,
-            target_participants: inv?.target_participants,
-            start_threshold: inv?.start_threshold,
-          }
-        })
-        invitationMetaMap.value = merged
-      })()
-    ])
+    await store.fetchWorkbench()
   } catch (error) {
     ElMessage.error(error?.response?.data?.error || '工作台数据加载失败')
   }
@@ -262,6 +235,20 @@ const respondInvitation = async (invitationId, action) => {
     ElMessage.success(action === 'accept' ? '已接受邀请' : '已拒绝邀请')
   } catch (error) {
     ElMessage.error(error?.response?.data?.error || '处理邀请失败')
+  }
+}
+
+const deleteInvitation = async (item) => {
+  const invitationId = Number(item?.id || 0)
+  if (!invitationId) return
+  if (!window.confirm('删除后该邀请记录将从工作台移除，是否继续？')) {
+    return
+  }
+  try {
+    await store.deleteInvitation(invitationId)
+    ElMessage.success('邀请记录已删除')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '删除邀请失败')
   }
 }
 
@@ -277,9 +264,6 @@ const enterLiveRoom = (item) => {
   const invitationCode = String(item?.invitation_code || '').trim()
   if (invitationCode) {
     query.invitation_code = invitationCode
-  }
-  if (isGroup) {
-    query.group_mode = '1'
   }
 
   router.push({

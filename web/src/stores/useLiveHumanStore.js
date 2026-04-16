@@ -56,9 +56,6 @@ export const useLiveHumanStore = defineStore("liveHumanStore", () => {
   };
 
   const initLocalMedia = async ({ audio = true, video = true } = {}) => {
-    if (!window.isSecureContext) {
-      throw new Error("当前环境不安全，请使用 HTTPS 或 localhost 访问");
-    }
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error("当前浏览器无法访问摄像头/麦克风");
     }

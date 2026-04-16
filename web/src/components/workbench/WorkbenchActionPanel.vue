@@ -10,7 +10,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['accept', 'reject', 'enter-room'])
+const emit = defineEmits(['accept', 'reject', 'delete-invitation', 'enter-room'])
 </script>
 
 <template>
@@ -30,6 +30,15 @@ const emit = defineEmits(['accept', 'reject', 'enter-room'])
       @click="emit('reject', props.item.id)"
     >
       拒绝邀请
+    </button>
+
+    <button
+      v-if="props.item.status !== 'in_progress' && props.item.interview_status !== 'in_progress'"
+      class="px-3 py-1.5 rounded-lg bg-zinc-100 text-zinc-700 text-xs font-semibold hover:bg-zinc-200 disabled:opacity-60"
+      :disabled="props.actionLoadingId === props.item.id"
+      @click="emit('delete-invitation', props.item)"
+    >
+      删除记录
     </button>
 
     <button

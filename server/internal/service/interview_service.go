@@ -95,10 +95,7 @@ func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID
 		revealedStyle = style // will be stored but not shown until end
 	}
 
-	if interviewMode == "human" {
-		if invitationID == nil || *invitationID == 0 {
-			return nil, fmt.Errorf("请选择已邀请的真人面试")
-		}
+	if invitationID != nil && *invitationID > 0 {
 		loaded, err := s.interviewRepo.GetInvitationByID(*invitationID)
 		if err != nil {
 			return nil, fmt.Errorf("邀请记录不存在")
@@ -115,8 +112,9 @@ func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID
 		status := normalizeStatusValue(loaded.Status)
 		isInitiator := loaded.InitiatorUserID == userID || loaded.StudentID == userID
 		if status != invitationStatusAccepted && status != invitationStatusInProgress && !(status == invitationStatusPending && isInitiator) {
-			return nil, fmt.Errorf("请等待对方接受邀请后再开始真人面试")
+			return nil, fmt.Errorf("请等待受邀方接受后再开始")
 		}
+
 		invitation = loaded
 		if invitation.Position != "" {
 			position = normalizeInterviewPosition(invitation.Position)
@@ -133,6 +131,14 @@ func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID
 		if invitation.Company != "" {
 			company = invitation.Company
 		}
+
+		if normalizeScenarioType(invitation.ScenarioType) == model.InvitationScenarioGroup {
+			interviewMode = "ai"
+		} else {
+			interviewMode = "human"
+		}
+	} else if interviewMode == "human" {
+		return nil, fmt.Errorf("请选择已邀请的真人面试")
 	}
 
 	// 首题硬约束：优先从题库按岗位+级别随机直取，绕开 LLM 生成。
@@ -331,21 +337,28 @@ func (s *InterviewService) StartInterviewWithContext(ctx context.Context, userID
 	}
 
 	if invitation != nil {
+		isGroupInvitation := normalizeScenarioType(invitation.ScenarioType) == model.InvitationScenarioGroup
+		interview.IsGroup = isGroupInvitation
 		interview.Status = interviewStatusPending
+		if !isGroupInvitation {
+			interview.InterviewMode = "human"
+		}
 		targetUserID := invitation.TargetUserID
 		if targetUserID == 0 {
 			targetUserID = invitation.InviteeUserID
 		}
-		if targetUserID > 0 {
+		if targetUserID > 0 && !isGroupInvitation {
 			interview.HumanInterviewerUserID = &targetUserID
 		}
-		interview.HumanInterviewerName = strings.TrimSpace(invitation.Target.Username)
-		if interview.HumanInterviewerName == "" {
-			interview.HumanInterviewerName = invitation.Invitee.Username
-		}
-		interview.HumanInterviewerRole = strings.TrimSpace(invitation.TargetRole)
-		if interview.HumanInterviewerRole == "" {
-			interview.HumanInterviewerRole = invitation.InviteeRole
+		if !isGroupInvitation {
+			interview.HumanInterviewerName = strings.TrimSpace(invitation.Target.Username)
+			if interview.HumanInterviewerName == "" {
+				interview.HumanInterviewerName = invitation.Invitee.Username
+			}
+			interview.HumanInterviewerRole = strings.TrimSpace(invitation.TargetRole)
+			if interview.HumanInterviewerRole == "" {
+				interview.HumanInterviewerRole = invitation.InviteeRole
+			}
 		}
 		code := strings.TrimSpace(invitation.InvitationCode)
 		if code != "" {
@@ -1021,6 +1034,42 @@ func ListReceivedHumanInvitations(inviteeUserID uint) ([]model.HumanInterviewInv
 func GetInvitationByID(invitationID uint) (*model.HumanInterviewInvitation, error) {
 	svc := NewInterviewService()
 	return svc.interviewRepo.GetInvitationByID(invitationID)
+}
+
+func (s *InterviewService) DeleteHumanInvitation(requestUserID, invitationID uint) error {
+	if requestUserID == 0 || invitationID == 0 {
+		return fmt.Errorf("邀请信息无效")
+	}
+
+	invitation, err := s.interviewRepo.GetInvitationByIDForParticipant(invitationID, requestUserID)
+	if err != nil || invitation == nil {
+		return fmt.Errorf("邀请不存在或无权删除")
+	}
+
+	invitationStatus := normalizeStatusValue(invitation.Status)
+	if invitationStatus == invitationStatusInProgress {
+		return fmt.Errorf("邀请进行中，暂不允许删除")
+	}
+
+	if invitation.InterviewID != nil && *invitation.InterviewID > 0 {
+		interview, interviewErr := s.interviewRepo.GetByID(*invitation.InterviewID)
+		if interviewErr == nil && interview != nil {
+			if normalizeStatusValue(interview.Status) == interviewStatusInProgress {
+				return fmt.Errorf("面试进行中，暂不允许删除")
+			}
+		}
+	}
+
+	if err := s.interviewRepo.DeleteInvitationWithParticipants(invitation.ID); err != nil {
+		return fmt.Errorf("删除邀请失败: %w", err)
+	}
+
+	return nil
+}
+
+func DeleteHumanInvitation(requestUserID, invitationID uint) error {
+	svc := NewInterviewService()
+	return svc.DeleteHumanInvitation(requestUserID, invitationID)
 }
 
 func RespondHumanInvitation(inviteeUserID, invitationID uint, action string) (*model.HumanInterviewInvitation, error) {
@@ -1911,6 +1960,12 @@ func SubmitHumanFeedback(interviewID uint, feedback string, score int) error {
 	interview, err := svc.interviewRepo.GetByID(interviewID)
 	if err != nil {
 		return fmt.Errorf("interview not found: %w", err)
+	}
+	if interview.IsGroup {
+		return fmt.Errorf("群面由系统自动评分，不支持真人手动评分")
+	}
+	if strings.ToLower(strings.TrimSpace(interview.InterviewMode)) != "human" {
+		return fmt.Errorf("仅真人 1v1 面试支持真人评分")
 	}
 
 	interview.HumanFeedback = feedback

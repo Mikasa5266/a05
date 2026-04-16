@@ -678,12 +678,23 @@ onMounted(async () => {
 
 <style scoped>
 .report-page {
+  --report-bg-0: #f3f8ff;
+  --report-bg-1: #e7f1fb;
+  --report-bg-2: #f8fbff;
+  --report-card-bg: rgba(255, 255, 255, 0.95);
+  --report-card-border: #d5e3f0;
+  --report-panel-bg: #f7fbff;
+  --report-panel-border: #d3e3f1;
+  --report-title: #0f172a;
+  --report-text: #334155;
+  --report-muted: #64748b;
   min-height: 100vh;
-  padding: 24px;
+  padding: 22px;
+  color: var(--report-text);
   background:
-    radial-gradient(circle at 10% 8%, rgba(124, 184, 245, 0.28), transparent 38%),
-    radial-gradient(circle at 88% 16%, rgba(180, 214, 247, 0.3), transparent 34%),
-    linear-gradient(155deg, #f7fbff 0%, #eef5fb 55%, #f5f9fd 100%);
+    radial-gradient(circle at 8% 4%, rgba(126, 183, 244, 0.3), transparent 36%),
+    radial-gradient(circle at 88% 12%, rgba(174, 209, 244, 0.33), transparent 34%),
+    linear-gradient(156deg, var(--report-bg-0) 0%, var(--report-bg-1) 52%, var(--report-bg-2) 100%);
 }
 
 .report-shell {
@@ -695,11 +706,11 @@ onMounted(async () => {
 }
 
 .glass-card {
-  border: 1px solid #d8e6f2;
+  border: 1px solid var(--report-card-border);
   border-radius: 24px;
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(246, 251, 255, 0.94));
+  background: linear-gradient(165deg, var(--report-card-bg), rgba(247, 251, 255, 0.96));
   backdrop-filter: blur(10px);
-  box-shadow: 0 14px 36px rgba(54, 93, 130, 0.12);
+  box-shadow: 0 16px 36px rgba(52, 87, 126, 0.13);
 }
 
 .state-card {
@@ -707,7 +718,7 @@ onMounted(async () => {
 }
 
 .hero-card {
-  padding: 20px;
+  padding: 22px;
 }
 
 .hero-head {
@@ -719,16 +730,16 @@ onMounted(async () => {
 }
 
 .hero-title {
-  font-size: 34px;
+  font-size: 32px;
   font-weight: 700;
-  letter-spacing: 0.02em;
-  color: #0f172a;
+  letter-spacing: 0.01em;
+  color: var(--report-title);
 }
 
 .hero-subtitle {
   margin-top: 8px;
   font-size: 14px;
-  color: #475569;
+  color: var(--report-muted);
 }
 
 .hero-actions {
@@ -738,21 +749,21 @@ onMounted(async () => {
 
 .btn {
   border-radius: 12px;
-  border: 1px solid #bfd8ec;
+  border: 1px solid #b8d2ea;
   padding: 9px 16px;
   font-size: 13px;
-  color: #0f172a;
+  color: #12253b;
   transition: all 0.2s ease;
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #7ac0ff, #4f97e6);
-  color: #f8fcff;
+  background: linear-gradient(135deg, #5baaf8, #3f88d8);
+  color: #f7fbff;
 }
 
 .btn-secondary {
-  background: #edf5fb;
-  color: #1e3a5f;
+  background: #edf4fd;
+  color: #27476b;
 }
 
 .btn:hover {
@@ -768,8 +779,8 @@ onMounted(async () => {
 
 .hero-gauge {
   border-radius: 18px;
-  border: 1px solid #d7e6f2;
-  background: #f5fbff;
+  border: 1px solid var(--report-panel-border);
+  background: var(--report-panel-bg);
   position: relative;
   display: flex;
   align-items: center;
@@ -782,10 +793,10 @@ onMounted(async () => {
   bottom: 16px;
   padding: 4px 12px;
   border-radius: 999px;
-  background: #e4f2ff;
-  color: #1e3a5f;
+  background: #e1f0ff;
+  color: #1c436d;
   font-size: 12px;
-  border: 1px solid #bfdaf0;
+  border: 1px solid #b9d5ee;
 }
 
 .hero-dimensions {
@@ -796,19 +807,19 @@ onMounted(async () => {
 
 .dimension-block {
   border-radius: 16px;
-  border: 1px solid #d5e6f3;
-  background: #f7fbff;
+  border: 1px solid var(--report-panel-border);
+  background: var(--report-panel-bg);
   padding: 12px;
 }
 
 .dimension-label {
-  color: #64748b;
+  color: var(--report-muted);
   font-size: 12px;
 }
 
 .dimension-value {
   margin-top: 4px;
-  color: #0f172a;
+  color: var(--report-title);
   font-size: 28px;
   font-weight: 700;
 }
@@ -829,8 +840,8 @@ onMounted(async () => {
 .hero-chart {
   margin-top: 16px;
   border-radius: 18px;
-  border: 1px solid #d4e6f3;
-  background: #f7fbff;
+  border: 1px solid var(--report-panel-border);
+  background: var(--report-panel-bg);
   padding: 8px;
 }
 
@@ -853,20 +864,20 @@ onMounted(async () => {
 }
 
 .panel-head h2 {
-  color: #0f172a;
+  color: var(--report-title);
   font-size: 18px;
   font-weight: 600;
 }
 
 .panel-head span {
-  color: #64748b;
+  color: var(--report-muted);
   font-size: 12px;
 }
 
 .replay-hint {
   margin-top: 8px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--report-muted);
 }
 
 .group-replay-layout {
@@ -883,13 +894,13 @@ onMounted(async () => {
 
 .group-replay-side-card {
   border-radius: 14px;
-  border: 1px solid #d4e5f3;
-  background: #f8fcff;
+  border: 1px solid var(--report-panel-border);
+  background: var(--report-panel-bg);
   padding: 10px;
 }
 
 .group-replay-side-card h3 {
-  color: #334155;
+  color: var(--report-text);
   font-size: 12px;
   margin-bottom: 8px;
 }
@@ -897,9 +908,9 @@ onMounted(async () => {
 .replay-stage {
   margin-top: 12px;
   border-radius: 16px;
-  border: 1px solid #d5e6f3;
+  border: 1px solid var(--report-panel-border);
   overflow: hidden;
-  background: #eef5fb;
+  background: #e9f2fb;
 }
 
 .replay-stage.compact {
@@ -910,7 +921,7 @@ onMounted(async () => {
   width: 100%;
   aspect-ratio: 16 / 9;
   object-fit: contain;
-  background: rgba(0, 0, 0, 0.62);
+  background: #0f172a;
 }
 
 .replay-placeholder {
@@ -919,7 +930,7 @@ onMounted(async () => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #64748b;
+  color: var(--report-muted);
   gap: 8px;
 }
 
@@ -928,7 +939,7 @@ onMounted(async () => {
 }
 
 .replay-placeholder small {
-  color: #94a3b8;
+  color: #859ab2;
 }
 
 .timeline-wrap {
@@ -946,8 +957,8 @@ onMounted(async () => {
   grid-template-columns: 48px 1fr;
   gap: 10px;
   border-radius: 16px;
-  border: 1px solid #d7e7f3;
-  background: #f8fcff;
+  border: 1px solid var(--report-panel-border);
+  background: var(--report-panel-bg);
   padding: 12px;
 }
 
@@ -955,30 +966,30 @@ onMounted(async () => {
   width: 36px;
   height: 36px;
   border-radius: 999px;
-  border: 1px solid #c5ddf0;
-  color: #1e3a5f;
+  border: 1px solid #bad5ec;
+  color: #1e4770;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 12px;
-  background: #e0f0ff;
+  background: #deeeff;
 }
 
 .timeline-content h4 {
-  color: #0f172a;
+  color: var(--report-title);
   font-size: 14px;
   line-height: 1.45;
 }
 
 .timeline-answer {
   margin-top: 6px;
-  color: #334155;
+  color: var(--report-text);
   font-size: 12px;
   line-height: 1.5;
 }
 
 .timeline-answer strong {
-  color: #0f172a;
+  color: var(--report-title);
   font-weight: 600;
 }
 
@@ -991,11 +1002,11 @@ onMounted(async () => {
 
 .timeline-tags span {
   font-size: 11px;
-  color: #1e3a5f;
-  border: 1px solid #c7dff0;
+  color: #274f79;
+  border: 1px solid #bfd8ec;
   border-radius: 999px;
   padding: 3px 9px;
-  background: #eaf4fc;
+  background: #eaf3fd;
 }
 
 .conversation-grid {
@@ -1007,13 +1018,13 @@ onMounted(async () => {
 
 .conversation-grid section {
   border-radius: 14px;
-  border: 1px solid #d5e6f2;
-  background: #f8fcff;
+  border: 1px solid var(--report-panel-border);
+  background: var(--report-panel-bg);
   padding: 10px;
 }
 
 .conversation-grid h3 {
-  color: #0f172a;
+  color: var(--report-title);
   font-size: 13px;
   margin-bottom: 8px;
 }
@@ -1029,7 +1040,7 @@ onMounted(async () => {
 .conversation-grid li {
   font-size: 12px;
   line-height: 1.45;
-  color: #334155;
+  color: var(--report-text);
 }
 
 .side-stack {
@@ -1043,7 +1054,7 @@ onMounted(async () => {
 }
 
 .overall-analysis {
-  color: #334155;
+  color: var(--report-text);
   font-size: 13px;
   line-height: 1.6;
   margin-bottom: 10px;
@@ -1055,7 +1066,7 @@ onMounted(async () => {
 
 .insight-section h3 {
   font-size: 13px;
-  color: #0f172a;
+  color: var(--report-title);
   margin-bottom: 6px;
 }
 
@@ -1068,19 +1079,19 @@ onMounted(async () => {
 .insight-section li {
   font-size: 12px;
   line-height: 1.45;
-  color: #334155;
+  color: var(--report-text);
 }
 
 .faded,
 .empty-tip {
-  color: #94a3b8;
+  color: #7f96af;
   font-size: 12px;
 }
 
 .modal-mask {
   position: fixed;
   inset: 0;
-  background: rgba(8, 18, 34, 0.42);
+  background: rgba(12, 24, 40, 0.44);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1094,14 +1105,14 @@ onMounted(async () => {
 }
 
 .modal-panel h3 {
-  color: #0f172a;
+  color: var(--report-title);
   font-size: 21px;
   font-weight: 700;
 }
 
 .modal-panel p {
   margin-top: 6px;
-  color: #475569;
+  color: var(--report-muted);
   font-size: 13px;
 }
 
@@ -1116,7 +1127,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  color: #334155;
+  color: var(--report-text);
   font-size: 12px;
 }
 
@@ -1124,9 +1135,9 @@ onMounted(async () => {
 .form-grid select,
 .form-grid textarea {
   border-radius: 10px;
-  border: 1px solid #c5dced;
-  background: #f8fcff;
-  color: #0f172a;
+  border: 1px solid #bfd6eb;
+  background: #f5faff;
+  color: var(--report-title);
   padding: 8px 10px;
 }
 

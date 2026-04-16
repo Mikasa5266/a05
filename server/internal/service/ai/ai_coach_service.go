@@ -7,10 +7,42 @@ import (
 	"strings"
 )
 
+func countASCIILetters(text string) int {
+	count := 0
+	for _, r := range text {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			count++
+		}
+	}
+	return count
+}
+
+func countCJKRunes(text string) int {
+	count := 0
+	for _, r := range text {
+		if r >= 0x4E00 && r <= 0x9FFF {
+			count++
+		}
+	}
+	return count
+}
+
+func looksMostlyEnglishHint(text string) bool {
+	letters := countASCIILetters(text)
+	if letters < 8 {
+		return false
+	}
+	cjk := countCJKRunes(text)
+	return letters > cjk*2
+}
+
 func normalizeShadowHintText(text string, fallback string) string {
 	clean := strings.TrimSpace(strings.ReplaceAll(text, "\n", " "))
 	clean = strings.Join(strings.Fields(clean), " ")
 	if clean == "" {
+		clean = fallback
+	}
+	if looksMostlyEnglishHint(clean) {
 		clean = fallback
 	}
 	runes := []rune(clean)
@@ -23,16 +55,20 @@ func normalizeShadowHintText(text string, fallback string) string {
 func extractShadowHintFocus(question string) string {
 	trimmed := strings.TrimSpace(question)
 	if trimmed == "" {
-		return "this question"
+		return "这道题"
 	}
 	replacer := strings.NewReplacer(
-		"please", "",
-		"how", "",
-		"what", "",
-		"why", "",
+		"请你", "",
+		"请", "",
+		"如何", "",
+		"怎么", "",
+		"什么", "",
+		"为什么", "",
+		"请问", "",
+		"？", "",
 		"?", "",
 	)
-	focus := strings.TrimSpace(replacer.Replace(strings.ToLower(trimmed)))
+	focus := strings.TrimSpace(replacer.Replace(trimmed))
 	if focus == "" {
 		focus = trimmed
 	}
@@ -41,7 +77,7 @@ func extractShadowHintFocus(question string) string {
 		focus = string(runes[:18])
 	}
 	if strings.TrimSpace(focus) == "" {
-		return "this question"
+		return "这道题"
 	}
 	return focus
 }
@@ -49,9 +85,9 @@ func extractShadowHintFocus(question string) string {
 func buildShadowHintFallbacks(question string) []string {
 	focus := extractShadowHintFocus(question)
 	return []string{
-		fmt.Sprintf("Give a short judgment around '%s' first.", focus),
-		fmt.Sprintf("Split '%s' into mechanism and a concrete scenario.", focus),
-		fmt.Sprintf("Start with viewpoint -> mechanism -> result around '%s'.", focus),
+		fmt.Sprintf("先围绕“%s”给出一句判断，再补一句关键依据。", focus),
+		fmt.Sprintf("把“%s”拆成“核心机制 + 实战场景”两层来说。", focus),
+		fmt.Sprintf("按“观点 -> 机制 -> 结果”组织，围绕“%s”给出可落地表达。", focus),
 	}
 }
 
@@ -61,6 +97,7 @@ func looksTemplateLikeHint(text string) bool {
 		return true
 	}
 	templateMarkers := []string{"three-step", "four-step", "template", "conclusion"}
+	templateMarkers = append(templateMarkers, "三步", "四步", "模板", "套话")
 	for _, marker := range templateMarkers {
 		if strings.Contains(strings.ToLower(trimmed), marker) {
 			return true
@@ -128,9 +165,9 @@ func (s *AIService) GenerateShadowCoachHintLevels(ctx context.Context, position,
 	trimmedQuestion := strings.TrimSpace(question)
 	fallbacks := buildShadowHintFallbacks(trimmedQuestion)
 	anchors := extractShadowHintAnchors(referenceAnswer, knowledgeContext)
-	anchorText := "none"
+	anchorText := "无"
 	if len(anchors) > 0 {
-		anchorText = strings.Join(anchors, ",")
+		anchorText = strings.Join(anchors, "、")
 	}
 	if trimmedQuestion == "" {
 		return fallbacks, nil
@@ -185,13 +222,13 @@ func (s *AIService) GenerateShadowCoachHintLevels(ctx context.Context, position,
 	if len(anchors) > 0 {
 		if !containsAnyShadowAnchor(hints[1], anchors) {
 			hints[1] = normalizeShadowHintText(
-				fmt.Sprintf("Mention '%s' and add one mechanism + action.", anchors[0]),
+				fmt.Sprintf("明确提到“%s”，再补一个机制点和执行动作。", anchors[0]),
 				fallbacks[1],
 			)
 		}
 		if !containsAnyShadowAnchor(hints[2], anchors) {
 			hints[2] = normalizeShadowHintText(
-				fmt.Sprintf("Speak in viewpoint -> mechanism -> result and include '%s'.", anchors[0]),
+				fmt.Sprintf("按“观点 -> 机制 -> 结果”作答，并带上“%s”。", anchors[0]),
 				fallbacks[2],
 			)
 		}

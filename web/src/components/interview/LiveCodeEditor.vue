@@ -36,6 +36,7 @@ const emit = defineEmits(['update:modelValue', 'language-change', 'submit', 'clo
 const editorHost = ref(null)
 let editor = null
 let suppressEmit = false
+let monacoThemeReady = false
 
 const questionTitle = computed(() => {
   const raw = String(props.question?.title || '').trim()
@@ -60,15 +61,48 @@ const canSubmit = computed(() => {
 function ensureEditor() {
   if (editor || !editorHost.value) return
 
+  if (!monacoThemeReady) {
+    monaco.editor.defineTheme('interview-night', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [
+        { token: 'comment', foreground: '6A9955' },
+        { token: 'keyword', foreground: '4EC9B0' },
+        { token: 'number', foreground: 'B5CEA8' },
+        { token: 'string', foreground: 'CE9178' },
+        { token: 'type', foreground: '4FC1FF' },
+      ],
+      colors: {
+        'editor.background': '#0f1723',
+        'editorLineNumber.foreground': '#5B6B7A',
+        'editorLineNumber.activeForeground': '#A9BDD2',
+        'editor.selectionBackground': '#1c3550',
+      },
+    })
+    monacoThemeReady = true
+  }
+
   editor = monaco.editor.create(editorHost.value, {
     value: String(props.modelValue || ''),
     language: normalizedLanguage.value,
-    theme: 'vs-dark',
+    theme: 'interview-night',
     automaticLayout: true,
     fontSize: 14,
+    fontFamily: 'JetBrains Mono, Fira Code, Cascadia Code, Consolas, monospace',
+    fontLigatures: true,
     minimap: { enabled: false },
     scrollBeyondLastLine: false,
     lineNumbers: 'on',
+    lineNumbersMinChars: 3,
+    glyphMargin: false,
+    folding: true,
+    guides: {
+      indentation: true,
+      bracketPairs: true,
+    },
+    bracketPairColorization: {
+      enabled: true,
+    },
     wordWrap: 'on',
     readOnly: props.readOnly,
   })

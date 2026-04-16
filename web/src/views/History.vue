@@ -215,8 +215,8 @@ const detailOverall = computed(() => {
 
 const detailSuggestions = computed(() => parseStringList(detailReport.value.suggestions).slice(0, 5))
 
-const chartTextColor = 'rgba(222, 238, 255, 0.74)'
-const chartLineColor = 'rgba(154, 190, 232, 0.24)'
+const chartTextColor = '#334155'
+const chartLineColor = 'rgba(148, 163, 184, 0.34)'
 
 const detailRadarOption = computed(() => ({
   tooltip: {},
@@ -225,7 +225,7 @@ const detailRadarOption = computed(() => ({
     splitNumber: 4,
     axisName: { color: chartTextColor },
     splitArea: {
-      areaStyle: { color: ['rgba(70, 110, 160, 0.12)', 'rgba(70, 110, 160, 0.2)'] }
+      areaStyle: { color: ['rgba(203, 221, 239, 0.18)', 'rgba(173, 201, 230, 0.24)'] }
     },
     splitLine: { lineStyle: { color: chartLineColor } },
     axisLine: { lineStyle: { color: chartLineColor } },
@@ -237,10 +237,10 @@ const detailRadarOption = computed(() => ({
       data: [
         {
           value: detailDimensions.value.map((item) => item.value),
-          areaStyle: { color: 'rgba(122, 194, 255, 0.25)' },
-          lineStyle: { color: '#7fc9ff', width: 2 },
+          areaStyle: { color: 'rgba(82, 159, 240, 0.22)' },
+          lineStyle: { color: '#4a90d9', width: 2 },
           symbolSize: 6,
-          itemStyle: { color: '#b0deff' }
+          itemStyle: { color: '#6eaee9' }
         }
       ]
     }
@@ -269,10 +269,10 @@ const detailMoodOption = computed(() => ({
       type: 'line',
       smooth: true,
       data: [84, 76, 88, 79, 83],
-      lineStyle: { width: 2, color: '#9acbff' },
-      areaStyle: { color: 'rgba(154, 203, 255, 0.15)' },
+      lineStyle: { width: 2, color: '#4a90d9' },
+      areaStyle: { color: 'rgba(82, 159, 240, 0.2)' },
       symbolSize: 6,
-      itemStyle: { color: '#c9e5ff' }
+      itemStyle: { color: '#6eaee9' }
     }
   ]
 }))
@@ -409,9 +409,9 @@ onMounted(() => {
   min-height: 100vh;
   padding: 24px;
   background:
-    radial-gradient(circle at 14% 8%, rgba(131, 188, 241, 0.32), transparent 36%),
-    radial-gradient(circle at 86% 20%, rgba(176, 216, 248, 0.3), transparent 36%),
-    linear-gradient(160deg, #f7fbff 0%, #eef5fb 58%, #f5f9fd 100%);
+    radial-gradient(circle at 14% 8%, rgba(155, 204, 246, 0.24), transparent 36%),
+    radial-gradient(circle at 86% 20%, rgba(184, 220, 250, 0.26), transparent 36%),
+    linear-gradient(158deg, #f6faff 0%, #edf4fb 56%, #f9fcff 100%);
 }
 
 .history-shell {
@@ -430,37 +430,39 @@ onMounted(() => {
 }
 
 .history-header h1 {
-  color: #f2f8ff;
+  color: #0f172a;
   font-size: 32px;
   font-weight: 700;
 }
 
 .history-header p {
   margin-top: 8px;
-  color: rgba(208, 228, 252, 0.86);
+  color: #475569;
   font-size: 14px;
 }
 
 .action-btn {
   border-radius: 12px;
-  border: 1px solid rgba(177, 213, 252, 0.48);
+  border: 1px solid #c7dbf0;
   padding: 8px 14px;
   font-size: 13px;
-  color: #f4faff;
-  background: rgba(66, 131, 210, 0.54);
+  color: #0f2a44;
+  background: linear-gradient(135deg, #e7f2ff, #d4e9fb);
   transition: all 0.2s ease;
 }
 
 .action-btn:hover {
   transform: translateY(-1px);
+  border-color: #9ec2e3;
+  background: linear-gradient(135deg, #dcedff, #c9e2f9);
 }
 
 .glass-card {
-  border: 1px solid rgba(184, 215, 255, 0.32);
+  border: 1px solid #d0e0ef;
   border-radius: 24px;
-  background: linear-gradient(160deg, rgba(18, 39, 69, 0.64), rgba(25, 53, 88, 0.4));
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.96), rgba(245, 250, 255, 0.97));
   backdrop-filter: blur(14px);
-  box-shadow: 0 20px 60px rgba(4, 18, 42, 0.36);
+  box-shadow: 0 16px 40px rgba(32, 71, 112, 0.14);
 }
 
 .table-card {
@@ -476,16 +478,17 @@ onMounted(() => {
 
 .filter-pill {
   border-radius: 999px;
-  border: 1px solid rgba(166, 204, 247, 0.26);
-  background: rgba(29, 61, 102, 0.4);
-  color: rgba(221, 238, 255, 0.85);
+  border: 1px solid #c9ddee;
+  background: #f3f8fd;
+  color: #355372;
   font-size: 12px;
   padding: 6px 12px;
 }
 
 .filter-pill.active {
-  border-color: rgba(188, 224, 255, 0.66);
-  background: rgba(108, 178, 255, 0.24);
+  border-color: #8ab5db;
+  background: #dfefff;
+  color: #143d64;
 }
 
 .state-box {
@@ -494,7 +497,7 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  color: rgba(188, 211, 238, 0.74);
+  color: #5a728a;
   gap: 10px;
 }
 
@@ -505,8 +508,8 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(184, 216, 255, 0.4);
-  color: rgba(200, 224, 250, 0.9);
+  border: 1px solid #c7dbef;
+  color: #5c84aa;
 }
 
 .table-wrap {
@@ -521,15 +524,15 @@ table {
 th,
 td {
   padding: 14px 12px;
-  border-bottom: 1px solid rgba(173, 206, 248, 0.2);
+  border-bottom: 1px solid rgba(188, 211, 232, 0.56);
   text-align: left;
   white-space: nowrap;
-  color: rgba(225, 239, 255, 0.92);
+  color: #22364c;
   font-size: 13px;
 }
 
 th {
-  color: rgba(193, 215, 240, 0.75);
+  color: #5a728a;
   font-size: 12px;
 }
 
@@ -546,21 +549,21 @@ th {
 }
 
 .tag-emerald {
-  color: #ccffe8;
-  background: rgba(83, 173, 139, 0.25);
-  border-color: rgba(163, 239, 204, 0.5);
+  color: #176746;
+  background: #e7f9f0;
+  border-color: #b8e8d0;
 }
 
 .tag-amber {
-  color: #ffe7c7;
-  background: rgba(178, 132, 77, 0.24);
-  border-color: rgba(255, 214, 156, 0.5);
+  color: #8c4f12;
+  background: #fff2e1;
+  border-color: #f4d2a9;
 }
 
 .tag-rose {
-  color: #ffd7e2;
-  background: rgba(185, 86, 119, 0.23);
-  border-color: rgba(255, 188, 208, 0.5);
+  color: #8e1f47;
+  background: #ffe8ef;
+  border-color: #f5bfd1;
 }
 
 .score-text {
@@ -568,15 +571,15 @@ th {
 }
 
 .score-good {
-  color: #8cf4c6;
+  color: #177a52;
 }
 
 .score-mid {
-  color: #ffd49c;
+  color: #9a5a14;
 }
 
 .score-bad {
-  color: #ffb2c8;
+  color: #a62f5a;
 }
 
 .status-text {
@@ -584,15 +587,15 @@ th {
 }
 
 .status-ok {
-  color: #88f2c2;
+  color: #177a52;
 }
 
 .status-warn {
-  color: #ffd49c;
+  color: #9a5a14;
 }
 
 .status-off {
-  color: rgba(190, 211, 236, 0.65);
+  color: #7b8ea3;
 }
 
 .row-actions {
@@ -606,24 +609,24 @@ th {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: #b6deff;
+  color: #2069a6;
   font-size: 12px;
   transition: color 0.2s ease;
 }
 
 .text-btn:hover {
-  color: #d3ebff;
+  color: #154f80;
 }
 
 .faded {
-  color: rgba(177, 199, 224, 0.68);
+  color: #7b8ea3;
   font-size: 12px;
 }
 
 .modal-mask {
   position: fixed;
   inset: 0;
-  background: rgba(4, 10, 20, 0.68);
+  background: rgba(8, 24, 42, 0.44);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -646,14 +649,14 @@ th {
 }
 
 .detail-head h2 {
-  color: #f4faff;
+  color: #0f172a;
   font-size: 24px;
   font-weight: 700;
 }
 
 .detail-head p {
   margin-top: 6px;
-  color: rgba(205, 228, 252, 0.84);
+  color: #5c748c;
   font-size: 13px;
 }
 
@@ -672,19 +675,19 @@ th {
 
 .summary-card {
   border-radius: 14px;
-  border: 1px solid rgba(172, 207, 248, 0.24);
-  background: rgba(11, 27, 49, 0.56);
+  border: 1px solid #cddff0;
+  background: #f4f9ff;
   padding: 10px;
 }
 
 .summary-card p {
-  color: rgba(201, 225, 251, 0.78);
+  color: #5b738c;
   font-size: 12px;
 }
 
 .summary-card h3 {
   margin-top: 6px;
-  color: #f2f9ff;
+  color: #10243a;
   font-size: 28px;
   font-weight: 700;
 }
@@ -697,19 +700,19 @@ th {
 
 .glass-subcard {
   border-radius: 16px;
-  border: 1px solid rgba(171, 206, 247, 0.2);
-  background: rgba(9, 24, 45, 0.58);
+  border: 1px solid #cfdfee;
+  background: #f7fbff;
   padding: 12px;
 }
 
 .glass-subcard h4 {
-  color: #f1f8ff;
+  color: #10243a;
   font-size: 14px;
   margin-bottom: 8px;
 }
 
 .plain-text {
-  color: rgba(210, 230, 249, 0.92);
+  color: #2f455b;
   font-size: 13px;
   line-height: 1.6;
 }
@@ -721,7 +724,7 @@ th {
 }
 
 .plain-list li {
-  color: rgba(210, 230, 249, 0.92);
+  color: #2f455b;
   font-size: 13px;
   line-height: 1.5;
 }

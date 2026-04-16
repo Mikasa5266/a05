@@ -343,6 +343,18 @@ func (r *InterviewRepository) UpdateInvitation(invitation *model.HumanInterviewI
 	return r.db.Save(invitation).Error
 }
 
+func (r *InterviewRepository) DeleteInvitationWithParticipants(invitationID uint) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("invitation_id = ?", invitationID).Delete(&model.HumanInterviewInvitationParticipant{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("id = ?", invitationID).Delete(&model.HumanInterviewInvitation{}).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
 func (r *InterviewRepository) GetInvitationParticipant(invitationID, userID uint) (*model.HumanInterviewInvitationParticipant, error) {
 	var participant model.HumanInterviewInvitationParticipant
 	err := r.db.Where("invitation_id = ? AND user_id = ?", invitationID, userID).First(&participant).Error

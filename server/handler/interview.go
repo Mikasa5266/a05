@@ -380,6 +380,22 @@ func RespondHumanInvitation(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "邀请状态已更新", "invitation": invitation})
 }
 
+func DeleteHumanInvitation(c *gin.Context) {
+	requestUserID := c.GetUint("user_id")
+	invitationID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid invitation ID"})
+		return
+	}
+
+	if err := service.DeleteHumanInvitation(requestUserID, uint(invitationID)); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "邀请已删除"})
+}
+
 func GetInterview(c *gin.Context) {
 	userID := c.GetUint("user_id")
 	interviewID, err := strconv.ParseUint(c.Param("id"), 10, 32)

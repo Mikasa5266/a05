@@ -51,6 +51,9 @@ type LiveInterviewWorkbenchItem struct {
 	InviteeUserID    uint       `json:"invitee_user_id"`
 	InviteeUUID      string     `json:"invitee_uuid"`
 	InviteeRole      string     `json:"invitee_role"`
+	ScenarioType     string     `json:"scenario_type"`
+	TargetParticipants int      `json:"target_participants"`
+	StartThreshold   int        `json:"start_threshold"`
 	Position         string     `json:"position"`
 	Difficulty       string     `json:"difficulty"`
 	Mode             string     `json:"mode"`

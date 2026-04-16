@@ -99,6 +99,13 @@
               拒绝邀请
             </button>
             <button
+              v-if="canDeleteInvitation(inv)"
+              class="px-3 py-1.5 rounded-lg bg-zinc-100 text-zinc-700 text-xs font-semibold hover:bg-zinc-200"
+              @click="deleteInvitation(inv)"
+            >
+              删除记录
+            </button>
+            <button
               v-if="canEnterRoom(inv)"
               class="ml-auto px-3.5 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-semibold hover:bg-indigo-100"
               @click="enterLiveRoom(inv)"
@@ -213,12 +220,12 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { createHumanInvitation, getHumanInvitations, getInviteCandidates, getReceivedHumanInvitations, respondHumanInvitation } from '../../api/interview'
+import { createHumanInvitation, deleteHumanInvitation, getHumanInvitations, getInviteCandidates, getReceivedHumanInvitations, respondHumanInvitation } from '../../api/interview'
 
 const router = useRouter()
 const route = useRoute()
 
-const isGroupMode = computed(() => String(route.query?.group_mode || '') === '1')
+const isGroupMode = computed(() => String(route.path || '').includes('/group/'))
 const pageTitle = computed(() => (isGroupMode.value ? '学生端群面工作台' : '学生端真人面试工作台'))
 const pageSubtitle = computed(() => (isGroupMode.value ? '发起群面邀请、追踪状态、进入群面房间' : '发起邀请、追踪状态、进入房间'))
 const dialogTitle = computed(() => (isGroupMode.value ? '发起群面邀请' : '发起真人面试邀请'))
@@ -246,8 +253,13 @@ const createForm = reactive({
   notes: ''
 })
 
+const scopedInvitations = computed(() => invitations.value.filter((item) => {
+  const group = isGroupInvitation(item)
+  return isGroupMode.value ? group : !group
+}))
+
 const tabs = computed(() => {
-  const list = invitations.value
+  const list = scopedInvitations.value
   const countByStatus = (status) => list.filter((item) => item.status === status).length
   return [
     { key: 'all', label: '邀请列表', count: list.length },
@@ -259,7 +271,7 @@ const tabs = computed(() => {
 })
 
 const filteredInvitations = computed(() => {
-  const list = invitations.value
+  const list = scopedInvitations.value
   if (activeTab.value === 'pending') return list.filter((item) => item.status === 'pending')
   if (activeTab.value === 'processed') return list.filter((item) => item.status !== 'pending')
   if (activeTab.value === 'in_progress') return list.filter((item) => item.status === 'in_progress')
@@ -333,6 +345,13 @@ const invitationCounterpartRole = (inv) => {
 }
 
 const canRespondInvitation = (inv) => invitationDirection(inv) === 'incoming' && inv?.status === 'pending'
+
+const canDeleteInvitation = (inv) => {
+  if (!inv) return false
+  if (inv.status === 'in_progress') return false
+  if (String(inv.interview_status || '').trim() === 'in_progress') return false
+  return true
+}
 
 const canEnterRoom = (inv) => {
   if (!inv) return false
@@ -471,7 +490,28 @@ const submitCreateInvitation = async () => {
 
 const isGroupInvitation = (invitation) => {
   const scenarioType = String(invitation?.scenario_type || '').trim().toLowerCase()
-  return scenarioType === 'group' || Number(invitation?.target_participants || 0) > 2 || isGroupMode.value
+  if (scenarioType === 'group') return true
+  if (scenarioType === 'single') return false
+  if (Number(invitation?.target_participants || 0) > 2) return true
+  if (Number(invitation?.start_threshold || 0) > 2) return true
+  const participants = Array.isArray(invitation?.participants) ? invitation.participants : []
+  const inviteeCount = participants.filter((row) => String(row?.participant_role || '').trim() === 'invitee').length
+  return inviteeCount > 1
+}
+
+const deleteInvitation = async (invitation) => {
+  const invitationId = Number(invitation?.id || 0)
+  if (!invitationId) return
+  if (!window.confirm('删除后该邀请记录将从工作台移除，是否继续？')) {
+    return
+  }
+  try {
+    await deleteHumanInvitation(invitationId)
+    ElMessage.success('邀请记录已删除')
+    await fetchInvitations()
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.error || '删除邀请失败')
+  }
 }
 
 const enterLiveRoom = (invitation) => {
@@ -483,8 +523,7 @@ const enterLiveRoom = (invitation) => {
   const isGroup = isGroupInvitation(invitation)
   const invitationCode = String(invitation?.invitation_code || '').trim()
   const query = {
-    ...(invitationCode ? { invitation_code: invitationCode } : {}),
-    ...(isGroup ? { group_mode: '1' } : {})
+    ...(invitationCode ? { invitation_code: invitationCode } : {})
   }
 
   router.push({

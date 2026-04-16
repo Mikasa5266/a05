@@ -237,6 +237,13 @@ export function respondHumanInvitation(invitationId, action) {
   });
 }
 
+export function deleteHumanInvitation(invitationId) {
+  return request({
+    url: `/interview/invitations/${invitationId}`,
+    method: "delete",
+  });
+}
+
 export function joinLiveInterview(data) {
   return request({
     url: "/interview/live/join",
