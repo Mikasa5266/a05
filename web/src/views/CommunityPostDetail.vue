@@ -30,7 +30,7 @@
       <div class="lg:col-span-2 space-y-6">
         <div class="bg-white rounded-3xl p-7 border border-zinc-100 shadow-sm">
           <div class="flex items-center gap-3 mb-5">
-            <img v-if="post.avatar" :src="post.avatar" class="h-10 w-10 rounded-full object-cover" />
+            <img v-if="authorAvatarUrl" :src="authorAvatarUrl" class="h-10 w-10 rounded-full object-cover" @error="avatarBroken = true" />
             <div v-else class="h-10 w-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-sm">
               {{ (post.author || '?').charAt(0) }}
             </div>
@@ -89,7 +89,7 @@
                 面试流程
               </h3>
               <div class="prose prose-zinc max-w-none">
-                <pre class="whitespace-pre-wrap break-words text-sm text-zinc-700 leading-relaxed font-sans bg-transparent p-0 m-0">{{ post.process }}</pre>
+                <pre class="whitespace-pre-wrap wrap-break-word text-sm text-zinc-700 leading-relaxed font-sans bg-transparent p-0 m-0">{{ post.process }}</pre>
               </div>
             </div>
 
@@ -99,7 +99,7 @@
                 高频问题
               </h3>
               <div class="prose prose-zinc max-w-none">
-                <pre class="whitespace-pre-wrap break-words text-sm text-zinc-700 leading-relaxed font-sans bg-transparent p-0 m-0">{{ post.questions }}</pre>
+                <pre class="whitespace-pre-wrap wrap-break-word text-sm text-zinc-700 leading-relaxed font-sans bg-transparent p-0 m-0">{{ post.questions }}</pre>
               </div>
             </div>
 
@@ -109,14 +109,14 @@
                 复盘与建议
               </h3>
               <div class="prose prose-zinc max-w-none">
-                <pre class="whitespace-pre-wrap break-words text-sm text-zinc-700 leading-relaxed font-sans bg-transparent p-0 m-0">{{ post.review }}</pre>
+                <pre class="whitespace-pre-wrap wrap-break-word text-sm text-zinc-700 leading-relaxed font-sans bg-transparent p-0 m-0">{{ post.review }}</pre>
               </div>
             </div>
           </div>
 
           <!-- Fallback Content -->
           <div v-else class="prose prose-zinc max-w-none">
-            <pre class="whitespace-pre-wrap break-words text-sm text-zinc-700 leading-relaxed font-sans bg-transparent p-0 m-0">{{ post.content }}</pre>
+            <pre class="whitespace-pre-wrap wrap-break-word text-sm text-zinc-700 leading-relaxed font-sans bg-transparent p-0 m-0">{{ post.content }}</pre>
           </div>
 
           <div class="flex items-center justify-between pt-6 mt-6 border-t border-zinc-100">
@@ -151,7 +151,7 @@
                 <div class="text-sm font-medium text-zinc-900">{{ c.author || '匿名用户' }}</div>
                 <div class="text-xs text-zinc-400">{{ c.created_at ? new Date(c.created_at).toLocaleString('zh-CN') : '' }}</div>
               </div>
-              <div class="text-sm text-zinc-700 whitespace-pre-wrap break-words leading-relaxed">{{ c.content }}</div>
+              <div class="text-sm text-zinc-700 whitespace-pre-wrap wrap-break-word leading-relaxed">{{ c.content }}</div>
             </div>
           </div>
         </div>
@@ -170,11 +170,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ThumbsUp, MessageCircle, Eye, BrainCircuit, Trash2 } from 'lucide-vue-next'
 import { getPost, likePost, getPostComments, commentOnPost, deletePost } from '../api/community'
 import { useUserStore } from '../stores/user'
+import { getBackendAssetUrl } from '../utils/backend'
 
 const userStore = useUserStore()
 const route = useRoute()
@@ -183,11 +184,17 @@ const router = useRouter()
 const loading = ref(true)
 const error = ref('')
 const post = ref(null)
+const avatarBroken = ref(false)
 
 const comments = ref([])
 const commentsLoading = ref(false)
 const commentText = ref('')
 const submittingComment = ref(false)
+
+const authorAvatarUrl = computed(() => {
+  if (avatarBroken.value) return ''
+  return getBackendAssetUrl(post.value?.avatar)
+})
 
 const fetchPost = async () => {
   loading.value = true
@@ -201,6 +208,13 @@ const fetchPost = async () => {
     loading.value = false
   }
 }
+
+watch(
+  () => post.value?.avatar,
+  () => {
+    avatarBroken.value = false
+  }
+)
 
 const fetchComments = async () => {
   commentsLoading.value = true

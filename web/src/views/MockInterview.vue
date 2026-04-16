@@ -98,7 +98,11 @@ const isGeneratingReport = ref(false)
 const isSubmitting = ref(false)
 const isFinishing = ref(false)
 const reportNavigationLocked = ref(false)
+const autoExitCountdownSeconds = ref(0)
 const finishLoadingText = '正在为您深度生成面试报告与多维评分，请耐心等待...'
+
+let autoExitCountdownTimer = null
+let autoExitCountdownInterval = null
 
 const {
   messages,
@@ -527,9 +531,89 @@ const advanceToNextQuestion = () => {
   scrollToBottom()
 }
 
+const clearAutoExitAfterFailure = () => {
+  if (autoExitCountdownTimer) {
+    clearTimeout(autoExitCountdownTimer)
+    autoExitCountdownTimer = null
+  }
+  if (autoExitCountdownInterval) {
+    clearInterval(autoExitCountdownInterval)
+    autoExitCountdownInterval = null
+  }
+  autoExitCountdownSeconds.value = 0
+}
+
+const recoverAfterCompleteInterviewFailure = async (options = {}) => {
+  const skipRecordingUpload = options?.skipRecordingUpload === true
+  answerVoiceStatus.value = 'idle'
+  answerVoiceError.value = ''
+  answerVoiceSeconds.value = 0
+
+  if (!skipRecordingUpload) {
+    try {
+      await stopAndUploadInterviewRecording()
+    } catch (_) {
+      // ignore upload errors during fallback exit
+    }
+  }
+
+  stopCamera()
+  stopQuestionTimer()
+  stopAISpeech()
+  exitInterviewPhase()
+  setCurrentQuestionIndex(0)
+  currentQuestion.value = null
+  resetConversationState()
+  blindBoxScenario.value = null
+  blindBoxRevealed.value = false
+  randomStyleRevealed.value = false
+  revealedStyleInfo.value = null
+
+  if (settings.value.interviewMode === 'human') {
+    await loadUserInvitations()
+  }
+  resetShadowHintProgress()
+  hideShadowBubble()
+}
+
+const scheduleAutoExitAfterFailure = (seconds = 8) => {
+  clearAutoExitAfterFailure()
+  autoExitCountdownSeconds.value = Math.max(3, Number(seconds) || 8)
+
+  appendMessage({
+    role: 'system',
+    content: `报告生成失败，系统将在 ${autoExitCountdownSeconds.value} 秒后自动返回工作台。`,
+    type: 'system'
+  })
+  scrollToBottom()
+
+  autoExitCountdownInterval = setInterval(() => {
+    autoExitCountdownSeconds.value = Math.max(0, autoExitCountdownSeconds.value - 1)
+    if (autoExitCountdownSeconds.value <= 0) {
+      if (autoExitCountdownInterval) {
+        clearInterval(autoExitCountdownInterval)
+        autoExitCountdownInterval = null
+      }
+    }
+  }, 1000)
+
+  autoExitCountdownTimer = setTimeout(async () => {
+    clearAutoExitAfterFailure()
+    isFinishing.value = true
+    try {
+      await recoverAfterCompleteInterviewFailure({ skipRecordingUpload: true })
+      ElMessage.info('已自动返回工作台')
+    } finally {
+      isFinishing.value = false
+      scrollToBottom()
+    }
+  }, autoExitCountdownSeconds.value * 1000)
+}
+
 const completeInterview = async (options = {}) => {
   const forceSubmit = options?.forceSubmit === true
   if (isFinishing.value || !interviewId.value) return
+  clearAutoExitAfterFailure()
   isFinishing.value = true
   isGeneratingReport.value = true
   stopAISpeech()
@@ -564,6 +648,7 @@ const completeInterview = async (options = {}) => {
       content: `报告生成失败：${errMsg}`,
       type: 'system'
     })
+    scheduleAutoExitAfterFailure(8)
   } finally {
     isGeneratingReport.value = false
     isFinishing.value = false
@@ -787,6 +872,7 @@ const onSettingsUpdate = (nextSettings) => {
 }
 
 const cleanupInterviewPageSideEffects = () => {
+  clearAutoExitAfterFailure()
   isSubmitting.value = false
   isFinishing.value = false
   reportNavigationLocked.value = false
@@ -865,6 +951,13 @@ onBeforeUnmount(() => {
         <p class="mt-5 text-base font-semibold text-zinc-900 leading-relaxed">{{ finishLoadingText }}</p>
         <p class="mt-2 text-xs text-zinc-500">期间请勿重复点击按钮，我们会在报告可用后自动为您继续。</p>
       </div>
+    </div>
+
+    <div
+      v-if="autoExitCountdownSeconds > 0 && !isFinishing"
+      class="fixed right-4 bottom-4 z-50 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-700 shadow-lg"
+    >
+      报告生成失败，{{ autoExitCountdownSeconds }} 秒后自动返回工作台
     </div>
 
   </div>

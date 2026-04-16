@@ -51,3 +51,4 @@ web/ngrok.yml
 刷题页面/
 .github
 .vite
+server/cmd/server/knowledge_base

@@ -47,7 +47,7 @@
       
       <router-link :to="settingsPath" @click="handleNavigate" class="flex items-center gap-3 px-3 py-2 rounded-xl md:hover:bg-zinc-50 active:bg-zinc-100 transition-colors cursor-pointer group touch-manipulation">
         <div class="h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold overflow-hidden border border-indigo-200 md:group-hover:border-indigo-300 transition-colors">
-          <img v-if="portalUserInfo?.avatar" :src="avatarUrl" class="w-full h-full object-cover" />
+          <img v-if="avatarUrl" :src="avatarUrl" class="w-full h-full object-cover" @error="onAvatarImageError" />
           <span v-else>{{ userInitials }}</span>
         </div>
         <div class="flex flex-col">
@@ -60,7 +60,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUserStore } from '../../stores/user'
 import { getBackendAssetUrl } from '../../utils/backend'
@@ -83,6 +83,7 @@ const emit = defineEmits(['navigate'])
 
 const route = useRoute()
 const userStore = useUserStore()
+const avatarLoadFailed = ref(false)
 
 const portal = computed(() => getPortalFromPath(route.path))
 const portalConfig = computed(() => portalBrandMap[portal.value] || portalBrandMap.student)
@@ -117,7 +118,18 @@ const displayName = computed(() => {
 })
 
 const avatarUrl = computed(() => {
-  if (!portalUserInfo.value?.avatar) return ''
+  if (avatarLoadFailed.value || !portalUserInfo.value?.avatar) return ''
   return getBackendAssetUrl(portalUserInfo.value.avatar)
 })
+
+const onAvatarImageError = () => {
+  avatarLoadFailed.value = true
+}
+
+watch(
+  () => portalUserInfo.value?.avatar,
+  () => {
+    avatarLoadFailed.value = false
+  }
+)
 </script>

@@ -15,7 +15,7 @@
         <div class="space-y-4">
           <div class="flex items-center gap-4">
             <div class="h-16 w-16 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xl overflow-hidden">
-              <img v-if="portalUserInfo?.avatar" :src="avatarUrl" class="w-full h-full object-cover" />
+              <img v-if="avatarUrl" :src="avatarUrl" class="w-full h-full object-cover" @error="avatarLoadFailed = true" />
               <span v-else>{{ userInitial }}</span>
             </div>
             <div>
@@ -160,6 +160,7 @@ const showPasswordModal = ref(false)
 const profileSyncing = ref(false)
 const profileSubmitting = ref(false)
 const avatarUploading = ref(false)
+const avatarLoadFailed = ref(false)
 const passwordForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
 const profileForm = reactive({
   username: '',
@@ -207,7 +208,7 @@ const userInitial = computed(() => {
 })
 
 const avatarUrl = computed(() => {
-  if (!portalUserInfo.value?.avatar) return ''
+  if (avatarLoadFailed.value || !portalUserInfo.value?.avatar) return ''
   return getBackendAssetUrl(portalUserInfo.value.avatar)
 })
 
@@ -318,6 +319,13 @@ watch(
     hydrateProfileForm()
   },
   { immediate: true }
+)
+
+watch(
+  () => portalUserInfo.value?.avatar,
+  () => {
+    avatarLoadFailed.value = false
+  }
 )
 
 const handleUpdatePassword = async () => {

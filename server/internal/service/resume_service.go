@@ -145,11 +145,12 @@ func NewResumeServiceWithDeps(
 
 func (s *LLMResumeService) AnalyzeOnly(ctx context.Context, input ResumeAnalysisInput) (*model.ResumeAnalysisResult, error) {
 	rawText := normalizeResumeText(input.RawText)
+	positionCatalog := s.loadPositionCatalog()
 	if len([]rune(rawText)) < resumeMinLength {
-		return nil, fmt.Errorf("resume text is too short")
+		fallback := buildResumeFallbackPayload(rawText, positionCatalog, "简历可提取文本偏少，已返回兜底解析结果。")
+		return buildResumeAnalysisResult(&fallback, input), nil
 	}
 
-	positionCatalog := s.loadPositionCatalog()
 	userPrompt, err := buildResumeExtractionPrompt(rawText, positionCatalog)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build resume extraction prompt: %w", err)
@@ -157,14 +158,16 @@ func (s *LLMResumeService) AnalyzeOnly(ctx context.Context, input ResumeAnalysis
 
 	rawOutput, err := s.chatJSON(ctx, buildResumeSystemPrompt(), userPrompt, "resume")
 	if err != nil {
-		return nil, err
+		fallback := buildResumeFallbackPayload(rawText, positionCatalog, "简历智能解析暂不可用，已返回兜底解析结果。")
+		return buildResumeAnalysisResult(&fallback, input), nil
 	}
 
 	payload, err := s.decodeStructuredPayload(rawOutput)
 	if err != nil {
 		payload, err = s.retryStructuredPayload(ctx, rawText, rawOutput, positionCatalog)
 		if err != nil {
-			return nil, err
+			fallback := buildResumeFallbackPayload(rawText, positionCatalog, "结构化提取不稳定，已返回兜底解析结果。")
+			return buildResumeAnalysisResult(&fallback, input), nil
 		}
 	}
 
@@ -564,6 +567,113 @@ func defaultResumeArchitecture() model.ResumeAnalysisArchitecture {
 			OutputGenerator:  "Position match view + interview follow-ups + optimization + risk report",
 		},
 	}
+}
+
+func buildResumeFallbackPayload(rawText string, catalog []resumeRoleProfile, reason string) model.ResumeStructuredPayload {
+	selected := pickFallbackResumeRole(rawText, catalog)
+
+	positionCode := ""
+	positionName := ""
+	roleKey := ""
+	requirements := []string{}
+	keywords := []string{}
+	if selected != nil {
+		positionCode = selected.Code
+		positionName = selected.Name
+		roleKey = selected.RoleKey
+		requirements = append([]string{}, selected.Requirements...)
+		keywords = append(append([]string{}, selected.TechStack...), selected.Keywords...)
+	}
+
+	payload := model.ResumeStructuredPayload{
+		StructuredResume: model.ResumeStructuredResume{
+			ProfessionalSummary: truncateRunes(rawText, 200),
+			Highlights:          []string{"已启用解析兜底模式，建议补充可复制文本简历后重试"},
+			Concerns:            uniqueStrings([]string{reason}),
+			RawPreview:          truncateRunes(rawText, 800),
+		},
+		MatchResults: []model.ResumePositionMatch{},
+		Optimization: []model.ResumeOptimizationSuggestion{
+			{
+				Title:     "补充可解析简历文本",
+				Action:    "优先上传可复制文本的 PDF/DOCX，避免纯图片扫描件。",
+				Rationale: "当前结果来自兜底解析，文本质量会直接影响匹配准确性。",
+				Priority:  "high",
+			},
+		},
+		RiskReport: []model.ResumeRiskItem{
+			{
+				Level:    "medium",
+				Item:     "简历解析降级",
+				Detail:   reason,
+				Evidence: []string{"文本提取长度不足或结构化输出不可用"},
+			},
+		},
+		ConfidenceScore: 35,
+	}
+
+	if strings.TrimSpace(payload.StructuredResume.ProfessionalSummary) == "" {
+		payload.StructuredResume.ProfessionalSummary = "简历文本提取不完整，已返回基础解析结果。"
+	}
+	if strings.TrimSpace(payload.StructuredResume.RawPreview) == "" {
+		payload.StructuredResume.RawPreview = "（无可用文本预览）"
+	}
+
+	if positionCode != "" {
+		payload.MatchResults = []model.ResumePositionMatch{
+			{
+				PositionCode: positionCode,
+				PositionName: positionName,
+				RoleKey:      roleKey,
+				Score:        45,
+				ScoreBreakdown: model.ResumeMatchScoreBreakdown{
+					SkillDepth:       40,
+					ProjectRelevance: 45,
+					DomainAlignment:  48,
+					DeliveryImpact:   42,
+				},
+				HitKeywords:  firstN(uniqueStrings(keywords), 6),
+				Evidence:     []string{"采用兜底匹配策略，需以完整简历复核"},
+				GapSkills:    []string{"补充可复制的项目成果描述", "补充量化指标与职责边界"},
+				Requirements: requirements,
+				Analysis:     "当前匹配基于有限文本与岗位目录的保守推断，建议补传简历后重新解析。",
+			},
+		}
+		payload.InterviewQuestions = synthesizeCatalogQuestions(payload.MatchResults[0], catalog)
+	}
+
+	normalizeStructuredPayload(&payload, rawText, catalog)
+	return payload
+}
+
+func pickFallbackResumeRole(rawText string, catalog []resumeRoleProfile) *resumeRoleProfile {
+	if len(catalog) == 0 {
+		return nil
+	}
+
+	normalized := strings.ToLower(strings.TrimSpace(rawText))
+	bestIdx := 0
+	bestScore := -1
+	for idx, item := range catalog {
+		score := 0
+		candidates := append([]string{item.Code, item.RoleKey, item.Name}, item.TechStack...)
+		candidates = append(candidates, item.Keywords...)
+		for _, token := range candidates {
+			keyword := strings.ToLower(strings.TrimSpace(token))
+			if keyword == "" {
+				continue
+			}
+			if strings.Contains(normalized, keyword) {
+				score++
+			}
+		}
+		if score > bestScore {
+			bestScore = score
+			bestIdx = idx
+		}
+	}
+
+	return &catalog[bestIdx]
 }
 
 func buildResumeTrace(fileName string, bestMatch *model.ResumePositionMatch) []model.ResumeAnalysisTraceStep {

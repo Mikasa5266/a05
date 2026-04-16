@@ -32,7 +32,7 @@
             @click="showDropdown = !showDropdown"
           >
             <div class="h-9 w-9 overflow-hidden rounded-full border-2 border-indigo-200 bg-indigo-100 text-sm font-bold text-indigo-600 flex items-center justify-center">
-              <img v-if="portalUserInfo?.avatar" :src="avatarUrl" class="h-full w-full object-cover" />
+              <img v-if="avatarUrl" :src="avatarUrl" class="h-full w-full object-cover" @error="onAvatarImageError" />
               <span v-else>{{ userInitials }}</span>
             </div>
             <span class="max-w-35 truncate text-sm font-semibold text-zinc-700">{{ displayName }}</span>
@@ -91,6 +91,7 @@ const route = useRoute()
 const userStore = useUserStore()
 const showDropdown = ref(false)
 const dropdownRef = ref(null)
+const avatarLoadFailed = ref(false)
 
 const currentPortal = computed(() => getPortalFromPath(route.path))
 const portalConfig = computed(() => portalBrandMap[currentPortal.value] || portalBrandMap.student)
@@ -142,9 +143,13 @@ const userInitials = computed(() => {
 })
 
 const avatarUrl = computed(() => {
-  if (!portalUserInfo.value?.avatar) return ''
+  if (avatarLoadFailed.value || !portalUserInfo.value?.avatar) return ''
   return getBackendAssetUrl(portalUserInfo.value.avatar)
 })
+
+const onAvatarImageError = () => {
+  avatarLoadFailed.value = true
+}
 
 const handleLogout = () => {
   showDropdown.value = false
@@ -185,6 +190,13 @@ watch(
     ensureUserProfileLoaded(role)
   },
   { immediate: true }
+)
+
+watch(
+  () => portalUserInfo.value?.avatar,
+  () => {
+    avatarLoadFailed.value = false
+  }
 )
 
 onMounted(() => document.addEventListener('click', handleClickOutside))

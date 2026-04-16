@@ -49,7 +49,12 @@
         >
           <!-- Author Info -->
           <div class="flex items-center gap-3 mb-4">
-            <img v-if="post.avatar" :src="post.avatar" class="h-10 w-10 rounded-full object-cover" />
+            <img
+              v-if="resolveAvatarUrl('post', post.id, post.avatar)"
+              :src="resolveAvatarUrl('post', post.id, post.avatar)"
+              class="h-10 w-10 rounded-full object-cover"
+              @error="markAvatarBroken('post', post.id)"
+            />
             <div v-else class="h-10 w-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-sm">
               {{ (post.author || '?').charAt(0) }}
             </div>
@@ -123,7 +128,12 @@
           <div class="space-y-3">
             <div v-for="(alumni, idx) in topAlumni" :key="idx" class="flex items-center justify-between">
               <div class="flex items-center gap-3">
-                <img v-if="alumni.avatar" :src="alumni.avatar" class="h-8 w-8 rounded-full object-cover" />
+                <img
+                  v-if="resolveAvatarUrl('alumni', idx, alumni.avatar)"
+                  :src="resolveAvatarUrl('alumni', idx, alumni.avatar)"
+                  class="h-8 w-8 rounded-full object-cover"
+                  @error="markAvatarBroken('alumni', idx)"
+                />
                 <div v-else class="h-8 w-8 rounded-full bg-zinc-100 text-zinc-600 flex items-center justify-center font-bold text-xs">{{ (alumni.name || '?').charAt(0) }}</div>
                 <div>
                   <div class="text-sm font-medium text-zinc-900">{{ alumni.name || '匿名' }}</div>
@@ -298,6 +308,7 @@ import { ElMessage } from 'element-plus'
 import { Search, ThumbsUp, MessageCircle, Eye, Award, BrainCircuit, Trash2 } from 'lucide-vue-next'
 import { getPosts, createPost, likePost, getTopAlumni, getHotCompanies, queryKnowledgeBase, deletePost } from '../api/community'
 import { useUserStore } from '../stores/user'
+import { getBackendAssetUrl } from '../utils/backend'
 import AppSelect from '../components/ui/AppSelect.vue'
 
 const userStore = useUserStore()
@@ -357,6 +368,7 @@ const ragHasSearched = ref(false)
 const posts = ref([])
 const postsLoading = ref(false)
 const postsError = ref('')
+const brokenAvatars = ref(new Set())
 
 const shareForm = reactive({
   title: '',
@@ -401,6 +413,22 @@ const formatSource = (title) => {
   if (!title) return '未知来源'
   if (title.includes('post_')) return '社区贡献'
   return title.replace('.md', '')
+}
+
+const buildAvatarKey = (scope, id) => `${String(scope)}:${String(id ?? '')}`
+
+const markAvatarBroken = (scope, id) => {
+  const key = buildAvatarKey(scope, id)
+  if (brokenAvatars.value.has(key)) return
+  const next = new Set(brokenAvatars.value)
+  next.add(key)
+  brokenAvatars.value = next
+}
+
+const resolveAvatarUrl = (scope, id, raw) => {
+  const key = buildAvatarKey(scope, id)
+  if (brokenAvatars.value.has(key)) return ''
+  return getBackendAssetUrl(raw)
 }
 
 const handleRagSearch = async () => {

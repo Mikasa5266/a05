@@ -1,32 +1,35 @@
-import request from '../utils/request'
+import request from "../utils/request";
 
 export function getReports(params) {
   return request({
-    url: '/reports',
-    method: 'get',
-    params
-  })
+    url: "/reports",
+    method: "get",
+    params,
+  });
 }
 
 export function getReport(id) {
   return request({
     url: `/reports/${id}`,
-    method: 'get'
-  })
+    method: "get",
+    headers: {
+      "X-Skip-Error-Toast": "true",
+    },
+  });
 }
 
 export function generateReport(data) {
   return request({
-    url: '/reports/generate',
-    method: 'post',
-    data
-  })
+    url: "/reports/generate",
+    method: "post",
+    data,
+  });
 }
 
 export function downloadReport(id) {
   return request({
     url: `/reports/${id}/download`,
-    method: 'get',
-    responseType: 'blob'
-  })
+    method: "get",
+    responseType: "blob",
+  });
 }

@@ -29,11 +29,21 @@ func buildGeneratingReportRecord(existing *model.Report, interview *model.Interv
 			InterviewID: interview.ID,
 			CreatedAt:   now,
 		}
-		report.SetStrengths([]string{})
-		report.SetWeaknesses([]string{})
-		report.SetSuggestions([]string{})
+	}
+
+	// MySQL JSON 列不接受空字符串，生成中状态也必须写入合法 JSON。
+	if stringsTrimSpaceFast(report.QADetails) == "" {
 		report.SetQADetails([]model.ReportQADetail{})
 	}
+	if stringsTrimSpaceFast(report.AudioTranscripts) == "" {
+		report.SetAudioTranscripts([]model.ReportAudioTranscript{})
+	}
+	if stringsTrimSpaceFast(report.ChatMessages) == "" {
+		report.SetChatMessages([]model.ReportChatMessage{})
+	}
+	report.SetStrengths([]string{})
+	report.SetWeaknesses([]string{})
+	report.SetSuggestions([]string{})
 
 	report.UserID = userID
 	report.InterviewID = interview.ID

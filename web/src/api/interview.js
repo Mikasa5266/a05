@@ -53,9 +53,12 @@ export function getInterviews(params) {
 
 export function getStudentInterviewHistory(params = {}) {
   return request({
-    url: "/student/interviews/history",
+    url: "/interview",
     method: "get",
     params,
+    headers: {
+      "X-Skip-Error-Toast": "true",
+    },
   });
 }
 

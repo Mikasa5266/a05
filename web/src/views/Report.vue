@@ -1,6 +1,24 @@
 <template>
   <div class="report-page">
-    <div class="report-shell">
+    <div v-if="loading" class="report-shell">
+      <section class="glass-card state-card">
+        <h1 class="hero-title">复盘报告加载中</h1>
+        <p class="hero-subtitle">正在读取报告数据，请稍候...</p>
+      </section>
+    </div>
+
+    <div v-else-if="reportUnavailable" class="report-shell">
+      <section class="glass-card state-card">
+        <h1 class="hero-title">暂无可查看的复盘报告</h1>
+        <p class="hero-subtitle">{{ loadError || '你还没有可用的面试记录，先完成一次面试后再来查看复盘。' }}</p>
+        <div class="hero-actions">
+          <button class="btn btn-secondary" @click="router.push('/student/history')">查看历史记录</button>
+          <button class="btn btn-primary" @click="router.push('/interview/mode-select')">去开始面试</button>
+        </div>
+      </section>
+    </div>
+
+    <div v-else class="report-shell">
       <section class="glass-card hero-card">
         <div class="hero-head">
           <div>
@@ -213,15 +231,19 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
-import { downloadReport, generateReport, getReport, getReports } from '../api/report'
+import { useRoute, useRouter } from 'vue-router'
+import { downloadReport, getReport, getReports } from '../api/report'
 import GlassEchart from '../components/report/GlassEchart.vue'
 
 const route = useRoute()
+const router = useRouter()
 
 const report = ref({})
 const historyData = ref([])
 const showFeedbackModal = ref(false)
+const loading = ref(true)
+const reportUnavailable = ref(false)
+const loadError = ref('')
 
 const feedbackForm = reactive({
   accuracy: 7,
@@ -229,8 +251,8 @@ const feedbackForm = reactive({
   comments: ''
 })
 
-const chartTextColor = 'rgba(225, 239, 255, 0.76)'
-const chartLineColor = 'rgba(154, 190, 232, 0.24)'
+const chartTextColor = '#334155'
+const chartLineColor = '#d8e1ea'
 
 const safeNumber = (value) => {
   const n = Number(value)
@@ -449,7 +471,7 @@ const scoreGaugeOption = computed(() => ({
       detail: {
         valueAnimation: true,
         formatter: () => `${displayScore.value}`,
-        color: '#f4f9ff',
+        color: '#0f172a',
         fontSize: 42,
         fontWeight: 700,
         offsetCenter: [0, '8%']
@@ -457,7 +479,7 @@ const scoreGaugeOption = computed(() => ({
       title: {
         show: true,
         offsetCenter: [0, '45%'],
-        color: 'rgba(220, 236, 255, 0.86)',
+        color: '#475569',
         fontSize: 13,
         formatter: '综合得分'
       },
@@ -621,20 +643,22 @@ const handleDownloadReport = async () => {
 
 onMounted(async () => {
   const id = route.params.id
-  if (!id) return
+  if (!id) {
+    loading.value = false
+    reportUnavailable.value = true
+    loadError.value = '缺少报告编号，请从面试历史页进入。'
+    return
+  }
 
   try {
-    let result
-    try {
-      result = await getReport(id)
-    } catch (_) {
-      const generated = await generateReport({ interview_id: Number(id) })
-      if (generated?.report?.id) {
-        result = await getReport(generated.report.id)
-      }
-    }
+    const result = await getReport(id)
 
     report.value = result?.report || {}
+    if (!report.value?.id) {
+      reportUnavailable.value = true
+      loadError.value = '报告尚未生成完成，请稍后重试。'
+      return
+    }
 
     const listRes = await getReports({ page: 1, page_size: 50 })
     const trend = buildHistoryData(listRes?.reports || [])
@@ -643,6 +667,11 @@ onMounted(async () => {
       : [{ date: (report.value.created_at || '').toString().slice(0, 10) || '当前', score: scoreValue.value }]
   } catch (error) {
     console.error('获取报告失败', error)
+    reportUnavailable.value = true
+    const errMsg = error?.response?.data?.error || error?.message || '报告不存在或已被删除。'
+    loadError.value = typeof errMsg === 'string' ? errMsg : '报告不存在或已被删除。'
+  } finally {
+    loading.value = false
   }
 })
 </script>
@@ -652,9 +681,9 @@ onMounted(async () => {
   min-height: 100vh;
   padding: 24px;
   background:
-    radial-gradient(circle at 10% 8%, rgba(76, 151, 231, 0.36), transparent 36%),
-    radial-gradient(circle at 88% 16%, rgba(121, 176, 255, 0.22), transparent 34%),
-    linear-gradient(140deg, #071224 0%, #102342 52%, #0f1a35 100%);
+    radial-gradient(circle at 10% 8%, rgba(124, 184, 245, 0.28), transparent 38%),
+    radial-gradient(circle at 88% 16%, rgba(180, 214, 247, 0.3), transparent 34%),
+    linear-gradient(155deg, #f7fbff 0%, #eef5fb 55%, #f5f9fd 100%);
 }
 
 .report-shell {
@@ -666,11 +695,15 @@ onMounted(async () => {
 }
 
 .glass-card {
-  border: 1px solid rgba(184, 215, 255, 0.32);
+  border: 1px solid #d8e6f2;
   border-radius: 24px;
-  background: linear-gradient(160deg, rgba(18, 39, 69, 0.64), rgba(25, 53, 88, 0.4));
-  backdrop-filter: blur(14px);
-  box-shadow: 0 20px 60px rgba(4, 18, 42, 0.36);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(246, 251, 255, 0.94));
+  backdrop-filter: blur(10px);
+  box-shadow: 0 14px 36px rgba(54, 93, 130, 0.12);
+}
+
+.state-card {
+  padding: 28px;
 }
 
 .hero-card {
@@ -689,13 +722,13 @@ onMounted(async () => {
   font-size: 34px;
   font-weight: 700;
   letter-spacing: 0.02em;
-  color: #f2f8ff;
+  color: #0f172a;
 }
 
 .hero-subtitle {
   margin-top: 8px;
   font-size: 14px;
-  color: rgba(213, 232, 255, 0.83);
+  color: #475569;
 }
 
 .hero-actions {
@@ -705,19 +738,21 @@ onMounted(async () => {
 
 .btn {
   border-radius: 12px;
-  border: 1px solid rgba(184, 215, 255, 0.38);
+  border: 1px solid #bfd8ec;
   padding: 9px 16px;
   font-size: 13px;
-  color: #f2f8ff;
+  color: #0f172a;
   transition: all 0.2s ease;
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, rgba(96, 174, 255, 0.9), rgba(72, 136, 229, 0.86));
+  background: linear-gradient(135deg, #7ac0ff, #4f97e6);
+  color: #f8fcff;
 }
 
 .btn-secondary {
-  background: rgba(41, 77, 125, 0.5);
+  background: #edf5fb;
+  color: #1e3a5f;
 }
 
 .btn:hover {
@@ -733,8 +768,8 @@ onMounted(async () => {
 
 .hero-gauge {
   border-radius: 18px;
-  border: 1px solid rgba(179, 212, 250, 0.22);
-  background: rgba(8, 20, 42, 0.56);
+  border: 1px solid #d7e6f2;
+  background: #f5fbff;
   position: relative;
   display: flex;
   align-items: center;
@@ -747,10 +782,10 @@ onMounted(async () => {
   bottom: 16px;
   padding: 4px 12px;
   border-radius: 999px;
-  background: rgba(148, 208, 255, 0.24);
-  color: rgba(244, 250, 255, 0.96);
+  background: #e4f2ff;
+  color: #1e3a5f;
   font-size: 12px;
-  border: 1px solid rgba(173, 221, 255, 0.46);
+  border: 1px solid #bfdaf0;
 }
 
 .hero-dimensions {
@@ -761,19 +796,19 @@ onMounted(async () => {
 
 .dimension-block {
   border-radius: 16px;
-  border: 1px solid rgba(176, 209, 248, 0.25);
-  background: rgba(8, 23, 44, 0.5);
+  border: 1px solid #d5e6f3;
+  background: #f7fbff;
   padding: 12px;
 }
 
 .dimension-label {
-  color: rgba(199, 222, 249, 0.8);
+  color: #64748b;
   font-size: 12px;
 }
 
 .dimension-value {
   margin-top: 4px;
-  color: #f2f8ff;
+  color: #0f172a;
   font-size: 28px;
   font-weight: 700;
 }
@@ -782,7 +817,7 @@ onMounted(async () => {
   margin-top: 8px;
   height: 6px;
   border-radius: 999px;
-  background: rgba(166, 196, 230, 0.2);
+  background: #dfeaf3;
 }
 
 .dimension-fill {
@@ -794,8 +829,8 @@ onMounted(async () => {
 .hero-chart {
   margin-top: 16px;
   border-radius: 18px;
-  border: 1px solid rgba(177, 210, 250, 0.22);
-  background: rgba(9, 22, 43, 0.54);
+  border: 1px solid #d4e6f3;
+  background: #f7fbff;
   padding: 8px;
 }
 
@@ -818,20 +853,20 @@ onMounted(async () => {
 }
 
 .panel-head h2 {
-  color: #f1f8ff;
+  color: #0f172a;
   font-size: 18px;
   font-weight: 600;
 }
 
 .panel-head span {
-  color: rgba(202, 222, 245, 0.75);
+  color: #64748b;
   font-size: 12px;
 }
 
 .replay-hint {
   margin-top: 8px;
   font-size: 12px;
-  color: rgba(196, 220, 245, 0.78);
+  color: #64748b;
 }
 
 .group-replay-layout {
@@ -848,13 +883,13 @@ onMounted(async () => {
 
 .group-replay-side-card {
   border-radius: 14px;
-  border: 1px solid rgba(172, 207, 248, 0.24);
-  background: rgba(9, 22, 43, 0.45);
+  border: 1px solid #d4e5f3;
+  background: #f8fcff;
   padding: 10px;
 }
 
 .group-replay-side-card h3 {
-  color: rgba(228, 241, 255, 0.94);
+  color: #334155;
   font-size: 12px;
   margin-bottom: 8px;
 }
@@ -862,9 +897,9 @@ onMounted(async () => {
 .replay-stage {
   margin-top: 12px;
   border-radius: 16px;
-  border: 1px solid rgba(172, 207, 248, 0.24);
+  border: 1px solid #d5e6f3;
   overflow: hidden;
-  background: rgba(7, 15, 31, 0.86);
+  background: #eef5fb;
 }
 
 .replay-stage.compact {
@@ -884,7 +919,7 @@ onMounted(async () => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: rgba(204, 226, 250, 0.72);
+  color: #64748b;
   gap: 8px;
 }
 
@@ -893,7 +928,7 @@ onMounted(async () => {
 }
 
 .replay-placeholder small {
-  color: rgba(174, 200, 229, 0.64);
+  color: #94a3b8;
 }
 
 .timeline-wrap {
@@ -911,8 +946,8 @@ onMounted(async () => {
   grid-template-columns: 48px 1fr;
   gap: 10px;
   border-radius: 16px;
-  border: 1px solid rgba(172, 207, 248, 0.22);
-  background: rgba(12, 30, 55, 0.54);
+  border: 1px solid #d7e7f3;
+  background: #f8fcff;
   padding: 12px;
 }
 
@@ -920,30 +955,30 @@ onMounted(async () => {
   width: 36px;
   height: 36px;
   border-radius: 999px;
-  border: 1px solid rgba(177, 215, 255, 0.42);
-  color: #ecf7ff;
+  border: 1px solid #c5ddf0;
+  color: #1e3a5f;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 12px;
-  background: rgba(89, 159, 238, 0.28);
+  background: #e0f0ff;
 }
 
 .timeline-content h4 {
-  color: #f1f8ff;
+  color: #0f172a;
   font-size: 14px;
   line-height: 1.45;
 }
 
 .timeline-answer {
   margin-top: 6px;
-  color: rgba(212, 232, 252, 0.9);
+  color: #334155;
   font-size: 12px;
   line-height: 1.5;
 }
 
 .timeline-answer strong {
-  color: #f5fbff;
+  color: #0f172a;
   font-weight: 600;
 }
 
@@ -956,11 +991,11 @@ onMounted(async () => {
 
 .timeline-tags span {
   font-size: 11px;
-  color: rgba(233, 245, 255, 0.94);
-  border: 1px solid rgba(180, 220, 255, 0.44);
+  color: #1e3a5f;
+  border: 1px solid #c7dff0;
   border-radius: 999px;
   padding: 3px 9px;
-  background: rgba(97, 162, 236, 0.25);
+  background: #eaf4fc;
 }
 
 .conversation-grid {
@@ -972,13 +1007,13 @@ onMounted(async () => {
 
 .conversation-grid section {
   border-radius: 14px;
-  border: 1px solid rgba(170, 206, 248, 0.2);
-  background: rgba(9, 22, 41, 0.5);
+  border: 1px solid #d5e6f2;
+  background: #f8fcff;
   padding: 10px;
 }
 
 .conversation-grid h3 {
-  color: rgba(229, 241, 255, 0.95);
+  color: #0f172a;
   font-size: 13px;
   margin-bottom: 8px;
 }
@@ -994,7 +1029,7 @@ onMounted(async () => {
 .conversation-grid li {
   font-size: 12px;
   line-height: 1.45;
-  color: rgba(207, 228, 249, 0.9);
+  color: #334155;
 }
 
 .side-stack {
@@ -1008,7 +1043,7 @@ onMounted(async () => {
 }
 
 .overall-analysis {
-  color: rgba(216, 234, 252, 0.92);
+  color: #334155;
   font-size: 13px;
   line-height: 1.6;
   margin-bottom: 10px;
@@ -1020,7 +1055,7 @@ onMounted(async () => {
 
 .insight-section h3 {
   font-size: 13px;
-  color: #f2f9ff;
+  color: #0f172a;
   margin-bottom: 6px;
 }
 
@@ -1033,19 +1068,19 @@ onMounted(async () => {
 .insight-section li {
   font-size: 12px;
   line-height: 1.45;
-  color: rgba(211, 230, 249, 0.9);
+  color: #334155;
 }
 
 .faded,
 .empty-tip {
-  color: rgba(173, 197, 224, 0.68);
+  color: #94a3b8;
   font-size: 12px;
 }
 
 .modal-mask {
   position: fixed;
   inset: 0;
-  background: rgba(4, 10, 20, 0.68);
+  background: rgba(8, 18, 34, 0.42);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1059,14 +1094,14 @@ onMounted(async () => {
 }
 
 .modal-panel h3 {
-  color: #f4faff;
+  color: #0f172a;
   font-size: 21px;
   font-weight: 700;
 }
 
 .modal-panel p {
   margin-top: 6px;
-  color: rgba(203, 227, 251, 0.82);
+  color: #475569;
   font-size: 13px;
 }
 
@@ -1081,7 +1116,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  color: rgba(227, 241, 255, 0.92);
+  color: #334155;
   font-size: 12px;
 }
 
@@ -1089,9 +1124,9 @@ onMounted(async () => {
 .form-grid select,
 .form-grid textarea {
   border-radius: 10px;
-  border: 1px solid rgba(167, 204, 245, 0.35);
-  background: rgba(9, 24, 44, 0.66);
-  color: #f2f9ff;
+  border: 1px solid #c5dced;
+  background: #f8fcff;
+  color: #0f172a;
   padding: 8px 10px;
 }
 

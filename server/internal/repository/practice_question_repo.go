@@ -385,6 +385,9 @@ func (r *GormPracticeQuestionRepository) CreateAssessment(ctx context.Context, a
 		if len(items) == 0 {
 			return nil
 		}
+		for idx := range items {
+			items[idx].AssessmentID = assessment.ID
+		}
 		return tx.Create(&items).Error
 	})
 }

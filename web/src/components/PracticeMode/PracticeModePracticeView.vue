@@ -1,5 +1,6 @@
 <script setup>
 import PracticeModeCoachCard from "./PracticeModeCoachCard.vue";
+import PracticeModeCodeChallengePanel from "./PracticeModeCodeChallengePanel.vue";
 import PracticeModeControlPanel from "./PracticeModeControlPanel.vue";
 import PracticeModeQuestionCard from "./PracticeModeQuestionCard.vue";
 
@@ -17,7 +18,10 @@ defineProps({
 
     <div class="practice-workspace">
       <PracticeModeQuestionCard />
-      <PracticeModeCoachCard />
+      <div class="practice-side-stack">
+        <PracticeModeCodeChallengePanel />
+        <PracticeModeCoachCard />
+      </div>
     </div>
   </section>
 </template>
@@ -37,6 +41,11 @@ defineProps({
   grid-template-columns: 1fr 320px;
   gap: 12px;
   align-items: start;
+}
+
+.practice-side-stack {
+  display: grid;
+  gap: 12px;
 }
 
 @keyframes reveal {

@@ -280,7 +280,9 @@ const detailMoodOption = computed(() => ({
 const fetchReports = async () => {
   try {
     const res = await getStudentInterviewHistory({ page: 1, page_size: 100 })
-    const rows = Array.isArray(res?.records) ? res.records : []
+    const rows = Array.isArray(res?.records)
+      ? res.records
+      : (Array.isArray(res?.interviews) ? res.interviews : [])
 
     records.value = rows.map((row) => {
       const interviewId = Number(row?.interview_id ?? row?.id ?? 0)
@@ -407,9 +409,9 @@ onMounted(() => {
   min-height: 100vh;
   padding: 24px;
   background:
-    radial-gradient(circle at 14% 8%, rgba(74, 143, 224, 0.34), transparent 36%),
-    radial-gradient(circle at 86% 20%, rgba(128, 186, 255, 0.22), transparent 34%),
-    linear-gradient(145deg, #071224 0%, #102342 55%, #0f1a35 100%);
+    radial-gradient(circle at 14% 8%, rgba(131, 188, 241, 0.32), transparent 36%),
+    radial-gradient(circle at 86% 20%, rgba(176, 216, 248, 0.3), transparent 36%),
+    linear-gradient(160deg, #f7fbff 0%, #eef5fb 58%, #f5f9fd 100%);
 }
 
 .history-shell {
