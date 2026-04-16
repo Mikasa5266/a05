@@ -125,6 +125,7 @@ export const useLiveHumanStore = defineStore("liveHumanStore", () => {
   const createAndSendOffer = async ({
     iceServers,
     sendSignal,
+    targetUserId,
     onStatusChange,
   } = {}) => {
     if (isMakingOffer.value) return;
@@ -134,7 +135,7 @@ export const useLiveHumanStore = defineStore("liveHumanStore", () => {
       const pc = ensurePeer({ iceServers, sendSignal, onStatusChange });
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      sendSignal?.("offer", offer);
+      sendSignal?.("offer", offer, targetUserId);
       onStatusChange?.("已发起通话邀请，等待接听");
     } finally {
       isMakingOffer.value = false;
@@ -149,11 +150,13 @@ export const useLiveHumanStore = defineStore("liveHumanStore", () => {
 
     const pc = ensurePeer({ iceServers, sendSignal, onStatusChange });
 
+    const senderUserId = String(msg.sender_user_id || msg.user_id || "").trim();
+
     if (msg.type === "offer") {
       await pc.setRemoteDescription(new RTCSessionDescription(msg.data));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      sendSignal?.("answer", answer);
+      sendSignal?.("answer", answer, senderUserId);
       await flushPendingCandidates(pc);
       onStatusChange?.("正在建立连接");
       return;

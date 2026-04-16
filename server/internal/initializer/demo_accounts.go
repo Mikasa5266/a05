@@ -28,17 +28,22 @@ func EnsureDemoAccounts(db *gorm.DB) error {
 	}
 
 	seeds := []demoAccountSeed{
-		{Username: "student01", Email: "student01@test.com", Role: "student", Password: "123456", Avatar: "https://api.dicebear.com/7.x/adventurer/svg?seed=student01"},
-		{Username: "student02", Email: "student02@test.com", Role: "student", Password: "123456", Avatar: "https://api.dicebear.com/7.x/adventurer/svg?seed=student02"},
-		{Username: "student03", Email: "student03@test.com", Role: "student", Password: "123456", Avatar: "https://api.dicebear.com/7.x/adventurer/svg?seed=student03"},
-		{Username: "student04", Email: "student04@test.com", Role: "student", Password: "123456", Avatar: "https://api.dicebear.com/7.x/adventurer/svg?seed=student04"},
-		{Username: "student05", Email: "student05@test.com", Role: "student", Password: "123456", Avatar: "https://api.dicebear.com/7.x/adventurer/svg?seed=student05"},
-		{Username: "enterprise01", Email: "enterprise01@test.com", Role: "enterprise", Password: "123456", Avatar: "https://api.dicebear.com/7.x/shapes/svg?seed=enterprise01", CompanyName: "Starlink Tech"},
-		{Username: "enterprise02", Email: "enterprise02@test.com", Role: "enterprise", Password: "123456", Avatar: "https://api.dicebear.com/7.x/shapes/svg?seed=enterprise02", CompanyName: "Yuanchuan Data"},
-		{Username: "enterprise03", Email: "enterprise03@test.com", Role: "enterprise", Password: "123456", Avatar: "https://api.dicebear.com/7.x/shapes/svg?seed=enterprise03", CompanyName: "Haiyue Software"},
-		{Username: "university01", Email: "university01@test.com", Role: "university", Password: "123456", Avatar: "https://api.dicebear.com/7.x/shapes/svg?seed=university01", UniversityName: "Jiangnan Digital University"},
-		{Username: "university02", Email: "university02@test.com", Role: "university", Password: "123456", Avatar: "https://api.dicebear.com/7.x/shapes/svg?seed=university02", UniversityName: "South China Applied University"},
-	}
+	// 学生组（三字用户名，贴合日常，不土气）
+	{Username: "林知许", Email: "student01@test.com", Role: "student", Password: "123456", Avatar: "https://api.dicebear.com/7.x/adventurer/svg?seed=student01"},
+	{Username: "苏念安", Email: "student02@test.com", Role: "student", Password: "123456", Avatar: "https://api.dicebear.com/7.x/adventurer/svg?seed=student02"},
+	{Username: "陆景然", Email: "student03@test.com", Role: "student", Password: "123456", Avatar: "https://api.dicebear.com/7.x/adventurer/svg?seed=student03"},
+	{Username: "许清和", Email: "student04@test.com", Role: "student", Password: "123456", Avatar: "https://api.dicebear.com/7.x/adventurer/svg?seed=student04"},
+	{Username: "温予安", Email: "student05@test.com", Role: "student", Password: "123456", Avatar: "https://api.dicebear.com/7.x/adventurer/svg?seed=student05"},
+
+	// 企业组（三字公司名，正规企业命名，不浮夸）
+	{Username: "星联科技", Email: "enterprise01@test.com", Role: "enterprise", Password: "123456", Avatar: "https://api.dicebear.com/7.x/shapes/svg?seed=enterprise01", CompanyName: "星联科技有限公司"},
+	{Username: "元启数据", Email: "enterprise02@test.com", Role: "enterprise", Password: "123456", Avatar: "https://api.dicebear.com/7.x/shapes/svg?seed=enterprise02", CompanyName: "元启数据科技有限公司"},
+	{Username: "海跃软件", Email: "enterprise03@test.com", Role: "enterprise", Password: "123456", Avatar: "https://api.dicebear.com/7.x/shapes/svg?seed=enterprise03", CompanyName: "海跃软件股份有限公司"},
+
+	// 高校组（正规大学名，贴合“正经”需求）
+	{Username: "江南大学", Email: "university01@test.com", Role: "university", Password: "123456", Avatar: "https://api.dicebear.com/7.x/shapes/svg?seed=university01", UniversityName: "江南大学"},
+	{Username: "华南理工", Email: "university02@test.com", Role: "university", Password: "123456", Avatar: "https://api.dicebear.com/7.x/shapes/svg?seed=university02", UniversityName: "华南理工大学"},
+}
 
 	return db.Transaction(func(tx *gorm.DB) error {
 		for _, seed := range seeds {

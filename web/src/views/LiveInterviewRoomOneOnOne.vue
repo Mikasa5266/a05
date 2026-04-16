@@ -22,6 +22,7 @@ const roomId = ref('')
 const invitationCode = ref('')
 const statusText = ref('待进入房间')
 const isRouteLeaving = ref(false)
+const remoteUserId = ref('')
 
 let signalSocket = null
 
@@ -72,19 +73,23 @@ function getWsSignalUrl() {
   return url.toString()
 }
 
-function sendSignal(type, data = {}) {
+function sendSignal(type, data = {}, targetUserId = remoteUserId.value) {
   if (!signalSocket || signalSocket.readyState !== WebSocket.OPEN) return
   signalSocket.send(JSON.stringify({
     type,
     interview_id: roomId.value,
+    target_user_id: String(targetUserId || '').trim() || undefined,
     data
   }))
 }
 
-async function createAndSendOffer() {
+async function createAndSendOffer(targetUserId = remoteUserId.value) {
   if (!isStudent.value) return
+  const target = String(targetUserId || '').trim()
+  if (!target) return
   await liveHumanStore.createAndSendOffer({
     iceServers: WEBRTC_ICE_SERVERS,
+    targetUserId: target,
     sendSignal,
     onStatusChange: (next) => {
       statusText.value = next
@@ -96,10 +101,15 @@ async function handleSignalMessage(raw) {
   const msg = JSON.parse(raw)
   if (!msg?.type) return
 
+  const senderUserId = String(msg.sender_user_id || msg.user_id || '').trim()
+  if (senderUserId) {
+    remoteUserId.value = senderUserId
+  }
+
   if (msg.type === 'join') {
     statusText.value = '对端已进入房间'
     if (isStudent.value) {
-      await createAndSendOffer()
+      await createAndSendOffer(senderUserId)
     } else {
       sendSignal('ready', { ok: true })
     }
@@ -108,7 +118,7 @@ async function handleSignalMessage(raw) {
 
   if (msg.type === 'ready') {
     if (isStudent.value) {
-      await createAndSendOffer()
+      await createAndSendOffer(senderUserId)
     }
     return
   }
@@ -178,6 +188,7 @@ function cleanup() {
     }
   }
   signalSocket = null
+  remoteUserId.value = ''
 
   liveHumanStore.cleanup()
 }

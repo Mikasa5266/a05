@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -11,24 +10,7 @@ import (
 	"your-project/internal/model"
 )
 
-const (
-	DefaultGroupTargetParticipants = 4
-	GroupStartThresholdForTesting  = 2
-)
-
-type GroupStartState struct {
-	ReadyCount         int    `json:"ready_count"`
-	StartThreshold     int    `json:"start_threshold"`
-	TargetParticipants int    `json:"target_participants"`
-	CanStart           bool   `json:"can_start"`
-	Started            bool   `json:"started"`
-	JustStarted        bool   `json:"just_started"`
-	VotedUserIDs       []uint `json:"voted_user_ids"`
-}
-
 type roomCache struct {
-	startVotes       map[uint]struct{}
-	groupStarted     bool
 	audioTranscripts []model.ReportAudioTranscript
 	chatByReceiver   map[uint][]model.ReportChatMessage
 }
@@ -78,55 +60,6 @@ func FormatChatPerspective(senderName string, senderID, receiverID uint, rawText
 		name = fmt.Sprintf("用户%d", senderID)
 	}
 	return fmt.Sprintf("[%s]: %s", name, text)
-}
-
-func (s *LiveRoomStore) CastStartVote(roomID string, userID uint, targetParticipants, startThreshold int) GroupStartState {
-	key := strings.TrimSpace(roomID)
-	if key == "" || userID == 0 {
-		return GroupStartState{}
-	}
-
-	target := targetParticipants
-	if target < 2 {
-		target = DefaultGroupTargetParticipants
-	}
-	threshold := startThreshold
-	if threshold < 1 {
-		threshold = GroupStartThresholdForTesting
-	}
-	if threshold > target {
-		threshold = target
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	room := s.getOrCreateLocked(key)
-	room.startVotes[userID] = struct{}{}
-
-	voteIDs := make([]uint, 0, len(room.startVotes))
-	for uid := range room.startVotes {
-		voteIDs = append(voteIDs, uid)
-	}
-	sort.Slice(voteIDs, func(i, j int) bool { return voteIDs[i] < voteIDs[j] })
-
-	readyCount := len(voteIDs)
-	canStart := readyCount >= threshold
-	justStarted := false
-	if canStart && !room.groupStarted {
-		room.groupStarted = true
-		justStarted = true
-	}
-
-	return GroupStartState{
-		ReadyCount:         readyCount,
-		StartThreshold:     threshold,
-		TargetParticipants: target,
-		CanStart:           canStart,
-		Started:            room.groupStarted,
-		JustStarted:        justStarted,
-		VotedUserIDs:       voteIDs,
-	}
 }
 
 func (s *LiveRoomStore) AppendAudioTranscript(roomID string, speakerID uint, content string) {
@@ -202,7 +135,6 @@ func (s *LiveRoomStore) getOrCreateLocked(roomID string) *roomCache {
 		return room
 	}
 	room := &roomCache{
-		startVotes:       make(map[uint]struct{}),
 		audioTranscripts: make([]model.ReportAudioTranscript, 0),
 		chatByReceiver:   make(map[uint][]model.ReportChatMessage),
 	}

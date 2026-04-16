@@ -34,11 +34,13 @@ type GroupClient struct {
 }
 
 type GroupSignalMessage struct {
-	Type      string      `json:"type"`
-	UserID    string      `json:"user_id,omitempty"`
-	RoomID    string      `json:"interview_id,omitempty"`
-	Data      interface{} `json:"data"`
-	Timestamp time.Time   `json:"timestamp"`
+	Type         string      `json:"type"`
+	UserID       string      `json:"user_id,omitempty"`
+	SenderUserID string      `json:"sender_user_id,omitempty"`
+	TargetUserID string      `json:"target_user_id,omitempty"`
+	RoomID       string      `json:"interview_id,omitempty"`
+	Data         interface{} `json:"data"`
+	Timestamp    time.Time   `json:"timestamp"`
 }
 
 type groupRoundState struct {
@@ -159,9 +161,11 @@ func (c *GroupClient) readPump() {
 		}
 
 		msg.UserID = c.userID
+		msg.SenderUserID = c.userID
 		if strings.TrimSpace(msg.RoomID) == "" {
 			msg.RoomID = c.roomID
 		}
+		msg.TargetUserID = strings.TrimSpace(msg.TargetUserID)
 		msg.Timestamp = time.Now()
 
 		if err := c.hub.routeMessage(c, &msg); err != nil {
@@ -202,6 +206,17 @@ func (h *GroupHub) routeMessage(sender *GroupClient, msg *GroupSignalMessage) er
 	switch strings.TrimSpace(msg.Type) {
 	case "chat":
 		return h.broadcastChat(sender, msg)
+	case "offer", "answer", "candidate":
+		targetUserID := strings.TrimSpace(msg.TargetUserID)
+		if targetUserID == "" {
+			return fmt.Errorf("target user id is required for %s", msg.Type)
+		}
+		if sender != nil && targetUserID == sender.userID {
+			return fmt.Errorf("cannot send %s to self", msg.Type)
+		}
+		msg.UserID = sender.userID
+		msg.SenderUserID = sender.userID
+		return h.sendToTargetUser(msg.RoomID, targetUserID, msg)
 	case "group_invite":
 		return h.broadcastGroupInvite(sender, msg)
 	case "group_start_vote":
@@ -261,11 +276,12 @@ func (h *GroupHub) broadcastChat(sender *GroupClient, msg *GroupSignalMessage) e
 		outData["display_text"] = displayText
 
 		out := GroupSignalMessage{
-			Type:      "chat",
-			UserID:    msg.UserID,
-			RoomID:    roomID,
-			Data:      outData,
-			Timestamp: time.Now(),
+			Type:         "chat",
+			UserID:       msg.UserID,
+			SenderUserID: msg.UserID,
+			RoomID:       roomID,
+			Data:         outData,
+			Timestamp:    time.Now(),
 		}
 		h.sendStructured(receiver, out)
 	}
@@ -286,11 +302,12 @@ func (h *GroupHub) broadcastGroupInvite(sender *GroupClient, msg *GroupSignalMes
 	outData["start_threshold"] = sender.groupStartThreshold
 
 	return h.broadcastRawToRoom(msg.RoomID, &GroupSignalMessage{
-		Type:      "group_invite",
-		UserID:    msg.UserID,
-		RoomID:    msg.RoomID,
-		Data:      outData,
-		Timestamp: time.Now(),
+		Type:         "group_invite",
+		UserID:       msg.UserID,
+		SenderUserID: msg.UserID,
+		RoomID:       msg.RoomID,
+		Data:         outData,
+		Timestamp:    time.Now(),
 	})
 }
 
@@ -300,7 +317,7 @@ func (h *GroupHub) broadcastGroupStartVote(sender *GroupClient, msg *GroupSignal
 		return fmt.Errorf("sender id is invalid")
 	}
 
-	state := internalruntime.GetLiveRoomStore().CastStartVote(
+	state := internalruntime.GetGroupRoomStore().CastStartVote(
 		msg.RoomID,
 		senderID,
 		sender.groupTargetParticipants,
@@ -317,11 +334,12 @@ func (h *GroupHub) broadcastGroupStartVote(sender *GroupClient, msg *GroupSignal
 	}
 
 	if err := h.broadcastRawToRoom(msg.RoomID, &GroupSignalMessage{
-		Type:      "group_start_status",
-		UserID:    msg.UserID,
-		RoomID:    msg.RoomID,
-		Data:      statusData,
-		Timestamp: time.Now(),
+		Type:         "group_start_status",
+		UserID:       msg.UserID,
+		SenderUserID: msg.UserID,
+		RoomID:       msg.RoomID,
+		Data:         statusData,
+		Timestamp:    time.Now(),
 	}); err != nil {
 		return err
 	}
@@ -334,11 +352,12 @@ func (h *GroupHub) broadcastGroupStartVote(sender *GroupClient, msg *GroupSignal
 			"target_participants": state.TargetParticipants,
 		}
 		if err := h.broadcastRawToRoom(msg.RoomID, &GroupSignalMessage{
-			Type:      "group_start",
-			UserID:    msg.UserID,
-			RoomID:    msg.RoomID,
-			Data:      startData,
-			Timestamp: time.Now(),
+			Type:         "group_start",
+			UserID:       msg.UserID,
+			SenderUserID: msg.UserID,
+			RoomID:       msg.RoomID,
+			Data:         startData,
+			Timestamp:    time.Now(),
 		}); err != nil {
 			return err
 		}
@@ -385,11 +404,12 @@ func (h *GroupHub) claimMicRound(sender *GroupClient, msg *GroupSignalMessage) e
 	h.mu.Unlock()
 
 	return h.broadcastRawToRoom(roomID, &GroupSignalMessage{
-		Type:      "group_round_sync",
-		UserID:    msg.UserID,
-		RoomID:    roomID,
-		Data:      payload,
-		Timestamp: time.Now(),
+		Type:         "group_round_sync",
+		UserID:       msg.UserID,
+		SenderUserID: msg.UserID,
+		RoomID:       roomID,
+		Data:         payload,
+		Timestamp:    time.Now(),
 	})
 }
 
@@ -406,11 +426,12 @@ func (h *GroupHub) nextRound(sender *GroupClient, msg *GroupSignalMessage) error
 	h.mu.Unlock()
 
 	return h.broadcastRawToRoom(roomID, &GroupSignalMessage{
-		Type:      "group_round_sync",
-		UserID:    msg.UserID,
-		RoomID:    roomID,
-		Data:      payload,
-		Timestamp: time.Now(),
+		Type:         "group_round_sync",
+		UserID:       msg.UserID,
+		SenderUserID: msg.UserID,
+		RoomID:       roomID,
+		Data:         payload,
+		Timestamp:    time.Now(),
 	})
 }
 
@@ -431,6 +452,54 @@ func (h *GroupHub) syncRoundToRoom(roomID string) error {
 		Data:      payload,
 		Timestamp: time.Now(),
 	})
+}
+
+func (h *GroupHub) sendToTargetUser(roomID, targetUserID string, msg *GroupSignalMessage) error {
+	targetRoom := strings.TrimSpace(roomID)
+	targetUser := strings.TrimSpace(targetUserID)
+	if msg == nil {
+		return nil
+	}
+	if targetRoom == "" {
+		return fmt.Errorf("room id is required")
+	}
+	if targetUser == "" {
+		return fmt.Errorf("target user id is required")
+	}
+	if strings.TrimSpace(msg.SenderUserID) != "" && targetUser == strings.TrimSpace(msg.SenderUserID) {
+		return fmt.Errorf("cannot send %s to self", msg.Type)
+	}
+
+	msg.TargetUserID = targetUser
+	if strings.TrimSpace(msg.SenderUserID) == "" {
+		msg.SenderUserID = strings.TrimSpace(msg.UserID)
+	}
+	if msg.Timestamp.IsZero() {
+		msg.Timestamp = time.Now()
+	}
+
+	encoded, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+
+	matched := false
+	for _, client := range h.roomClients(targetRoom) {
+		if client.userID != targetUser {
+			continue
+		}
+		matched = true
+		select {
+		case client.send <- encoded:
+		default:
+			log.Printf("group ws client send buffer full, user=%s room=%s", client.userID, client.roomID)
+		}
+	}
+
+	if !matched {
+		return fmt.Errorf("target user %s is not connected in room %s", targetUser, targetRoom)
+	}
+	return nil
 }
 
 func (h *GroupHub) advanceRoundLocked(state *groupRoundState) {

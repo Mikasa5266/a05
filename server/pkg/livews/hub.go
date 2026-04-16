@@ -27,11 +27,13 @@ type LiveClient struct {
 }
 
 type LiveSignalMessage struct {
-	Type      string      `json:"type"`
-	UserID    string      `json:"user_id,omitempty"`
-	RoomID    string      `json:"interview_id,omitempty"`
-	Data      interface{} `json:"data"`
-	Timestamp time.Time   `json:"timestamp"`
+	Type         string      `json:"type"`
+	UserID       string      `json:"user_id,omitempty"`
+	SenderUserID string      `json:"sender_user_id,omitempty"`
+	TargetUserID string      `json:"target_user_id,omitempty"`
+	RoomID       string      `json:"interview_id,omitempty"`
+	Data         interface{} `json:"data"`
+	Timestamp    time.Time   `json:"timestamp"`
 }
 
 var liveUpgrader = websocket.Upgrader{
@@ -127,18 +129,16 @@ func (c *LiveClient) readPump() {
 		}
 
 		msg.UserID = c.userID
+		msg.SenderUserID = c.userID
 		if strings.TrimSpace(msg.RoomID) == "" {
 			msg.RoomID = c.roomID
 		}
+		msg.TargetUserID = strings.TrimSpace(msg.TargetUserID)
 		msg.Timestamp = time.Now()
 
-		encoded, err := json.Marshal(msg)
-		if err != nil {
-			log.Printf("live ws marshal message failed: %v", err)
-			continue
+		if err := c.hub.routeMessage(c, &msg); err != nil {
+			log.Printf("live ws route message failed: type=%s room=%s user=%s err=%v", msg.Type, msg.RoomID, c.userID, err)
 		}
-
-		c.hub.broadcastToRoom(msg.RoomID, encoded)
 	}
 }
 
@@ -185,6 +185,94 @@ func (h *LiveHub) broadcastToRoom(roomID string, payload []byte) {
 			log.Printf("live ws client send buffer full, user=%s room=%s", client.userID, client.roomID)
 		}
 	}
+}
+
+func (h *LiveHub) routeMessage(sender *LiveClient, msg *LiveSignalMessage) error {
+	if sender == nil || msg == nil {
+		return nil
+	}
+
+	switch strings.TrimSpace(msg.Type) {
+	case "offer", "answer", "candidate":
+		targetUserID := strings.TrimSpace(msg.TargetUserID)
+		if targetUserID == "" {
+			return fmt.Errorf("target user id is required for %s", msg.Type)
+		}
+		if targetUserID == sender.userID {
+			return fmt.Errorf("cannot send %s to self", msg.Type)
+		}
+		msg.UserID = sender.userID
+		msg.SenderUserID = sender.userID
+		return h.sendToTargetUser(msg.RoomID, targetUserID, msg)
+	default:
+		msg.UserID = sender.userID
+		msg.SenderUserID = sender.userID
+		return h.broadcastRawToRoom(msg.RoomID, msg)
+	}
+}
+
+func (h *LiveHub) broadcastRawToRoom(roomID string, msg *LiveSignalMessage) error {
+	if msg == nil {
+		return nil
+	}
+	encoded, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	h.broadcastToRoom(roomID, encoded)
+	return nil
+}
+
+func (h *LiveHub) sendToTargetUser(roomID, targetUserID string, msg *LiveSignalMessage) error {
+	targetRoom := strings.TrimSpace(roomID)
+	targetUser := strings.TrimSpace(targetUserID)
+	if msg == nil {
+		return nil
+	}
+	if targetRoom == "" {
+		return fmt.Errorf("room id is required")
+	}
+	if targetUser == "" {
+		return fmt.Errorf("target user id is required")
+	}
+	if strings.TrimSpace(msg.SenderUserID) != "" && targetUser == strings.TrimSpace(msg.SenderUserID) {
+		return fmt.Errorf("cannot send %s to self", msg.Type)
+	}
+
+	msg.TargetUserID = targetUser
+	if strings.TrimSpace(msg.SenderUserID) == "" {
+		msg.SenderUserID = strings.TrimSpace(msg.UserID)
+	}
+	if msg.Timestamp.IsZero() {
+		msg.Timestamp = time.Now()
+	}
+
+	encoded, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	matched := false
+	for _, client := range h.clients {
+		if client.roomID != targetRoom || client.userID != targetUser {
+			continue
+		}
+		matched = true
+		select {
+		case client.send <- encoded:
+		default:
+			log.Printf("live ws client send buffer full, user=%s room=%s", client.userID, client.roomID)
+		}
+	}
+
+	if !matched {
+		return fmt.Errorf("target user %s is not connected in room %s", targetUser, targetRoom)
+	}
+
+	return nil
 }
 
 func (h *LiveHub) GetClientsByUserID(userID string) []*LiveClient {

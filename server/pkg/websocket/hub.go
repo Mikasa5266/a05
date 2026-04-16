@@ -344,7 +344,7 @@ func (h *Hub) BroadcastGroupStartVote(sender *Client, msg *Message) error {
 		return fmt.Errorf("sender id is invalid")
 	}
 
-	state := internalruntime.GetLiveRoomStore().CastStartVote(roomID, senderID, sender.groupTargetParticipants, sender.groupStartThreshold)
+	state := internalruntime.GetGroupRoomStore().CastStartVote(roomID, senderID, sender.groupTargetParticipants, sender.groupStartThreshold)
 	statusData := map[string]interface{}{
 		"ready_count":         state.ReadyCount,
 		"start_threshold":     state.StartThreshold,
