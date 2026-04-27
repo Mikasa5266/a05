@@ -248,7 +248,17 @@ func SetupRouter(aiService aidomain.AIFacade) *gin.Engine {
 				adminPlatformProtected.POST("/logout", handler.AdminPlatformLogout)
 				adminPlatformProtected.GET("/reports", handler.AdminPlatformListSecurityReports)
 				adminPlatformProtected.POST("/reports/:id/handle", handler.AdminPlatformHandleSecurityReport)
+				adminPlatformProtected.POST("/reports/:id/dispose", handler.AdminPlatformDisposeSecurityReport)
 				adminPlatformProtected.GET("/compliance/overview", handler.AdminPlatformComplianceOverview)
+				adminPlatformProtected.POST("/patrol/run", handler.AdminPlatformRunSecurityPatrol)
+
+				adminPlatformProtected.GET("/moderation/posts", handler.AdminPlatformListModerationPosts)
+				adminPlatformProtected.DELETE("/moderation/posts/:id", handler.AdminPlatformDeleteModerationPost)
+				adminPlatformProtected.GET("/moderation/comments", handler.AdminPlatformListModerationComments)
+				adminPlatformProtected.DELETE("/moderation/comments/:id", handler.AdminPlatformDeleteModerationComment)
+				adminPlatformProtected.GET("/moderation/users", handler.AdminPlatformListModerationUsers)
+				adminPlatformProtected.DELETE("/moderation/users/:id", handler.AdminPlatformDeleteModerationUser)
+				adminPlatformProtected.GET("/audit-logs", handler.AdminPlatformListSecurityAuditLogs)
 			}
 		}
 	}

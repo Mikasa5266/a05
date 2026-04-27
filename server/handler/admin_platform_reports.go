@@ -169,12 +169,12 @@ func AdminPlatformComplianceOverview(c *gin.Context) {
 	patrolScanLimit := config.DefaultSecurityPatrolScanLimit
 
 	responsible := config.ContactConfig{
-		Name:  "平台安全负责人",
+		Name:  "刘宇恒",
 		Phone: "17707284972",
 		Email: "1140893485@qq.com",
 	}
 	emergency := config.ContactConfig{
-		Name:  "应急值班联系人",
+		Name:  "刘宇恒",
 		Phone: "17707284972",
 		Email: "1140893485@qq.com",
 	}
@@ -189,11 +189,17 @@ func AdminPlatformComplianceOverview(c *gin.Context) {
 		if cfg.Security.PatrolScanLimit > 0 {
 			patrolScanLimit = cfg.Security.PatrolScanLimit
 		}
-		if strings.TrimSpace(cfg.Security.ResponsiblePerson.Name) != "" {
-			responsible = cfg.Security.ResponsiblePerson
+		if strings.TrimSpace(cfg.Security.ResponsiblePerson.Phone) != "" {
+			responsible.Phone = strings.TrimSpace(cfg.Security.ResponsiblePerson.Phone)
 		}
-		if strings.TrimSpace(cfg.Security.EmergencyContact.Name) != "" {
-			emergency = cfg.Security.EmergencyContact
+		if strings.TrimSpace(cfg.Security.ResponsiblePerson.Email) != "" {
+			responsible.Email = strings.TrimSpace(cfg.Security.ResponsiblePerson.Email)
+		}
+		if strings.TrimSpace(cfg.Security.EmergencyContact.Phone) != "" {
+			emergency.Phone = strings.TrimSpace(cfg.Security.EmergencyContact.Phone)
+		}
+		if strings.TrimSpace(cfg.Security.EmergencyContact.Email) != "" {
+			emergency.Email = strings.TrimSpace(cfg.Security.EmergencyContact.Email)
 		}
 	}
 
@@ -207,14 +213,15 @@ func AdminPlatformComplianceOverview(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"report_pipeline": gin.H{
-			"main_program_submit_endpoint": "/api/v1/community/reports",
-			"admin_platform_list_endpoint": "/admin-platform/api/reports",
-			"shared_storage_table":         "security_reports",
-			"total_reports":                total,
-			"pending_reports":              pending,
-			"processing_reports":           processing,
-			"resolved_reports":             resolved,
-			"rejected_reports":             rejected,
+			"main_program_submit_endpoint":    "/api/v1/community/reports",
+			"admin_platform_list_endpoint":    "/admin-platform/api/reports",
+			"admin_platform_dispose_endpoint": "/admin-platform/api/reports/:id/dispose",
+			"shared_storage_table":            "security_reports",
+			"total_reports":                   total,
+			"pending_reports":                 pending,
+			"processing_reports":              processing,
+			"resolved_reports":                resolved,
+			"rejected_reports":                rejected,
 		},
 		"realname_verification": gin.H{
 			"enabled":                 true,
@@ -240,8 +247,17 @@ func AdminPlatformComplianceOverview(c *gin.Context) {
 		"security_contacts": gin.H{
 			"responsible_person": responsible,
 			"emergency_contact":  emergency,
-			"complaint_phone":    "17707284972",
-			"complaint_email":    "1140893485@qq.com",
+			"complaint_phone":    fallbackString(responsible.Phone, emergency.Phone),
+			"complaint_email":    fallbackString(responsible.Email, emergency.Email),
+		},
+		"moderation_capability": gin.H{
+			"list_posts_endpoint":     "/admin-platform/api/moderation/posts",
+			"list_comments_endpoint":  "/admin-platform/api/moderation/comments",
+			"list_users_endpoint":     "/admin-platform/api/moderation/users",
+			"delete_post_endpoint":    "/admin-platform/api/moderation/posts/:id",
+			"delete_comment_endpoint": "/admin-platform/api/moderation/comments/:id",
+			"delete_user_endpoint":    "/admin-platform/api/moderation/users/:id",
+			"audit_logs_endpoint":     "/admin-platform/api/audit-logs",
 		},
 	})
 }
@@ -257,4 +273,12 @@ func parseReportEvidence(raw string) map[string]interface{} {
 		return map[string]interface{}{}
 	}
 	return result
+}
+
+func fallbackString(primary, backup string) string {
+	p := strings.TrimSpace(primary)
+	if p != "" {
+		return p
+	}
+	return strings.TrimSpace(backup)
 }

@@ -11,8 +11,8 @@
       <section class="card">
         <div class="row" style="justify-content: space-between">
           <div>
-            <h1 class="title">举报管理平台</h1>
-            <p class="subtitle">独立 URL：`/admin-platform/login`。举报数据来自主程序统一提交接口。</p>
+            <h1 class="title">举报与内容处置管理平台</h1>
+            <p class="subtitle">独立 URL：`/admin-platform/login`。支持举报处置、内容删除、巡查执行与审计日志核查。</p>
           </div>
           <div class="row">
             <span class="muted" id="admin-username">管理员：-</span>
@@ -22,47 +22,57 @@
       </section>
 
       <div class="grid" style="margin-top: 16px">
-        <section class="card col-4">
+        <section class="card col-3">
           <div class="kpi-label">举报总量</div>
           <div class="kpi-value" id="kpi-total">0</div>
         </section>
-        <section class="card col-4">
+        <section class="card col-3">
           <div class="kpi-label">待处理</div>
           <div class="kpi-value" id="kpi-pending">0</div>
         </section>
-        <section class="card col-4">
+        <section class="card col-3">
           <div class="kpi-label">处理中</div>
           <div class="kpi-value" id="kpi-processing">0</div>
+        </section>
+        <section class="card col-3">
+          <div class="kpi-label">已处置</div>
+          <div class="kpi-value" id="kpi-resolved">0</div>
         </section>
       </div>
 
       <div class="grid" style="margin-top: 16px">
         <section class="card col-6">
-          <h2 class="title" style="font-size: 20px">合规能力检查</h2>
+          <h2 class="title" style="font-size: 20px">公安检查项自检</h2>
           <ul class="list">
             <li id="check-realname"></li>
             <li id="check-retention"></li>
+            <li id="check-protection"></li>
             <li id="check-governance"></li>
             <li id="check-contact"></li>
           </ul>
         </section>
 
         <section class="card col-6">
-          <h2 class="title" style="font-size: 20px">联系方式</h2>
+          <h2 class="title" style="font-size: 20px">联系方式与巡查执行</h2>
           <ul class="list">
             <li id="contact-complaint"></li>
             <li id="contact-responsible"></li>
             <li id="contact-emergency"></li>
           </ul>
-          <p class="subtitle" style="margin-top: 12px">
-            简单检查途径：登录本页后，确认上面 4 条检查项均显示“已启用/满足要求”。
+          <div class="row" style="margin-top: 12px">
+            <input class="input patrol-limit" id="patrol-limit" type="number" min="0" placeholder="巡查数量上限（可空）" />
+            <button class="button secondary" id="patrol-btn" type="button">立即执行一次巡查</button>
+          </div>
+          <div class="msg muted" id="patrol-message"></div>
+          <p class="subtitle" style="margin-top: 10px">
+            建议现场演示：点击“立即执行一次巡查”，查看工单与审计日志同步变化。
           </p>
         </section>
       </div>
 
       <section class="card" style="margin-top: 16px">
         <div class="row" style="justify-content: space-between">
-          <h2 class="title" style="font-size: 20px; margin: 0">举报工单</h2>
+          <h2 class="title" style="font-size: 20px; margin: 0">举报工单处置</h2>
           <div class="row">
             <select class="select" id="status-filter">
               <option value="">全部状态</option>
@@ -71,7 +81,7 @@
               <option value="resolved">resolved</option>
               <option value="rejected">rejected</option>
             </select>
-            <button class="button secondary" id="refresh-btn" type="button">刷新列表</button>
+            <button class="button secondary" id="refresh-btn" type="button">刷新全部数据</button>
           </div>
         </div>
 
@@ -92,6 +102,57 @@
               </tr>
             </thead>
             <tbody id="reports-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card" style="margin-top: 16px">
+        <div class="row" style="justify-content: space-between">
+          <h2 class="title" style="font-size: 20px; margin: 0">内容删除能力（真实落库）</h2>
+          <div class="row">
+            <select class="select" id="moderation-type">
+              <option value="post">帖子</option>
+              <option value="comment">评论</option>
+              <option value="user">用户</option>
+            </select>
+            <input class="input" id="moderation-keyword" placeholder="关键词检索（作者/内容/账号）" />
+            <button class="button secondary" id="moderation-refresh-btn" type="button">刷新列表</button>
+          </div>
+        </div>
+        <div class="msg" id="moderation-message"></div>
+
+        <div class="table-wrap" style="margin-top: 12px">
+          <table>
+            <thead id="moderation-head"></thead>
+            <tbody id="moderation-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card" style="margin-top: 16px">
+        <div class="row" style="justify-content: space-between">
+          <h2 class="title" style="font-size: 20px; margin: 0">安全审计日志（访问/操作）</h2>
+          <div class="row">
+            <input class="input" id="audit-keyword" placeholder="关键词检索（路径/IP/详情）" />
+            <button class="button secondary" id="audit-refresh-btn" type="button">刷新日志</button>
+          </div>
+        </div>
+        <div class="msg" id="audit-message"></div>
+
+        <div class="table-wrap" style="margin-top: 12px">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>动作</th>
+                <th>结果</th>
+                <th>接口</th>
+                <th>来源IP</th>
+                <th>详情</th>
+                <th>时间</th>
+              </tr>
+            </thead>
+            <tbody id="audit-tbody"></tbody>
           </table>
         </div>
       </section>

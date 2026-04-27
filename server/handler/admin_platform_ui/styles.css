@@ -45,6 +45,10 @@ body {
   grid-column: span 4 / span 4;
 }
 
+.col-3 {
+  grid-column: span 3 / span 3;
+}
+
 .col-6 {
   grid-column: span 6 / span 6;
 }
@@ -59,6 +63,7 @@ body {
 
 @media (max-width: 900px) {
   .col-4,
+  .col-3,
   .col-6,
   .col-8,
   .col-12 {
@@ -98,10 +103,15 @@ body {
 .input,
 .select,
 .textarea {
-  width: 100%;
+  width: auto;
+  min-width: 160px;
   padding: 10px 12px;
   background: #ffffff;
   color: #111827;
+}
+
+.input.patrol-limit {
+  max-width: 220px;
 }
 
 .textarea {
@@ -136,6 +146,18 @@ body {
 .button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.button.mini {
+  padding: 5px 10px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+
+.button.danger-outline {
+  background: #ffffff;
+  color: #b91c1c;
+  border-color: #fca5a5;
 }
 
 .table-wrap {
@@ -249,4 +271,8 @@ th {
 .login-card {
   width: 100%;
   max-width: 420px;
+}
+
+.login-card .input {
+  width: 100%;
 }
