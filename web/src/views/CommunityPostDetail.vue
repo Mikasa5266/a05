@@ -5,6 +5,13 @@
         <button @click="router.back()" class="px-4 py-2 rounded-xl border border-zinc-200 text-zinc-600 text-sm hover:bg-zinc-50 transition-colors">
           返回
         </button>
+        <button
+          v-if="post?.id"
+          @click="openReportModal('post', post.id, post.title || '')"
+          class="px-4 py-2 rounded-xl border border-rose-200 text-rose-600 text-sm hover:bg-rose-50 transition-colors"
+        >
+          举报内容
+        </button>
         <button v-if="post && userStore.userInfo && post.user_id === userStore.userInfo.id" 
           @click="handleDelete" 
           class="px-4 py-2 text-rose-600 hover:bg-rose-50 rounded-xl text-sm font-bold transition-all flex items-center gap-2"
@@ -149,7 +156,15 @@
             <div v-for="c in comments" :key="c.id" class="p-4 rounded-2xl border border-zinc-100 bg-white">
               <div class="flex items-center justify-between mb-2">
                 <div class="text-sm font-medium text-zinc-900">{{ c.author || '匿名用户' }}</div>
-                <div class="text-xs text-zinc-400">{{ c.created_at ? new Date(c.created_at).toLocaleString('zh-CN') : '' }}</div>
+                <div class="flex items-center gap-2">
+                  <button
+                    class="text-xs text-rose-500 hover:text-rose-600"
+                    @click="openReportModal('comment', c.id, c.content || '')"
+                  >
+                    举报
+                  </button>
+                  <div class="text-xs text-zinc-400">{{ c.created_at ? new Date(c.created_at).toLocaleString('zh-CN') : '' }}</div>
+                </div>
               </div>
               <div class="text-sm text-zinc-700 whitespace-pre-wrap wrap-break-word leading-relaxed">{{ c.content }}</div>
             </div>
@@ -166,14 +181,60 @@
         </div>
       </div>
     </div>
+
+    <div
+      v-if="showReportModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+      @click.self="showReportModal = false"
+    >
+      <div class="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-6 shadow-2xl">
+        <h3 class="text-lg font-bold text-zinc-900">提交举报</h3>
+        <p class="mt-1 text-xs text-zinc-500">我们会在 24 小时内审核并处理违规内容。</p>
+
+        <div class="mt-4 space-y-3">
+          <label class="block">
+            <div class="mb-1 text-xs font-bold uppercase text-zinc-400">举报原因</div>
+            <select v-model="reportForm.reason" class="w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm">
+              <option value="违法有害信息">违法有害信息</option>
+              <option value="侮辱谩骂或骚扰">侮辱谩骂或骚扰</option>
+              <option value="虚假信息或冒充">虚假信息或冒充</option>
+              <option value="疑似恶意传播扩散">疑似恶意传播扩散</option>
+              <option value="其他">其他</option>
+            </select>
+          </label>
+
+          <label class="block">
+            <div class="mb-1 text-xs font-bold uppercase text-zinc-400">补充说明</div>
+            <textarea
+              v-model.trim="reportForm.description"
+              rows="4"
+              maxlength="1000"
+              class="w-full resize-none rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm"
+              placeholder="请补充问题背景，便于平台核查"
+            />
+          </label>
+        </div>
+
+        <div class="mt-5 flex items-center justify-end gap-3">
+          <button class="rounded-lg px-4 py-2 text-sm text-zinc-500 hover:bg-zinc-100" @click="showReportModal = false">取消</button>
+          <button
+            class="rounded-xl bg-rose-600 px-5 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="reportSubmitting"
+            @click="submitReport"
+          >
+            {{ reportSubmitting ? '提交中...' : '提交举报' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, ref, onMounted, watch } from 'vue'
+import { computed, reactive, ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ThumbsUp, MessageCircle, Eye, BrainCircuit, Trash2 } from 'lucide-vue-next'
-import { getPost, likePost, getPostComments, commentOnPost, deletePost } from '../api/community'
+import { getPost, likePost, getPostComments, commentOnPost, deletePost, createSecurityReport } from '../api/community'
 import { useUserStore } from '../stores/user'
 import { getBackendAssetUrl } from '../utils/backend'
 
@@ -190,6 +251,14 @@ const comments = ref([])
 const commentsLoading = ref(false)
 const commentText = ref('')
 const submittingComment = ref(false)
+const showReportModal = ref(false)
+const reportSubmitting = ref(false)
+const reportForm = reactive({
+  targetType: 'post',
+  targetId: 0,
+  reason: '违法有害信息',
+  description: ''
+})
 
 const authorAvatarUrl = computed(() => {
   if (avatarBroken.value) return ''
@@ -259,6 +328,33 @@ const submitComment = async () => {
     commentText.value = ''
   } catch (_) {} finally {
     submittingComment.value = false
+  }
+}
+
+const openReportModal = (targetType, targetId, excerpt = '') => {
+  reportForm.targetType = targetType || 'other'
+  reportForm.targetId = Number(targetId) > 0 ? Number(targetId) : 0
+  reportForm.reason = '违法有害信息'
+  reportForm.description = excerpt ? `来源内容：${String(excerpt).slice(0, 80)}` : ''
+  showReportModal.value = true
+}
+
+const submitReport = async () => {
+  if (reportSubmitting.value) return
+  reportSubmitting.value = true
+  try {
+    await createSecurityReport({
+      target_type: reportForm.targetType,
+      target_id: reportForm.targetId,
+      reason: reportForm.reason,
+      description: reportForm.description
+    })
+    showReportModal.value = false
+    alert('举报已提交，平台将尽快处理')
+  } catch (error) {
+    alert(error?.response?.data?.error || '举报提交失败')
+  } finally {
+    reportSubmitting.value = false
   }
 }
 

@@ -184,12 +184,43 @@ func CreatePost(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "内容过长"})
 		return
 	}
+	if err := service.ValidateSafeTextField("title", title); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := service.ValidateSafeTextField("company", req.Company); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := service.ValidateSafeTextField("position", req.Position); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if !service.AllowRateLimitedAction(userID, "community_post_create", 6, time.Minute) {
+		service.RecordSecurityAudit(c, userID, "community_post_create", "blocked", http.StatusTooManyRequests, map[string]interface{}{
+			"reason": "rate_limit",
+		})
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "发布过于频繁，请稍后再试"})
+		return
+	}
 
+	moderationText := strings.Join([]string{title, content, req.Process, req.Questions, req.Review}, "\n")
+	if err := service.ValidateCommunityContent(moderationText); err != nil {
+		service.RecordSecurityAudit(c, userID, "community_post_create", "blocked", http.StatusBadRequest, map[string]interface{}{
+			"reason": "sensitive_word",
+		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	tags := []string{}
 	for _, t := range req.Tags {
 		tt := strings.TrimSpace(t)
+		if err := service.ValidateSafeTextField("tag", tt); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		if tt != "" {
-			tags = append(tags, tt)
+			tags = append(tags, service.SanitizeUserInput(tt))
 		}
 	}
 	tagStr := strings.Join(tags, ",")
@@ -198,13 +229,13 @@ func CreatePost(c *gin.Context) {
 		UserID:        userID,
 		Author:        "",
 		Avatar:        "",
-		Company:       strings.TrimSpace(req.Company),
-		Position:      strings.TrimSpace(req.Position),
-		Title:         title,
-		Content:       content,
-		Process:       req.Process,
-		Questions:     req.Questions,
-		Review:        req.Review,
+		Company:       service.SanitizeUserInput(req.Company),
+		Position:      service.SanitizeUserInput(req.Position),
+		Title:         service.SanitizeUserInput(title),
+		Content:       service.SanitizeUserInput(content),
+		Process:       service.SanitizeUserInput(req.Process),
+		Questions:     service.SanitizeUserInput(req.Questions),
+		Review:        service.SanitizeUserInput(req.Review),
 		Difficulty:    req.Difficulty,
 		OfferStatus:   req.OfferStatus,
 		Rounds:        req.Rounds,
@@ -221,9 +252,15 @@ func CreatePost(c *gin.Context) {
 	}
 
 	if err := db.Create(&post).Error; err != nil {
+		service.RecordSecurityAudit(c, userID, "community_post_create", "failed", http.StatusInternalServerError, map[string]interface{}{
+			"reason": "db_error",
+		})
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	service.RecordSecurityAudit(c, userID, "community_post_create", "success", http.StatusCreated, map[string]interface{}{
+		"post_id": post.ID,
+	})
 
 	// Index into RAG knowledge base asynchronously
 	go func(p model.CommunityPost) {
@@ -320,7 +357,21 @@ func CommentOnPost(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "评论内容不能为空"})
 		return
 	}
-
+	if !service.AllowRateLimitedAction(userID, "community_comment_create", 20, time.Minute) {
+		service.RecordSecurityAudit(c, userID, "community_comment_create", "blocked", http.StatusTooManyRequests, map[string]interface{}{
+			"reason": "rate_limit",
+		})
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "评论过于频繁，请稍后再试"})
+		return
+	}
+	if err := service.ValidateCommunityContent(content); err != nil {
+		service.RecordSecurityAudit(c, userID, "community_comment_create", "blocked", http.StatusBadRequest, map[string]interface{}{
+			"reason": "sensitive_word",
+		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	content = service.SanitizeUserInput(content)
 	comment := model.PostComment{
 		PostID:  uint(postID),
 		UserID:  userID,
@@ -336,12 +387,20 @@ func CommentOnPost(c *gin.Context) {
 	}
 
 	if err := db.Create(&comment).Error; err != nil {
+		service.RecordSecurityAudit(c, userID, "community_comment_create", "failed", http.StatusInternalServerError, map[string]interface{}{
+			"reason": "db_error",
+		})
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	// Increment comment count
 	db.Model(&model.CommunityPost{}).Where("id = ?", postID).UpdateColumn("comments", gorm.Expr("comments + ?", 1))
+
+	service.RecordSecurityAudit(c, userID, "community_comment_create", "success", http.StatusCreated, map[string]interface{}{
+		"post_id":    postID,
+		"comment_id": comment.ID,
+	})
 
 	c.JSON(http.StatusCreated, gin.H{"comment": comment})
 }
@@ -449,69 +508,5 @@ func QueryKnowledgeBase(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"answer":  answer,
 		"sources": sources,
-	})
-}
-
-// ===== Hot Content =====
-
-func GetTopAlumni(c *gin.Context) {
-	db := repository.GetDB()
-	var results []struct {
-		Name    string `json:"name"`
-		Company string `json:"company"`
-		Posts   int64  `json:"posts"`
-		Avatar  string `json:"avatar"`
-	}
-
-	// Group by author and company to show active alumni
-	// We select the one with most posts
-	err := db.Model(&model.CommunityPost{}).
-		Select("author as name, company, count(*) as posts, max(avatar) as avatar").
-		Where("author != '' AND author IS NOT NULL").
-		Group("author, company").
-		Order("posts DESC").
-		Limit(5).
-		Scan(&results).Error
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch top alumni"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"alumni": results,
-	})
-}
-
-func GetHotCompanies(c *gin.Context) {
-	db := repository.GetDB()
-	var results []struct {
-		Name  string `json:"name"`
-		Posts int64  `json:"posts"`
-	}
-
-	err := db.Model(&model.CommunityPost{}).
-		Select("company as name, count(*) as posts").
-		Where("company != '' AND company IS NOT NULL").
-		Group("company").
-		Order("posts DESC").
-		Limit(8).
-		Scan(&results).Error
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch hot companies"})
-		return
-	}
-
-	// Convert to simple string list for frontend if needed,
-	// but the frontend might want object with counts.
-	// Let's check frontend expectation.
-	// Frontend expects: "companies": [{"name": "...", "posts": ...}]
-	// But in Community.vue hotCompanies is just an array of strings: ['字节跳动', ...]
-	// We should return what frontend needs or update frontend.
-	// Let's return objects, and I'll update frontend to use objects or map them.
-
-	c.JSON(http.StatusOK, gin.H{
-		"companies": results,
 	})
 }

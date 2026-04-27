@@ -13,11 +13,14 @@ import (
 )
 
 const (
-	DefaultDeepSeekBaseURL     = "https://api.deepseek.com/v1"
-	DefaultDeepSeekModel       = "deepseek-chat"
-	DefaultWhisperBaseURL      = "https://api.openai.com/v1"
-	DefaultWhisperLocalBaseURL = "http://localhost:9000/v1"
-	DefaultWhisperModel        = "whisper-1"
+	DefaultDeepSeekBaseURL              = "https://api.deepseek.com/v1"
+	DefaultDeepSeekModel                = "deepseek-chat"
+	DefaultWhisperBaseURL               = "https://api.openai.com/v1"
+	DefaultWhisperLocalBaseURL          = "http://localhost:9000/v1"
+	DefaultWhisperModel                 = "whisper-1"
+	DefaultSecurityLogRetentionDays     = 180
+	DefaultSecurityPatrolIntervalMinute = 30
+	DefaultSecurityPatrolScanLimit      = 200
 )
 
 var envTemplatePattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?\}`)
@@ -31,6 +34,21 @@ type Config struct {
 	TTS      TTSConfig      `yaml:"tts"`
 	Prompt   PromptConfig   `yaml:"prompt"`
 	OCR      OCRConfig      `yaml:"ocr"`
+	Security SecurityConfig `yaml:"security"`
+}
+
+type ContactConfig struct {
+	Name  string `yaml:"name"`
+	Phone string `yaml:"phone"`
+	Email string `yaml:"email"`
+}
+
+type SecurityConfig struct {
+	LogRetentionDays      int           `yaml:"log_retention_days"`
+	PatrolIntervalMinutes int           `yaml:"patrol_interval_minutes"`
+	PatrolScanLimit       int           `yaml:"patrol_scan_limit"`
+	ResponsiblePerson     ContactConfig `yaml:"responsible_person"`
+	EmergencyContact      ContactConfig `yaml:"emergency_contact"`
 }
 
 type PromptConfig struct {
@@ -144,7 +162,31 @@ func applyDefaultConfigValues(cfg *Config) {
 	}
 	applyLLMDefaults(&cfg.LLM)
 	applyASRDefaults(&cfg.ASR)
+	applySecurityDefaults(&cfg.Security)
 	cfg.Prompt.TemplatesDir = strings.TrimSpace(cfg.Prompt.TemplatesDir)
+}
+
+func applySecurityDefaults(cfg *SecurityConfig) {
+	if cfg == nil {
+		return
+	}
+
+	if cfg.LogRetentionDays < DefaultSecurityLogRetentionDays {
+		cfg.LogRetentionDays = DefaultSecurityLogRetentionDays
+	}
+	if cfg.PatrolIntervalMinutes <= 0 {
+		cfg.PatrolIntervalMinutes = DefaultSecurityPatrolIntervalMinute
+	}
+	if cfg.PatrolScanLimit <= 0 {
+		cfg.PatrolScanLimit = DefaultSecurityPatrolScanLimit
+	}
+
+	cfg.ResponsiblePerson.Name = strings.TrimSpace(cfg.ResponsiblePerson.Name)
+	cfg.ResponsiblePerson.Phone = strings.TrimSpace(cfg.ResponsiblePerson.Phone)
+	cfg.ResponsiblePerson.Email = strings.TrimSpace(cfg.ResponsiblePerson.Email)
+	cfg.EmergencyContact.Name = strings.TrimSpace(cfg.EmergencyContact.Name)
+	cfg.EmergencyContact.Phone = strings.TrimSpace(cfg.EmergencyContact.Phone)
+	cfg.EmergencyContact.Email = strings.TrimSpace(cfg.EmergencyContact.Email)
 }
 
 func applyLLMDefaults(cfg *LLMConfig) {

@@ -88,6 +88,11 @@ export const portalNavMap = {
       href: "/student/community",
       icon: Users,
     },
+    {
+      name: "安全举报",
+      href: "/student/security-report",
+      icon: Shield,
+    },
   ],
   enterprise: [
     {
@@ -171,6 +176,11 @@ export const portalTopNavMap = {
       name: "校友社区",
       href: "/student/community",
       icon: Users,
+    },
+    {
+      name: "安全举报",
+      href: "/student/security-report",
+      icon: Shield,
     },
   ],
   enterprise: [

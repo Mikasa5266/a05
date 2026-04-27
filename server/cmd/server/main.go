@@ -62,6 +62,8 @@ func main() {
 		log.Printf("Warning: Startup bootstrap failed: %v", err)
 	}
 
+	service.StartSecurityComplianceWorkers()
+
 	r := router.SetupRouter(aiService)
 	addr := cfg.Server.Host + ":" + cfg.Server.Port
 	if addr == ":" {
@@ -180,5 +182,7 @@ func autoMigrate(db *gorm.DB) error {
 		&model.PostComment{},
 		&model.MentorBooking{},
 		&model.PostLike{},
+		&model.SecurityReport{},
+		&model.SecurityAuditLog{},
 	)
 }

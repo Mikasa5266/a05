@@ -20,9 +20,15 @@ func Register(c *gin.Context) {
 		Email    string `json:"email" binding:"required,email"`
 		Password string `json:"password" binding:"required,min=6"`
 		Role     string `json:"role"`
+		RealName string `json:"real_name" binding:"required"`
+		Phone    string `json:"phone" binding:"required"`
+		IDCardNo string `json:"id_card_no" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		service.RecordSecurityAudit(c, 0, "user_register", "failed", http.StatusBadRequest, map[string]interface{}{
+			"reason": "invalid_payload",
+		})
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -32,15 +38,51 @@ func Register(c *gin.Context) {
 		role = "student"
 	}
 	if role != "student" {
+		service.RecordSecurityAudit(c, 0, "user_register", "blocked", http.StatusBadRequest, map[string]interface{}{
+			"reason": "invalid_role",
+			"role":   role,
+		})
 		c.JSON(http.StatusBadRequest, gin.H{"error": "企业/高校账号请使用入驻申请接口"})
 		return
 	}
 
-	user, err := service.CreateStudentUser(req.Username, req.Email, req.Password)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := service.ValidateSafeTextField("username", req.Username); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if err := service.ValidateSafeTextField("email", req.Email); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := service.ValidateSafeTextField("real_name", req.RealName); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	req.Username = service.SanitizeUserInput(req.Username)
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	req.RealName = service.SanitizeUserInput(req.RealName)
+
+	user, err := service.CreateStudentUser(req.Username, req.Email, req.Password, req.RealName, req.Phone, req.IDCardNo)
+	if err != nil {
+		statusCode := http.StatusInternalServerError
+		reason := "create_user_failed"
+		errMessage := strings.ToLower(strings.TrimSpace(err.Error()))
+		if strings.Contains(errMessage, "invalid") || strings.Contains(errMessage, "requires") || strings.Contains(errMessage, "exists") {
+			statusCode = http.StatusBadRequest
+			reason = "register_validation_failed"
+		}
+
+		service.RecordSecurityAudit(c, 0, "user_register", "failed", statusCode, map[string]interface{}{
+			"reason": reason,
+		})
+		c.JSON(statusCode, gin.H{"error": err.Error()})
+		return
+	}
+
+	service.RecordSecurityAudit(c, user.ID, "user_register", "success", http.StatusCreated, map[string]interface{}{
+		"role": user.Role,
+	})
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "User registered successfully",
@@ -60,6 +102,9 @@ func ApplyEnterprise(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		service.RecordSecurityAudit(c, 0, "user_login", "failed", http.StatusBadRequest, map[string]interface{}{
+			"reason": "invalid_payload",
+		})
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -168,24 +213,39 @@ func Login(c *gin.Context) {
 		account = strings.TrimSpace(req.Email)
 	}
 	if account == "" {
+		service.RecordSecurityAudit(c, 0, "user_login", "failed", http.StatusBadRequest, map[string]interface{}{
+			"reason": "missing_account",
+		})
 		c.JSON(http.StatusBadRequest, gin.H{"error": "account is required"})
 		return
 	}
 
 	user, err := service.AuthenticateUser(account, req.Password)
 	if err != nil {
+		service.RecordSecurityAudit(c, 0, "user_login", "failed", http.StatusUnauthorized, map[string]interface{}{
+			"reason":  "invalid_credentials",
+			"account": account,
+		})
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
 	}
 
 	// Validate role if provided
 	if req.Role != "" && user.Role != req.Role {
+		service.RecordSecurityAudit(c, user.ID, "user_login", "blocked", http.StatusForbidden, map[string]interface{}{
+			"reason":       "role_mismatch",
+			"request_role": req.Role,
+			"account_role": user.Role,
+		})
 		c.JSON(http.StatusForbidden, gin.H{"error": "该账号不属于此端，请切换到正确的登录入口"})
 		return
 	}
 
 	auditStatus, _, err := service.GetAuditStatusForUser(user)
 	if err != nil {
+		service.RecordSecurityAudit(c, user.ID, "user_login", "failed", http.StatusUnauthorized, map[string]interface{}{
+			"reason": "audit_status_error",
+		})
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "账号状态异常，请联系管理员"})
 		return
 	}
@@ -206,6 +266,10 @@ func Login(c *gin.Context) {
 					message = "您的高校资质审核未通过，请联系管理员"
 				}
 			}
+			service.RecordSecurityAudit(c, user.ID, "user_login", "blocked", http.StatusForbidden, map[string]interface{}{
+				"reason":       "audit_not_approved",
+				"audit_status": auditStatus,
+			})
 			c.JSON(http.StatusForbidden, gin.H{"error": message})
 			return
 		}
@@ -213,9 +277,16 @@ func Login(c *gin.Context) {
 
 	token, err := middleware.GenerateToken(user.ID, user.Role, user.UUID)
 	if err != nil {
+		service.RecordSecurityAudit(c, user.ID, "user_login", "failed", http.StatusInternalServerError, map[string]interface{}{
+			"reason": "token_generate_failed",
+		})
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
+
+	service.RecordSecurityAudit(c, user.ID, "user_login", "success", http.StatusOK, map[string]interface{}{
+		"role": user.Role,
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Login successful",

@@ -35,6 +35,22 @@
 - 📊 **闭环成长反馈**：报告、历史记录、能力趋势持续追踪。
 - 🛠️ **工程化落地**：支持 Docker Compose 一键部署与 Electron 安装包分发。
 
+## 🔐 安全与合规能力（已落地）
+
+- **实名注册核验（手机号 + 身份证）**：学生注册接口要求提交 `real_name`、`phone`、`id_card_no`，后端执行手机号与身份证校验位校验，仅保存身份证哈希与脱敏值。
+- **访问日志 / 操作日志留存**：后端中间件自动记录 `access_log` 与 `operation_log` 到安全审计表，默认保留不少于 180 天（可配置，最小值受控为 180）。
+- **防 SQL 注入 / 防 XSS**：启用请求安全拦截（SQL 注入/XSS 特征检测）、参数化查询（GORM 占位符）与用户内容 HTML 转义存储。
+- **违法信息过滤 + 巡查 + 处置**：发布内容命中违规词将被拦截；用户可提交举报；管理员可审核处置；系统定时巡查社区内容并自动生成待处理举报单。
+- **安全责任人 / 应急联系人**：通过公开接口 `GET /api/v1/security/contact` 提供责任人与应急联系人信息。
+
+推荐配置项（`server/config.yaml`）：
+
+- `SECURITY_LOG_RETENTION_DAYS`：日志留存天数（最小 180）
+- `SECURITY_PATROL_INTERVAL_MINUTES`：系统巡查周期
+- `SECURITY_PATROL_SCAN_LIMIT`：单次巡查扫描上限
+- `SECURITY_RESPONSIBLE_NAME / PHONE / EMAIL`：安全责任人
+- `SECURITY_EMERGENCY_NAME / PHONE / EMAIL`：应急联系人
+
 ## 🖼️ 演示截图
 <img width="958" height="598" alt="Snipaste_2026-04-07_13-40-03" src="https://github.com/user-attachments/assets/534cfae6-e3b1-49a0-a7cb-e0f925a6cff4" />
 <img width="958" height="598" alt="Snipaste_2026-04-07_13-40-23" src="https://github.com/user-attachments/assets/112a737c-fc5d-459f-a006-e1fc9da1b8ac" />

@@ -99,8 +99,31 @@ func createUserWithRoleTx(tx *gorm.DB, username, email, password, role string) (
 	return user, nil
 }
 
-func CreateStudentUser(username, email, password string) (*model.User, error) {
-	return createUserWithRole(username, email, password, "student")
+func CreateStudentUser(username, email, password, realName, phone, idCardNo string) (*model.User, error) {
+	identity, err := BuildVerifiedIdentity(realName, phone, idCardNo)
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := createUserWithRole(username, email, password, "student")
+	if err != nil {
+		return nil, err
+	}
+
+	verifiedAt := identity.VerifiedAt
+	user.RealName = identity.RealName
+	user.Phone = identity.Phone
+	user.IDCardHash = identity.IDCardHash
+	user.IDCardMasked = identity.IDCardMask
+	user.RealNameVerified = true
+	user.RealNameVerifiedAt = &verifiedAt
+
+	service := NewUserService()
+	if err := service.userRepo.Update(user); err != nil {
+		return nil, fmt.Errorf("failed to update real-name profile: %w", err)
+	}
+
+	return user, nil
 }
 
 // CreateUser is kept for backward compatibility and now only allows student direct registration.
@@ -108,7 +131,7 @@ func CreateUser(username, email, password, role string) (*model.User, error) {
 	if role != "" && role != "student" {
 		return nil, fmt.Errorf("enterprise/university must use application endpoint")
 	}
-	return CreateStudentUser(username, email, password)
+	return nil, fmt.Errorf("direct student registration requires real_name, phone and id_card_no")
 }
 
 func ApplyEnterprise(username, email, password, companyName, contactName, contactPhone, businessScope string) (*model.User, *model.Enterprise, error) {

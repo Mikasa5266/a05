@@ -19,6 +19,9 @@ func SetupRouter(aiService aidomain.AIFacade) *gin.Engine {
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
 	router.Use(middleware.CORS())
+	router.Use(middleware.SecurityHeaders())
+	router.Use(middleware.SecurityAccessLogger())
+	router.Use(middleware.SecurityRequestGuard())
 	router.Static("/uploads", "./uploads")
 
 	api := router.Group("/api/v1")
@@ -27,6 +30,7 @@ func SetupRouter(aiService aidomain.AIFacade) *gin.Engine {
 		{
 			public.GET("/health", handler.Health)
 			public.GET("/ready", handler.Ready)
+			public.GET("/security/contact", handler.GetSecurityContacts)
 			public.POST("/register", handler.Register)
 			public.POST("/enterprise/apply", handler.ApplyEnterprise)
 			public.POST("/university/apply", handler.ApplyUniversity)
@@ -43,6 +47,9 @@ func SetupRouter(aiService aidomain.AIFacade) *gin.Engine {
 			admin.Use(middleware.RequireRole("admin"))
 			{
 				admin.POST("/applications/:role/audit", handler.AuditApplication)
+				admin.GET("/security/reports", handler.GetSecurityReportsForAdmin)
+				admin.POST("/security/reports/:id/handle", handler.HandleSecurityReportForAdmin)
+				admin.POST("/security/patrol/run", handler.RunSecurityPatrolForAdmin)
 			}
 
 			protected.GET("/user/profile", handler.GetUserProfile)
@@ -210,6 +217,9 @@ func SetupRouter(aiService aidomain.AIFacade) *gin.Engine {
 				community.POST("/mentors/:id/book", handler.BookMentor)
 				community.GET("/mentors", handler.GetMentors)
 				community.GET("/bookings", handler.GetBookings)
+
+				community.POST("/reports", handler.CreateSecurityReport)
+				community.GET("/reports/my", handler.GetMySecurityReports)
 
 				community.POST("/knowledge/query", handler.QueryKnowledgeBase)
 

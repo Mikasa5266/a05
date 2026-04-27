@@ -55,3 +55,12 @@ export function getHotCompanies() {
 export function deletePost(id) {
   return request({ url: `/community/posts/${id}`, method: 'delete' })
 }
+
+// ===== 安全举报 =====
+export function createSecurityReport(data) {
+  return request({ url: '/community/reports', method: 'post', data })
+}
+
+export function getMySecurityReports(params) {
+  return request({ url: '/community/reports/my', method: 'get', params })
+}

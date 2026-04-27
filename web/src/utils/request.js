@@ -114,7 +114,7 @@ const normalizeRequestUrl = (url = "") => {
   return raw.startsWith("/") ? raw : `/${raw}`;
 };
 
-const PUBLIC_ENDPOINTS = new Set(["/login", "/register"]);
+const PUBLIC_ENDPOINTS = new Set(["/login", "/register", "/security/contact"]);
 
 const isPublicEndpoint = (url = "") => {
   const path = normalizeRequestUrl(url);

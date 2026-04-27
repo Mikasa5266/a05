@@ -1,43 +1,52 @@
 # syntax=docker/dockerfile:1
 
-# Build stage: compile static binary to reduce runtime image size.
+# --- 阶段 1: 编译阶段 ---
 FROM golang:1.25-alpine AS builder
 WORKDIR /src
 
-# 优化1：替换 Alpine APK 源为国内源（解决下载 ca-certificates 等慢的问题）
+# 使用国内源加速
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
-
 RUN apk add --no-cache ca-certificates tzdata
 
+# 处理 Go 依赖
 COPY go.mod go.sum ./
-# 优化2：Go 代理配置保留（你的配置没问题，补充说明）
 ENV GOPROXY=https://goproxy.cn,direct
 ENV GOSUMDB=sum.golang.google.cn
 RUN go mod download
 
+# 编译二进制文件
 COPY . .
+
+# 关键修复：在编译前强制整理依赖，解决 go.mod 报错
+RUN go mod tidy
+
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/server
 
-# Runtime stage: minimal image containing only binary and runtime assets.
+# --- 阶段 2: 运行阶段 ---
 FROM alpine:3.20
 WORKDIR /app
 
-# 优化1：Runtime 阶段也替换 APK 源（解决下载 tesseract 等依赖慢的问题）
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
-
-RUN apk add --no-cache \
+# 安装运行时依赖、配置国内源、创建普通用户
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && \
+    apk add --no-cache \
     ca-certificates \
     poppler-utils \
     tesseract-ocr \
     tesseract-ocr-data-chi_sim \
     tesseract-ocr-data-eng \
-    tzdata \
-    && mkdir -p /app/uploads
+    tzdata && \
+    adduser -D appuser && \
+    mkdir -p /app/uploads && \
+    chown appuser:appuser /app/uploads
 
 ENV TESSDATA_PREFIX=/usr/share/tessdata
 
+# 拷贝编译好的程序和配置文件
 COPY --from=builder /out/app /app/app
 COPY config.yaml /app/config.yaml
+
+# 使用普通用户运行
+USER appuser
 
 EXPOSE 8082
 

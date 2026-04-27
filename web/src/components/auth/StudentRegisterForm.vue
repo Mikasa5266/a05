@@ -14,6 +14,45 @@
     </div>
 
     <div class="space-y-1.5">
+      <label class="text-xs font-semibold tracking-wide text-slate-500">真实姓名</label>
+      <input
+        v-model.trim="form.realName"
+        type="text"
+        autocomplete="name"
+        placeholder="请输入真实姓名"
+        class="w-full cursor-text rounded-xl border bg-white/80 px-4 py-3 text-sm text-slate-800 outline-none transition-all focus:shadow-sm"
+        :class="inputClass(errors.realName)"
+      />
+      <p v-if="errors.realName" class="text-xs text-rose-500">{{ errors.realName }}</p>
+    </div>
+
+    <div class="space-y-1.5">
+      <label class="text-xs font-semibold tracking-wide text-slate-500">手机号</label>
+      <input
+        v-model.trim="form.phone"
+        type="tel"
+        autocomplete="tel"
+        placeholder="请输入 11 位手机号"
+        class="w-full cursor-text rounded-xl border bg-white/80 px-4 py-3 text-sm text-slate-800 outline-none transition-all focus:shadow-sm"
+        :class="inputClass(errors.phone)"
+      />
+      <p v-if="errors.phone" class="text-xs text-rose-500">{{ errors.phone }}</p>
+    </div>
+
+    <div class="space-y-1.5">
+      <label class="text-xs font-semibold tracking-wide text-slate-500">身份证号</label>
+      <input
+        v-model.trim="form.idCardNo"
+        type="text"
+        autocomplete="off"
+        placeholder="请输入 18 位身份证号"
+        class="w-full cursor-text rounded-xl border bg-white/80 px-4 py-3 text-sm text-slate-800 outline-none transition-all focus:shadow-sm"
+        :class="inputClass(errors.idCardNo)"
+      />
+      <p v-if="errors.idCardNo" class="text-xs text-rose-500">{{ errors.idCardNo }}</p>
+    </div>
+
+    <div class="space-y-1.5">
       <label class="text-xs font-semibold tracking-wide text-slate-500">邮箱</label>
       <input
         v-model.trim="form.email"
@@ -77,6 +116,9 @@ const emit = defineEmits(['submit'])
 
 const form = reactive({
   username: '',
+  realName: '',
+  phone: '',
+  idCardNo: '',
   email: '',
   password: '',
   confirmPassword: ''
@@ -84,10 +126,30 @@ const form = reactive({
 
 const errors = reactive({
   username: '',
+  realName: '',
+  phone: '',
+  idCardNo: '',
   email: '',
   password: '',
   confirmPassword: ''
 })
+
+const chinaPhonePattern = /^1[3-9]\d{9}$/
+const chinaIDCardPattern = /^\d{17}[\dXx]$/
+const idCardWeights = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2]
+const idCardCodes = '10X98765432'
+
+const isValidIDCardChecksum = (value = '') => {
+  const normalized = String(value || '').trim().toUpperCase()
+  if (!chinaIDCardPattern.test(normalized)) return false
+
+  let sum = 0
+  for (let i = 0; i < 17; i += 1) {
+    sum += Number(normalized[i]) * idCardWeights[i]
+  }
+
+  return idCardCodes[sum % 11] === normalized[17]
+}
 
 const inputClass = (hasError) => {
   if (hasError) return 'border-rose-300 focus:border-rose-400 focus:ring-4 focus:ring-rose-100'
@@ -96,14 +158,26 @@ const inputClass = (hasError) => {
 
 const validate = () => {
   errors.username = ''
+  errors.realName = ''
+  errors.phone = ''
+  errors.idCardNo = ''
   errors.email = ''
   errors.password = ''
   errors.confirmPassword = ''
 
   const email = String(form.email || '').trim()
+  const realName = String(form.realName || '').trim()
+  const phone = String(form.phone || '').trim().replace(/[\s()-]/g, '')
+  const idCardNo = String(form.idCardNo || '').trim().toUpperCase()
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 
   if (!form.username) errors.username = '请输入用户名'
+  if (!realName) errors.realName = '请输入真实姓名'
+  else if (realName.length < 2) errors.realName = '真实姓名至少 2 个字符'
+  if (!phone) errors.phone = '请输入手机号'
+  else if (!chinaPhonePattern.test(phone)) errors.phone = '手机号格式不正确'
+  if (!idCardNo) errors.idCardNo = '请输入身份证号'
+  else if (!isValidIDCardChecksum(idCardNo)) errors.idCardNo = '身份证号格式或校验位不正确'
   if (!email) errors.email = '请输入邮箱'
   else if (!emailOk) errors.email = '邮箱格式不正确'
   if (!form.password) errors.password = '请输入密码'
@@ -111,13 +185,16 @@ const validate = () => {
   if (!form.confirmPassword) errors.confirmPassword = '请确认密码'
   else if (form.password !== form.confirmPassword) errors.confirmPassword = '两次输入密码不一致'
 
-  return !errors.username && !errors.email && !errors.password && !errors.confirmPassword
+  return !errors.username && !errors.realName && !errors.phone && !errors.idCardNo && !errors.email && !errors.password && !errors.confirmPassword
 }
 
 const handleSubmit = () => {
   if (!validate()) return
   emit('submit', {
     username: form.username,
+    real_name: form.realName,
+    phone: form.phone,
+    id_card_no: form.idCardNo,
     email: form.email,
     password: form.password,
     role: 'student'

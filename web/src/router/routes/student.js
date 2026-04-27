@@ -21,6 +21,7 @@ const Report = () => import("../../views/Report.vue");
 const Settings = () => import("../../views/Settings.vue");
 const Community = () => import("../../views/Community.vue");
 const CommunityPostDetail = () => import("../../views/CommunityPostDetail.vue");
+const SecurityReportCenter = () => import("../../views/SecurityReportCenter.vue");
 const PracticeModeIndex = () =>
   import("../../views/student/PracticeMode/Index.vue");
 
@@ -113,6 +114,12 @@ export const studentRoutes = [
         path: "community/posts/:id",
         name: "CommunityPostDetail",
         component: CommunityPostDetail,
+        meta: roleMeta,
+      },
+      {
+        path: "security-report",
+        name: "SecurityReportCenter",
+        component: SecurityReportCenter,
         meta: roleMeta,
       },
       {
