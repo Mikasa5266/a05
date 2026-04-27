@@ -6,8 +6,8 @@
         用于举报违法有害信息、骚扰行为和异常传播风险。我们会在 24 小时内处理并保留处置记录。
       </p>
       <div class="mt-4 flex flex-wrap gap-3 text-xs text-zinc-500">
-        <span class="rounded-full bg-zinc-100 px-3 py-1">投诉电话：400-000-0000</span>
-        <span class="rounded-full bg-zinc-100 px-3 py-1">举报邮箱：security@example.com</span>
+        <span class="rounded-full bg-zinc-100 px-3 py-1">投诉电话：17707284972</span>
+        <span class="rounded-full bg-zinc-100 px-3 py-1">举报邮箱：1140893485@qq.com</span>
       </div>
     </header>
 

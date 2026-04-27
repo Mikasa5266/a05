@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>举报管理平台</title>
+    <link rel="stylesheet" href="/admin-platform/assets/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="card">
+        <div class="row" style="justify-content: space-between">
+          <div>
+            <h1 class="title">举报管理平台</h1>
+            <p class="subtitle">独立 URL：`/admin-platform/login`。举报数据来自主程序统一提交接口。</p>
+          </div>
+          <div class="row">
+            <span class="muted" id="admin-username">管理员：-</span>
+            <button class="button secondary" id="logout-btn" type="button">退出登录</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="grid" style="margin-top: 16px">
+        <section class="card col-4">
+          <div class="kpi-label">举报总量</div>
+          <div class="kpi-value" id="kpi-total">0</div>
+        </section>
+        <section class="card col-4">
+          <div class="kpi-label">待处理</div>
+          <div class="kpi-value" id="kpi-pending">0</div>
+        </section>
+        <section class="card col-4">
+          <div class="kpi-label">处理中</div>
+          <div class="kpi-value" id="kpi-processing">0</div>
+        </section>
+      </div>
+
+      <div class="grid" style="margin-top: 16px">
+        <section class="card col-6">
+          <h2 class="title" style="font-size: 20px">合规能力检查</h2>
+          <ul class="list">
+            <li id="check-realname"></li>
+            <li id="check-retention"></li>
+            <li id="check-governance"></li>
+            <li id="check-contact"></li>
+          </ul>
+        </section>
+
+        <section class="card col-6">
+          <h2 class="title" style="font-size: 20px">联系方式</h2>
+          <ul class="list">
+            <li id="contact-complaint"></li>
+            <li id="contact-responsible"></li>
+            <li id="contact-emergency"></li>
+          </ul>
+          <p class="subtitle" style="margin-top: 12px">
+            简单检查途径：登录本页后，确认上面 4 条检查项均显示“已启用/满足要求”。
+          </p>
+        </section>
+      </div>
+
+      <section class="card" style="margin-top: 16px">
+        <div class="row" style="justify-content: space-between">
+          <h2 class="title" style="font-size: 20px; margin: 0">举报工单</h2>
+          <div class="row">
+            <select class="select" id="status-filter">
+              <option value="">全部状态</option>
+              <option value="pending">pending</option>
+              <option value="processing">processing</option>
+              <option value="resolved">resolved</option>
+              <option value="rejected">rejected</option>
+            </select>
+            <button class="button secondary" id="refresh-btn" type="button">刷新列表</button>
+          </div>
+        </div>
+
+        <div class="msg" id="dashboard-message"></div>
+
+        <div class="table-wrap" style="margin-top: 12px">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>状态</th>
+                <th>对象</th>
+                <th>原因</th>
+                <th>描述/证据</th>
+                <th>联系方式</th>
+                <th>时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="reports-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script src="/admin-platform/assets/app.js"></script>
+  </body>
+</html>

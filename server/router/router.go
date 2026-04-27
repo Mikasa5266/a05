@@ -229,5 +229,29 @@ func SetupRouter(aiService aidomain.AIFacade) *gin.Engine {
 		}
 	}
 
+	adminPlatform := router.Group("/admin-platform")
+	{
+		adminPlatform.GET("", handler.AdminPlatformRoot)
+		adminPlatform.GET("/", handler.AdminPlatformRoot)
+		adminPlatform.GET("/login", handler.AdminPlatformLoginPage)
+		adminPlatform.GET("/dashboard", handler.AdminPlatformDashboardPage)
+		adminPlatform.GET("/assets/*filepath", handler.AdminPlatformStaticAsset)
+
+		adminPlatformAPI := adminPlatform.Group("/api")
+		{
+			adminPlatformAPI.POST("/login", handler.AdminPlatformLogin)
+
+			adminPlatformProtected := adminPlatformAPI.Group("/")
+			adminPlatformProtected.Use(middleware.AdminPlatformAuth())
+			{
+				adminPlatformProtected.GET("/me", handler.AdminPlatformMe)
+				adminPlatformProtected.POST("/logout", handler.AdminPlatformLogout)
+				adminPlatformProtected.GET("/reports", handler.AdminPlatformListSecurityReports)
+				adminPlatformProtected.POST("/reports/:id/handle", handler.AdminPlatformHandleSecurityReport)
+				adminPlatformProtected.GET("/compliance/overview", handler.AdminPlatformComplianceOverview)
+			}
+		}
+	}
+
 	return router
 }

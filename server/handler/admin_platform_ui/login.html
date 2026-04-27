@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>管理平台登录</title>
+    <link rel="stylesheet" href="/admin-platform/assets/styles.css" />
+  </head>
+  <body>
+    <main class="login-shell">
+      <section class="card login-card">
+        <h1 class="title">举报管理平台</h1>
+        <p class="subtitle">独立入口，和主程序前端分离。请使用管理员账号登录。</p>
+
+        <form id="login-form" style="margin-top: 16px">
+          <label class="muted" for="username">账号</label>
+          <input class="input" id="username" name="username" autocomplete="username" required />
+
+          <div style="height: 10px"></div>
+
+          <label class="muted" for="password">密码</label>
+          <input
+            class="input"
+            id="password"
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            required
+          />
+
+          <div style="height: 14px"></div>
+
+          <button class="button" id="login-btn" type="submit">登录管理平台</button>
+          <div class="msg muted" id="login-message">默认账号：admin，默认密码：admin123</div>
+        </form>
+      </section>
+    </main>
+
+    <script src="/admin-platform/assets/app.js"></script>
+  </body>
+</html>
