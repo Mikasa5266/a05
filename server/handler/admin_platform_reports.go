@@ -258,6 +258,7 @@ func AdminPlatformComplianceOverview(c *gin.Context) {
 			"delete_comment_endpoint": "/admin-platform/api/moderation/comments/:id",
 			"delete_user_endpoint":    "/admin-platform/api/moderation/users/:id",
 			"audit_logs_endpoint":     "/admin-platform/api/audit-logs",
+			"audit_log_table":         "audit_logs",
 		},
 	})
 }

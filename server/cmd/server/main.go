@@ -184,5 +184,6 @@ func autoMigrate(db *gorm.DB) error {
 		&model.PostLike{},
 		&model.SecurityReport{},
 		&model.SecurityAuditLog{},
+		&model.AuditLog{},
 	)
 }

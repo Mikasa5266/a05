@@ -1,9 +1,15 @@
 package service
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html"
+	"io"
 	"net"
 	"os"
 	"regexp"
@@ -12,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"your-project/config"
 	"your-project/internal/model"
 	"your-project/internal/repository"
 
@@ -40,6 +47,9 @@ var (
 
 	rateLimitMu      sync.Mutex
 	rateLimitBuckets = make(map[string][]time.Time)
+
+	securityLogKeyOnce sync.Once
+	securityLogKey     []byte
 )
 
 func loadBlockedWords() []string {
@@ -196,15 +206,93 @@ func RecordSecurityAudit(c *gin.Context, userID uint, action, outcome string, st
 		Method:            truncateString(strings.TrimSpace(c.Request.Method), 10),
 		Path:              truncateString(path, 255),
 		StatusCode:        statusCode,
-		SourceIP:          truncateString(sourceIP, 64),
-		SourcePort:        truncateString(sourcePort, 16),
-		TargetHost:        truncateString(targetHost, 255),
-		TargetPort:        truncateString(targetPort, 16),
+		SourceIP:          truncateString(ProtectSecurityLogField(sourceIP), 255),
+		SourcePort:        truncateString(ProtectSecurityLogField(sourcePort), 255),
+		TargetHost:        truncateString(ProtectSecurityLogField(targetHost), 255),
+		TargetPort:        truncateString(ProtectSecurityLogField(targetPort), 255),
 		ClientFingerprint: userAgent,
 		DetailJSON:        detailJSON,
 	}
 
 	_ = repository.GetDB().Create(&entry).Error
+}
+
+func ProtectSecurityLogField(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+
+	key := resolveSecurityLogEncryptKey()
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return trimmed
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return trimmed
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return trimmed
+	}
+	ciphertext := gcm.Seal(nil, nonce, []byte(trimmed), nil)
+	payload := append(nonce, ciphertext...)
+	return "enc:v1:" + base64.StdEncoding.EncodeToString(payload)
+}
+
+func RevealSecurityLogField(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if !strings.HasPrefix(trimmed, "enc:v1:") {
+		return trimmed
+	}
+
+	raw := strings.TrimPrefix(trimmed, "enc:v1:")
+	payload, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return trimmed
+	}
+
+	key := resolveSecurityLogEncryptKey()
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return trimmed
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return trimmed
+	}
+
+	nonceSize := gcm.NonceSize()
+	if len(payload) <= nonceSize {
+		return trimmed
+	}
+	nonce := payload[:nonceSize]
+	ciphertext := payload[nonceSize:]
+	plain, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return trimmed
+	}
+	return string(plain)
+}
+
+func resolveSecurityLogEncryptKey() []byte {
+	securityLogKeyOnce.Do(func() {
+		keyMaterial := strings.TrimSpace(os.Getenv("SECURITY_LOG_ENCRYPT_KEY"))
+		if keyMaterial == "" {
+			cfg := config.GetConfig()
+			if cfg != nil {
+				keyMaterial = strings.TrimSpace(cfg.JWT.Secret)
+			}
+		}
+		if keyMaterial == "" {
+			keyMaterial = "a05-security-log-default-key-change-me"
+		}
+		sum := sha256.Sum256([]byte(keyMaterial))
+		securityLogKey = sum[:]
+	})
+	return securityLogKey
 }
 
 func splitHostPort(raw string) (string, string) {

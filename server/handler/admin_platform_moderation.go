@@ -112,6 +112,9 @@ func AdminPlatformDeleteModerationPost(c *gin.Context) {
 		"admin_platform":    adminUsername,
 		"dispose_operation": true,
 	})
+	service.RecordAuditLog(c, "admin_platform", adminUsername, "delete_post", "success", "post", postID, map[string]interface{}{
+		"deleted_comments": deletedComments,
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":           "post deleted",
@@ -205,6 +208,9 @@ func AdminPlatformDeleteModerationComment(c *gin.Context) {
 		"admin_platform":    adminUsername,
 		"dispose_operation": true,
 	})
+	service.RecordAuditLog(c, "admin_platform", adminUsername, "delete_comment", "success", "comment", commentID, map[string]interface{}{
+		"post_id": postID,
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":           "comment deleted",
@@ -297,6 +303,12 @@ func AdminPlatformDeleteModerationUser(c *gin.Context) {
 		"deleted_likes":     result.DeletedLikes,
 		"admin_platform":    adminUsername,
 		"dispose_operation": true,
+	})
+	service.RecordAuditLog(c, "admin_platform", adminUsername, "delete_user", "success", "user", result.UserID, map[string]interface{}{
+		"target_username":  result.Username,
+		"deleted_posts":    result.DeletedPosts,
+		"deleted_comments": result.DeletedComments,
+		"deleted_likes":    result.DeletedLikes,
 	})
 
 	c.JSON(http.StatusOK, gin.H{
@@ -426,6 +438,11 @@ func AdminPlatformDisposeSecurityReport(c *gin.Context) {
 		"admin_platform": adminUsername,
 		"detail":         disposeDetail,
 	})
+	service.RecordAuditLog(c, "admin_platform", adminUsername, "dispose_report_target", "success", report.TargetType, report.TargetID, map[string]interface{}{
+		"report_id": report.ID,
+		"action":    action,
+		"detail":    disposeDetail,
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": resultMessage,
@@ -460,12 +477,22 @@ func AdminPlatformRunSecurityPatrol(c *gin.Context) {
 		service.RecordSecurityAudit(c, 0, "security_patrol_run_admin_platform", "failed", http.StatusInternalServerError, map[string]interface{}{
 			"admin_platform": adminUsername,
 		})
+		service.RecordAuditLog(c, "admin_platform", adminUsername, "run_patrol", "failed", "system", 0, map[string]interface{}{
+			"reason": "run_patrol_failed",
+		})
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to run patrol"})
 		return
 	}
 
 	service.RecordSecurityAudit(c, 0, "security_patrol_run_admin_platform", "success", http.StatusOK, map[string]interface{}{
 		"admin_platform":   adminUsername,
+		"scanned_posts":    result.ScannedPosts,
+		"scanned_comments": result.ScannedComments,
+		"hit_posts":        result.HitPosts,
+		"hit_comments":     result.HitComments,
+		"created_reports":  result.CreatedReports,
+	})
+	service.RecordAuditLog(c, "admin_platform", adminUsername, "run_patrol", "success", "system", 0, map[string]interface{}{
 		"scanned_posts":    result.ScannedPosts,
 		"scanned_comments": result.ScannedComments,
 		"hit_posts":        result.HitPosts,
@@ -486,7 +513,7 @@ func AdminPlatformListSecurityAuditLogs(c *gin.Context) {
 	page, pageSize := parseAdminPlatformPagination(c)
 
 	db := repository.GetDB()
-	query := db.Model(&model.SecurityAuditLog{})
+	query := db.Model(&model.AuditLog{})
 	if action != "" {
 		query = query.Where("action = ?", action)
 	}
@@ -495,7 +522,7 @@ func AdminPlatformListSecurityAuditLogs(c *gin.Context) {
 	}
 	if keyword != "" {
 		like := "%" + keyword + "%"
-		query = query.Where("path LIKE ? OR detail_json LIKE ? OR source_ip LIKE ? OR client_fingerprint LIKE ?", like, like, like, like)
+		query = query.Where("path LIKE ? OR detail_json LIKE ? OR actor_name LIKE ? OR target_type LIKE ?", like, like, like, like)
 	}
 
 	var total int64
@@ -504,7 +531,7 @@ func AdminPlatformListSecurityAuditLogs(c *gin.Context) {
 		return
 	}
 
-	var logs []model.SecurityAuditLog
+	var logs []model.AuditLog
 	offset := (page - 1) * pageSize
 	if err := query.Order("created_at DESC").Limit(pageSize).Offset(offset).Find(&logs).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query audit logs"})
@@ -514,18 +541,18 @@ func AdminPlatformListSecurityAuditLogs(c *gin.Context) {
 	items := make([]gin.H, 0, len(logs))
 	for _, logItem := range logs {
 		items = append(items, gin.H{
-			"id":                 logItem.ID,
-			"user_id":            logItem.UserID,
-			"action":             logItem.Action,
-			"outcome":            logItem.Outcome,
-			"method":             logItem.Method,
-			"path":               logItem.Path,
-			"status_code":        logItem.StatusCode,
-			"source_ip":          logItem.SourceIP,
-			"target_host":        logItem.TargetHost,
-			"client_fingerprint": logItem.ClientFingerprint,
-			"detail":             parseAuditLogDetail(logItem.DetailJSON),
-			"created_at":         logItem.CreatedAt,
+			"id":          logItem.ID,
+			"actor_type":  logItem.ActorType,
+			"actor_name":  logItem.ActorName,
+			"action":      logItem.Action,
+			"outcome":     logItem.Outcome,
+			"method":      logItem.Method,
+			"path":        logItem.Path,
+			"target_type": logItem.TargetType,
+			"target_id":   logItem.TargetID,
+			"source_ip":   service.RevealSecurityLogField(logItem.SourceIP),
+			"detail":      parseAuditLogDetail(logItem.DetailJSON),
+			"created_at":  logItem.CreatedAt,
 		})
 	}
 

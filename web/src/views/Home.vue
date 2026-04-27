@@ -178,6 +178,13 @@
         </div>
       </div>
     </div>
+
+    <section class="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
+      <p class="text-sm text-amber-900 font-semibold">网络安全公示</p>
+      <p class="text-sm text-amber-800 mt-1">
+        安全管理负责人：刘宇恒；投诉邮箱：1140893485@qq.com；投诉电话：17707284972
+      </p>
+    </section>
   </div>
 </template>
 

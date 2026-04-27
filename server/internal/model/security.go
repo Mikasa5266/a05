@@ -35,11 +35,31 @@ type SecurityAuditLog struct {
 	Method            string    `gorm:"size:10" json:"method"`
 	Path              string    `gorm:"size:255" json:"path"`
 	StatusCode        int       `json:"status_code"`
-	SourceIP          string    `gorm:"size:64" json:"source_ip"`
-	SourcePort        string    `gorm:"size:16" json:"source_port"`
+	SourceIP          string    `gorm:"size:255" json:"source_ip"`
+	SourcePort        string    `gorm:"size:255" json:"source_port"`
 	TargetHost        string    `gorm:"size:255" json:"target_host"`
-	TargetPort        string    `gorm:"size:16" json:"target_port"`
+	TargetPort        string    `gorm:"size:255" json:"target_port"`
 	ClientFingerprint string    `gorm:"size:255" json:"client_fingerprint"`
 	DetailJSON        string    `gorm:"type:longtext" json:"detail"`
 	CreatedAt         time.Time `gorm:"index" json:"created_at"`
+}
+
+// AuditLog records moderation and disposal operations as closed-loop evidence.
+type AuditLog struct {
+	ID         uint      `gorm:"primaryKey" json:"id"`
+	ActorType  string    `gorm:"size:30;index" json:"actor_type"`
+	ActorName  string    `gorm:"size:100;index" json:"actor_name"`
+	Action     string    `gorm:"size:100;index" json:"action"`
+	Outcome    string    `gorm:"size:20;index" json:"outcome"`
+	Method     string    `gorm:"size:10" json:"method"`
+	Path       string    `gorm:"size:255" json:"path"`
+	TargetType string    `gorm:"size:30;index" json:"target_type"`
+	TargetID   uint      `gorm:"index" json:"target_id"`
+	SourceIP   string    `gorm:"size:255" json:"source_ip"`
+	DetailJSON string    `gorm:"type:longtext" json:"detail"`
+	CreatedAt  time.Time `gorm:"index" json:"created_at"`
+}
+
+func (AuditLog) TableName() string {
+	return "audit_logs"
 }
