@@ -1,9 +1,9 @@
 <div align="center">
-  <img src="./docs/assets/logo-placeholder.png" width="120" alt="AI Interview Pro Logo" />
+  <img src="./docs/assets/logo.png" width="128" alt="智聘 AI / AI Interview Pro" />
 
   # AI Interview Pro
 
-  ### 🤖 面向真实求职场景的 AI 面试与能力提升平台
+  ### 面向真实求职场景的 AI 面试与能力提升平台
 
   <p>
     <a href="./README.zh-CN.md">旧版中文说明</a> ·
@@ -200,6 +200,7 @@ docker compose logs -f frontend
 
 ```text
 .
+├─ docs/assets/           # 品牌 Logo（PNG / SVG）
 ├─ server/                # Go 后端服务
 ├─ web/                   # Vue + Electron 前端
 ├─ knowledge_base/        # 知识库与提示词

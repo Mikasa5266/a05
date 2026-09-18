@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="智聘 AI / AI Interview Pro">
+  <defs>
+    <linearGradient id="bg" x1="160" y1="0" x2="880" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4338CA"/>
+      <stop offset="42%" stop-color="#4F46E5"/>
+      <stop offset="100%" stop-color="#0F766E"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="28%" cy="22%" r="55%">
+      <stop offset="0%" stop-color="#A5B4FC" stop-opacity=".5"/>
+      <stop offset="100%" stop-color="#A5B4FC" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowB" cx="78%" cy="82%" r="50%">
+      <stop offset="0%" stop-color="#2DD4BF" stop-opacity=".4"/>
+      <stop offset="100%" stop-color="#2DD4BF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-25%" y="-10%" width="150%" height="150%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="16"/>
+      <feOffset dy="16" result="off"/>
+      <feColorMatrix in="off" values="0 0 0 0 0.06  0 0 0 0 0.09  0 0 0 0 0.16  0 0 0 0.28 0"/>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <rect width="1024" height="1024" rx="228" fill="url(#glowA)"/>
+  <rect width="1024" height="1024" rx="228" fill="url(#glowB)"/>
+  <rect x="28" y="28" width="968" height="968" rx="206" fill="none" stroke="#fff" stroke-opacity=".18" stroke-width="6"/>
+
+  <g filter="url(#shadow)">
+    <path fill="#F8FAFF" d="
+      M 205 236
+      h 614
+      a 112 112 0 0 1 112 112
+      v 164
+      a 112 112 0 0 1 -112 112
+      H 430
+      L 268 738
+      L 310 624
+      H 205
+      a 112 112 0 0 1 -112 -112
+      v -164
+      a 112 112 0 0 1 112 -112
+      z"/>
+  </g>
+
+  <rect x="400" y="392" width="56" height="112" rx="28" fill="#4F46E5"/>
+  <rect x="484" y="326" width="56" height="178" rx="28" fill="#14B8A6"/>
+  <rect x="568" y="364" width="56" height="140" rx="28" fill="#4338CA"/>
+
+  <circle cx="758" cy="308" r="94" fill="#fff"/>
+  <circle cx="758" cy="308" r="72" fill="#0D9488"/>
+  <path fill="#fff" d="M758 248 L772 292 L816 308 L772 324 L758 368 L744 324 L700 308 L744 292 Z"/>
+  <circle cx="758" cy="308" r="11" fill="#0891B2"/>
+</svg>
